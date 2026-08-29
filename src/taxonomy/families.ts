@@ -168,7 +168,7 @@ const GLOBAL_EXCLUSIONS: [RegExp, string][] = [
   [/\b(designer|creative director|illustrator|\bux\b)\b/i, 'design'],
   [/\b(developer relations|developer advocate|evangelist|technical writer)\b/i, 'devrel/docs'],
   [/\b(solutions?|sales|customer success|customer reliability|implementation)\s+(engineer|architect|consultant|manager)\b/i, 'customer-facing'],
-  [/\b(sales development|business development|\bsdr\b|\bbdr\b|representative)\b/i, 'sales dev'],
+  [/\bsales\b|\bbusiness development\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
   [/\b(financial analyst|finance manager|treasury|investor relations)\b/i, 'finance'],
   [/\b(executive assistant|office administrator|receptionist|facilities)\b/i, 'admin'],
 ];
@@ -248,10 +248,15 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
 
   const ai = AI_TITLE.test(title) || AI_BODY_STRONG.test(body);
 
+  // "Platform Engineering" and "Platform Engineer" are the same role, but every
+  // title pattern below is written in the singular. Normalising here is one
+  // change instead of doubling every alternative in four large regexes.
+  const titleForMatch = title.replace(/\bengineering\b/gi, 'engineer');
+
   // Pass 1 — a matching title is the strongest signal available.
   for (const spec of SPECS) {
-    if (!spec.titles.test(title)) continue;
-    if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(title)) continue;
+    if (!spec.titles.test(titleForMatch)) continue;
+    if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(titleForMatch)) continue;
     const { score, names } = matchSkills(spec.skills, haystack);
     return { family: spec.id, score, matchedSkills: names, titleMatched: true, ai };
   }
