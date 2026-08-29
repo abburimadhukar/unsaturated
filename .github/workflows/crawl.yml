@@ -1,0 +1,50 @@
+# Hourly crawl + deploy.
+#
+# The crawl cannot run inside the website: Netlify functions cap at 30s and a
+# full crawl takes ~30s and climbing. So it runs here instead, where the job
+# limit is 6 hours, and the result is baked into the deploy.
+#
+# Once Supabase is wired this workflow stops deploying and simply writes to the
+# database — the site will then read fresh data without a rebuild.
+name: crawl
+
+on:
+  schedule:
+    # 17 past the hour: GitHub delays scheduled jobs at the top of the hour when
+    # load is high, and can drop them entirely.
+    - cron: '17 * * * *'
+  workflow_dispatch: {}
+
+# A slow crawl must never overlap with the next one.
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          # Caching npm keeps each run near a minute, which matters against the
+          # 2,000 minute/month budget on a private repo.
+          cache: npm
+
+      - run: npm ci
+
+      - name: Crawl all boards and bake the snapshot
+        env:
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+          CRAWLER_CONCURRENCY: '8'
+          CRAWLER_DELAY_MS: '120'
+        run: npm run snapshot
+
+      - name: Deploy to Netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: npx --yes netlify-cli@latest deploy --build --prod
