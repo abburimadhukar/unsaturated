@@ -372,7 +372,7 @@
   {
     "provider": "ashby",
     "token": "notion",
-    "company": "Notion"
+    "company": "Notion Labs"
   },
   {
     "provider": "greenhouse",
@@ -412,7 +412,7 @@
   {
     "provider": "greenhouse",
     "token": "contentful",
-    "company": "Contentful"
+    "company": "Contentful GmbH"
   },
   {
     "provider": "greenhouse",
@@ -432,7 +432,7 @@
   {
     "provider": "smartrecruiters",
     "token": "canva",
-    "company": "Canva"
+    "company": "Canva Australia"
   },
   {
     "provider": "greenhouse",
@@ -562,7 +562,7 @@
   {
     "provider": "greenhouse",
     "token": "carbon",
-    "company": "Carbon Health"
+    "company": "Carbon"
   },
   {
     "provider": "greenhouse",
@@ -932,7 +932,7 @@
   {
     "provider": "lever",
     "token": "spotify",
-    "company": "Spotify"
+    "company": "Spotify Technology"
   },
   {
     "provider": "greenhouse",
@@ -1052,7 +1052,7 @@
   {
     "provider": "personio",
     "token": "aurora",
-    "company": "Aurora"
+    "company": "Aurora Health Care"
   },
   {
     "provider": "lever",
@@ -1362,7 +1362,7 @@
   {
     "provider": "breezy",
     "token": "baker",
-    "company": "Baker Hughes"
+    "company": "Baker Tilly"
   },
   {
     "provider": "breezy",
@@ -1477,12 +1477,12 @@
   {
     "provider": "greenhouse",
     "token": "ohio",
-    "company": "Ohio State University"
+    "company": "Ohio State University Wexner"
   },
   {
     "provider": "lever",
     "token": "fi",
-    "company": "Fidelity Investments"
+    "company": "Fair Isaac"
   },
   {
     "provider": "workday",
@@ -1497,7 +1497,7 @@
   {
     "provider": "breezy",
     "token": "af",
-    "company": "Ally Financial"
+    "company": "Axos Financial"
   },
   {
     "provider": "greenhouse",
@@ -1557,7 +1557,7 @@
   {
     "provider": "greenhouse",
     "token": "spectrum",
-    "company": "Charter Communications"
+    "company": "Spectrum Health"
   },
   {
     "provider": "greenhouse",
@@ -1722,7 +1722,7 @@
   {
     "provider": "greenhouse",
     "token": "prisma",
-    "company": "Prisma"
+    "company": "Prisma Health"
   },
   {
     "provider": "breezy",
@@ -1732,7 +1732,7 @@
   {
     "provider": "greenhouse",
     "token": "ag",
-    "company": "Apollo GraphQL"
+    "company": "Analysis Group"
   },
   {
     "provider": "ashby",
@@ -1752,7 +1752,7 @@
   {
     "provider": "ashby",
     "token": "camunda",
-    "company": "Camunda"
+    "company": "Camunda Services"
   },
   {
     "provider": "greenhouse",
@@ -2067,7 +2067,7 @@
   {
     "provider": "greenhouse",
     "token": "adyen",
-    "company": "Adyen"
+    "company": "Adyen NV"
   },
   {
     "provider": "ashby",
@@ -2087,7 +2087,7 @@
   {
     "provider": "ashby",
     "token": "airwallex",
-    "company": "Airwallex"
+    "company": "Airwallex Australia"
   },
   {
     "provider": "greenhouse",
@@ -2162,7 +2162,7 @@
   {
     "provider": "personio",
     "token": "center",
-    "company": "Center"
+    "company": "University Medical Center"
   },
   {
     "provider": "greenhouse",
@@ -2507,7 +2507,7 @@
   {
     "provider": "greenhouse",
     "token": "commercetools",
-    "company": "Commercetools"
+    "company": "Commercetools GmbH"
   },
   {
     "provider": "greenhouse",
@@ -2567,7 +2567,7 @@
   {
     "provider": "greenhouse",
     "token": "getyourguide",
-    "company": "GetYourGuide"
+    "company": "GetYourGuide GmbH"
   },
   {
     "provider": "ashby",
@@ -2857,7 +2857,7 @@
   {
     "provider": "smartrecruiters",
     "token": "endava",
-    "company": "Endava"
+    "company": "Endava Romania"
   },
   {
     "provider": "greenhouse",
@@ -2883,5 +2883,530 @@
     "provider": "greenhouse",
     "token": "ensono",
     "company": "Ensono"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "dropbox",
+    "company": "Dropbox"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "dialpad",
+    "company": "Dialpad"
+  },
+  {
+    "provider": "lever",
+    "token": "aircall",
+    "company": "Aircall"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "five9",
+    "company": "Five9"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "nice",
+    "company": "NICE"
+  },
+  {
+    "provider": "workable",
+    "token": "calabrio",
+    "company": "Calabrio"
+  },
+  {
+    "provider": "lever",
+    "token": "sugarcrm",
+    "company": "SugarCRM"
+  },
+  {
+    "provider": "lever",
+    "token": "pipedrive",
+    "company": "Pipedrive"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "freshworks",
+    "company": "Freshworks"
+  },
+  {
+    "provider": "ashby",
+    "token": "close",
+    "company": "Close"
+  },
+  {
+    "provider": "lever",
+    "token": "activecampaign",
+    "company": "ActiveCampaign"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "constantcontact",
+    "company": "Constant Contact"
+  },
+  {
+    "provider": "lever",
+    "token": "omnisend",
+    "company": "Omnisend UAB"
+  },
+  {
+    "provider": "lever",
+    "token": "brevo",
+    "company": "Brevo"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "ghost",
+    "company": "Ghost"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "hootsuite",
+    "company": "Hootsuite"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "later",
+    "company": "Later"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "sproutsocial",
+    "company": "Sprout Social"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "emplifi",
+    "company": "Emplifi"
+  },
+  {
+    "provider": "ashby",
+    "token": "buffer",
+    "company": "Buffer"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "similarweb",
+    "company": "Similarweb"
+  },
+  {
+    "provider": "ashby",
+    "token": "conductor",
+    "company": "Conductor"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "yext",
+    "company": "Yext"
+  },
+  {
+    "provider": "lever",
+    "token": "brightedge",
+    "company": "BrightEdge"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "trustpilot",
+    "company": "Trustpilot"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "qualtrics",
+    "company": "Qualtrics"
+  },
+  {
+    "provider": "lever",
+    "token": "bazaarvoice",
+    "company": "Bazaarvoice"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "alchemer",
+    "company": "Alchemer"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "typeform",
+    "company": "Typeform"
+  },
+  {
+    "provider": "ashby",
+    "token": "surveymonkey",
+    "company": "SurveyMonkey"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "lucidsoftware",
+    "company": "Lucid Software"
+  },
+  {
+    "provider": "ashby",
+    "token": "mural",
+    "company": "Mural"
+  },
+  {
+    "provider": "ashby",
+    "token": "gamma",
+    "company": "Gamma"
+  },
+  {
+    "provider": "lever",
+    "token": "gettyimages",
+    "company": "Getty Images"
+  },
+  {
+    "provider": "ashby",
+    "token": "shapr3d",
+    "company": "Shapr3D"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "markforged",
+    "company": "Markforged"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "formlabs",
+    "company": "Formlabs"
+  },
+  {
+    "provider": "lever",
+    "token": "velo3d",
+    "company": "Velo3D"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "xometry",
+    "company": "Xometry"
+  },
+  {
+    "provider": "personio",
+    "token": "bentley",
+    "company": "Bentley Systems"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "fictiv",
+    "company": "Fictiv"
+  },
+  {
+    "provider": "lever",
+    "token": "protolabs",
+    "company": "Protolabs"
+  },
+  {
+    "provider": "ashby",
+    "token": "glacier",
+    "company": "Glacier Bancorp"
+  },
+  {
+    "provider": "personio",
+    "token": "prosperity",
+    "company": "Prosperity Bancshares"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "lpl",
+    "company": "LPL Financial"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "stifel",
+    "company": "Stifel"
+  },
+  {
+    "provider": "personio",
+    "token": "tpg",
+    "company": "TPG"
+  },
+  {
+    "provider": "lever",
+    "token": "blue",
+    "company": "Blue Owl"
+  },
+  {
+    "provider": "personio",
+    "token": "ares",
+    "company": "Ares Management"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "experian",
+    "company": "Experian"
+  },
+  {
+    "provider": "ashby",
+    "token": "oh",
+    "company": "University of Houston"
+  },
+  {
+    "provider": "lever",
+    "token": "ucsf",
+    "company": "UCSF Health"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "healthpartners",
+    "company": "HealthPartners"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "pm",
+    "company": "Plante Moran"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "wellstar",
+    "company": "Wellstar Health System"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "community",
+    "company": "Community Health Network"
+  },
+  {
+    "provider": "personio",
+    "token": "ssm",
+    "company": "SSM Health"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "virginia",
+    "company": "Virginia Mason"
+  },
+  {
+    "provider": "personio",
+    "token": "legacy",
+    "company": "Legacy Health"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "princetonuniversity",
+    "company": "Princeton University"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "presbyterianhealthcareservices",
+    "company": "Presbyterian Healthcare Services"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "universityofnotredame",
+    "company": "University of Notre Dame"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "stevens",
+    "company": "Stevens Institute of Technology"
+  },
+  {
+    "provider": "personio",
+    "token": "pace",
+    "company": "Pace University"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "oklahoma",
+    "company": "Oklahoma State University"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "universityofsouthflorida",
+    "company": "University of South Florida"
+  },
+  {
+    "provider": "personio",
+    "token": "randstad",
+    "company": "Randstad"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "spencer",
+    "company": "Spencer Stuart"
+  },
+  {
+    "provider": "personio",
+    "token": "odgers",
+    "company": "Odgers Berndtson"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "ma",
+    "company": "Moss Adams"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "alixpartners",
+    "company": "AlixPartners"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "charlesriverassociates",
+    "company": "Charles River Associates"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "bcg",
+    "company": "Boston Consulting Group"
+  },
+  {
+    "provider": "personio",
+    "token": "grant-thornton",
+    "company": "Grant Thornton"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "oliver",
+    "company": "Oliver Wyman"
+  },
+  {
+    "provider": "ashby",
+    "token": "arthur",
+    "company": "Arthur D Little"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "capco",
+    "company": "Capco"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "iris",
+    "company": "Iris Software"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "synechron",
+    "company": "Synechron"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "rolandberger",
+    "company": "Roland Berger"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "truecaller",
+    "company": "Truecaller"
+  },
+  {
+    "provider": "ashby",
+    "token": "trustly",
+    "company": "Trustly"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "hellofresh",
+    "company": "HelloFresh"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "traderepublic",
+    "company": "Trade Republic"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "raisin",
+    "company": "Raisin"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "celonis",
+    "company": "Celonis"
+  },
+  {
+    "provider": "ashby",
+    "token": "bynder",
+    "company": "Bynder"
+  },
+  {
+    "provider": "lever",
+    "token": "mendix",
+    "company": "Mendix"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "bird",
+    "company": "Bird"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "wolt",
+    "company": "Wolt"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "picnic",
+    "company": "Picnic"
+  },
+  {
+    "provider": "personio",
+    "token": "scalablecapital",
+    "company": "Scalable Capital"
+  },
+  {
+    "provider": "ashby",
+    "token": "hostinger",
+    "company": "Hostinger"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "deliveryhero",
+    "company": "Delivery Hero"
+  },
+  {
+    "provider": "ashby",
+    "token": "uipath",
+    "company": "UiPath"
+  },
+  {
+    "provider": "ashby",
+    "token": "nord-security",
+    "company": "Nord Security"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "emag",
+    "company": "Emag"
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "grab",
+    "company": "Grab"
+  },
+  {
+    "provider": "lever",
+    "token": "ninjavan",
+    "company": "Ninja Van"
+  },
+  {
+    "provider": "lever",
+    "token": "nium",
+    "company": "Nium"
+  },
+  {
+    "provider": "lever",
+    "token": "deputy",
+    "company": "Deputy"
+  },
+  {
+    "provider": "ashby",
+    "token": "xero",
+    "company": "Xero"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "pushpay",
+    "company": "Pushpay"
+  },
+  {
+    "provider": "greenhouse",
+    "token": "rocketlab",
+    "company": "Rocket Lab"
+  },
+  {
+    "provider": "ashby",
+    "token": "halter",
+    "company": "Halter"
   }
 ]

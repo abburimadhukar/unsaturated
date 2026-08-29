@@ -17,10 +17,12 @@
     "resolve": "tsx src/cli/resolve.ts",
     "db:init": "tsx src/cli/db-init.ts",
     "dev:legacy": "tsx src/web/server.ts",
-    "snapshot": "tsx src/cli/snapshot.ts"
+    "snapshot": "tsx src/cli/snapshot.ts",
+    "crawl:db": "tsx src/cli/crawl-db.ts"
   },
   "dependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",
+    "@supabase/supabase-js": "^2.112.4",
     "dotenv": "^16.4.5",
     "fast-xml-parser": "^4.5.0",
     "next": "^15.1.3",

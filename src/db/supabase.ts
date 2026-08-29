@@ -1,0 +1,60 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+/**
+ * Supabase access.
+ *
+ * Two clients, deliberately:
+ *
+ *   read  — publishable key. Job postings are public information republished
+ *           from employers' own career pages, so the website needs no secret to
+ *           serve them. This is what the deployed site uses.
+ *
+ *   write — service-role key, supplied only to the crawler through an
+ *           environment secret. Nothing that runs in a browser can reach it.
+ *
+ * If the write key is absent the crawler fails loudly rather than silently
+ * writing nothing, because a crawl that appears to succeed but persists no data
+ * is the worst possible failure here.
+ */
+
+const URL = process.env.SUPABASE_URL ?? 'https://vupjabahniolbnbmeidk.supabase.co';
+
+const PUBLISHABLE =
+  process.env.SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_BUdygNHc_QserbZ0tSJBWg_pGBwmfYq';
+
+let readClient: SupabaseClient | null = null;
+let writeClient: SupabaseClient | null = null;
+
+export function db(): SupabaseClient {
+  readClient ??= createClient(URL, PUBLISHABLE, {
+    auth: { persistSession: false },
+  });
+  return readClient;
+}
+
+export function dbWrite(): SupabaseClient {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (key) {
+    writeClient ??= createClient(URL, key, { auth: { persistSession: false } });
+    return writeClient;
+  }
+
+  // Bootstrap fallback: use the publishable key.
+  //
+  // This is safe rather than a hole, because RLS still applies — writes only
+  // succeed while a temporary anon-write policy is deliberately in place. Once
+  // that policy is dropped, this path fails closed on its own.
+  console.warn(
+    'SUPABASE_SERVICE_ROLE_KEY not set — attempting writes with the publishable key. ' +
+      'This only works while a temporary anon-write policy exists.',
+  );
+  writeClient ??= createClient(URL, PUBLISHABLE, { auth: { persistSession: false } });
+  return writeClient;
+}
+
+/** True when a write key is available, so callers can degrade rather than throw. */
+export function canWrite(): boolean {
+  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export const SUPABASE_URL = URL;

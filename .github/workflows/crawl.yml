@@ -47,15 +47,26 @@ jobs:
 
       - run: npm ci
 
-      - name: Crawl all boards and bake the snapshot
+      # Preferred path: crawl straight into Supabase. No redeploy, so a run is
+      # ~70s instead of ~4min and the site is current the moment it finishes.
+      - name: Crawl into Supabase
+        if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
         env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
-        run: npm run snapshot
+        run: npm run crawl:db
 
-      - name: Deploy to Netlify
+      # Fallback while the service-role key is missing: bake a snapshot and
+      # redeploy. Slower and costlier in Actions minutes, but it keeps the site
+      # fresh rather than letting it freeze.
+      - name: Crawl and redeploy (no Supabase key)
+        if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY == '' }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+          CRAWLER_CONCURRENCY: '8'
+          CRAWLER_DELAY_MS: '120'
         run: npx --yes netlify-cli@latest deploy --build --prod

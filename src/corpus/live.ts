@@ -249,16 +249,30 @@ export async function getFeed(): Promise<Feed> {
   const c = cache();
   if (c.cached) return c.cached;
 
-  // Production reads the build-time snapshot. Crawling 289 boards takes ~30s,
-  // which exceeds every free-tier serverless timeout, so the deployed site must
-  // never crawl on request — it serves what the build baked in.
+  // Source order: database, then the build snapshot, then a live crawl.
+  //
+  // The database is authoritative once the crawler is filling it, and reading it
+  // means the site is current without a redeploy. readFeed() returns null when
+  // the corpus is stale or unreachable, which hands over to the snapshot rather
+  // than serving jobs nobody is refreshing.
+  try {
+    const { readFeed } = await import('./db-feed.js');
+    const fromDb = await readFeed();
+    if (fromDb && fromDb.jobs.length > 0) {
+      c.cached = fromDb;
+      return fromDb;
+    }
+  } catch (err) {
+    console.error('db feed unavailable, falling back to snapshot:', err);
+  }
+
   const snap = await loadSnapshot();
   if (snap) {
     c.cached = { ...snap, source: 'snapshot' };
     return c.cached;
   }
 
-  // Local development with no snapshot: crawl live.
+  // Local development with neither database nor snapshot: crawl live.
   return refreshFeed();
 }
 

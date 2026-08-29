@@ -16,8 +16,8 @@ const SORTS: SortKey[] = ['newest', 'salary', 'fit'];
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
   const feed = await getFeed();
-  const profile = getProfile();
-  const state = getState();
+  const profile = await getProfile();
+  const state = await getState();
 
   const num = (key: string) => {
     const raw = p.get(key);

@@ -15,6 +15,7 @@ import { existsSync } from 'node:fs';
 import { SEED_COMPANIES } from '../discovery/companies.js';
 import { ENTERPRISE_COMPANIES } from '../discovery/enterprises.js';
 import { SCALE_COMPANIES } from '../discovery/scale.js';
+import { SCALE2_COMPANIES } from '../discovery/scale2.js';
 import { discoverAll } from '../discovery/probe.js';
 
 interface StoredBoard {
@@ -41,10 +42,12 @@ async function main(): Promise<void> {
   if (file) {
     const text = await readFile(file, 'utf8');
     companies = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  } else if (flag('scale2')) {
+    companies = SCALE2_COMPANIES;
   } else if (flag('scale')) {
     companies = SCALE_COMPANIES;
   } else if (flag('all')) {
-    companies = [...SEED_COMPANIES, ...ENTERPRISE_COMPANIES, ...SCALE_COMPANIES];
+    companies = [...SEED_COMPANIES, ...ENTERPRISE_COMPANIES, ...SCALE_COMPANIES, ...SCALE2_COMPANIES];
   } else if (flag('enterprise')) {
     companies = ENTERPRISE_COMPANIES;
   } else {

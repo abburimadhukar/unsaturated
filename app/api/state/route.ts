@@ -4,7 +4,7 @@ import { getState, markApplied, markSeen } from '../../../src/state/store.js';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  return NextResponse.json(getState());
+  return NextResponse.json(await getState());
 }
 
 export async function POST(request: Request) {
@@ -12,8 +12,8 @@ export async function POST(request: Request) {
   const key = body.key;
   if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 });
 
-  if (body.action === 'applied') markApplied(key);
-  else markSeen(key);
+  if (body.action === 'applied') await markApplied(key);
+  else await markSeen(key);
 
-  return NextResponse.json({ ok: true, ...getState() });
+  return NextResponse.json({ ok: true, ...(await getState()) });
 }
