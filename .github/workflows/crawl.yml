@@ -10,9 +10,20 @@ name: crawl
 
 on:
   schedule:
-    # 17 past the hour: GitHub delays scheduled jobs at the top of the hour when
-    # load is high, and can drop them entirely.
-    - cron: '17 * * * *'
+    # Every 2 hours, at 17 past.
+    #
+    # Not hourly, because of the minutes budget: a run costs ~4.1 min, of which
+    # 174s is the Netlify deploy. Hourly would be ~2,950 min/month against the
+    # 2,000 free minutes a private repo gets - the workflow would simply stop
+    # partway through each month. Every 2 hours is ~1,480 min, which fits.
+    #
+    # This goes back to hourly once the crawler writes to Supabase instead of
+    # redeploying: without the deploy step a run is ~70s, and even hourly is
+    # only ~840 min.
+    #
+    # 17 past because GitHub delays scheduled jobs queued on the hour, and drops
+    # them outright under load.
+    - cron: '17 */2 * * *'
   workflow_dispatch: {}
 
 # A slow crawl must never overlap with the next one.
