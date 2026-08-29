@@ -1,0 +1,22 @@
+# Netlify build config.
+#
+# The crawl runs at BUILD time, not request time: 289 boards take ~30s and
+# Netlify functions cap at 30s. `npm run build` crawls, bakes the result into
+# data/feed-snapshot.json, then builds the site — so every page load is a fast
+# read of baked data rather than a live crawl.
+#
+# Refreshing production data means triggering a rebuild (a scheduled GitHub
+# Action hitting a Netlify build hook).
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  # Keep the build-time crawl polite and inside Netlify's build window.
+  CRAWLER_CONCURRENCY = "8"
+  CRAWLER_DELAY_MS = "120"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

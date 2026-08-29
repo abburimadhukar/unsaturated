@@ -1,0 +1,39 @@
+{
+  "name": "unsaturated",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "tsx src/cli/snapshot.ts && next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "discover": "tsx src/cli/discover.ts",
+    "probe": "tsx src/cli/probe.ts",
+    "crawl": "tsx src/cli/crawl.ts",
+    "resolve": "tsx src/cli/resolve.ts",
+    "db:init": "tsx src/cli/db-init.ts",
+    "dev:legacy": "tsx src/web/server.ts",
+    "snapshot": "tsx src/cli/snapshot.ts"
+  },
+  "dependencies": {
+    "@netlify/plugin-nextjs": "^5.15.13",
+    "dotenv": "^16.4.5",
+    "fast-xml-parser": "^4.5.0",
+    "next": "^15.1.3",
+    "pg": "^8.13.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,259 @@
+/*
+ * Dark-first design system.
+ *
+ * Not a theme toggle: the palette is authored for dark and committed to it. A
+ * job feed is read in long scanning sessions, so the surface stays near-black
+ * and colour is spent almost entirely on the saturation score — the one number
+ * the whole product exists to communicate.
+ */
+
+:root {
+  /* surfaces, lightest-on-darkest ladder */
+  --bg: #08080b;
+  --surface: #101014;
+  --surface-2: #16161c;
+  --raised: #1c1c23;
+  --line: #24242c;
+  --line-soft: #1a1a20;
+
+  /* type */
+  --text: #ececed;
+  --text-dim: #9a9aa6;
+  --text-faint: #63636e;
+
+  /* the saturation scale — the only place strong colour is used */
+  --hot: #4ade80;      /* uncontested, high score  */
+  --warm: #fbbf24;     /* middling                 */
+  --cool: #6b6b78;     /* crowded, low score       */
+  --danger: #f2705c;   /* ghost risk               */
+
+  --accent: #e08a63;
+  --accent-dim: #e08a6320;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+
+* { box-sizing: border-box; }
+
+html { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--accent-dim); }
+
+/* Numbers must never shift width as they change. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---------------- header ---------------- */
+
+header {
+  position: sticky; top: 0; z-index: 30;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border-bottom: 1px solid var(--line-soft);
+  padding: 0 22px; height: 56px;
+  display: flex; align-items: center; gap: 16px;
+}
+
+.brand {
+  font-size: 15px; font-weight: 620; letter-spacing: -0.025em;
+  margin: 0; display: flex; align-items: center; gap: 9px;
+}
+.brand .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--hot); box-shadow: 0 0 10px var(--hot);
+}
+
+.hstats { display: flex; gap: 16px; font-size: 12.5px; color: var(--text-faint); }
+.hstats b { color: var(--text-dim); font-weight: 600; }
+@media (max-width: 720px) { .hstats { display: none; } }
+
+.grow { flex: 1; }
+
+/* ---------------- controls ---------------- */
+
+button, select, input, textarea {
+  font: inherit; color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+button { cursor: pointer; transition: background .13s, border-color .13s, color .13s; }
+button:hover:not(:disabled) { background: var(--raised); border-color: #32323c; }
+button:disabled { opacity: .45; cursor: default; }
+button.primary {
+  background: var(--accent); border-color: var(--accent); color: #17110d; font-weight: 600;
+}
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+input::placeholder { color: var(--text-faint); }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim);
+}
+select { appearance: none; padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+                    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+}
+
+/* ---------------- layout ---------------- */
+
+main { max-width: 1240px; margin: 0 auto; padding: 22px; }
+.layout { display: grid; grid-template-columns: 232px 1fr; gap: 26px; align-items: start; }
+@media (max-width: 940px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static !important; }
+}
+
+.sidebar { position: sticky; top: 78px; display: flex; flex-direction: column; gap: 8px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.panel h3 {
+  margin: 0 0 11px; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--text-faint); font-weight: 650;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+.field:last-child { margin-bottom: 0; }
+.field > label { font-size: 12px; color: var(--text-faint); }
+.field select, .field input { width: 100%; }
+
+.check {
+  display: flex; align-items: center; gap: 8px; font-size: 13px;
+  color: var(--text-dim); margin-bottom: 8px; cursor: pointer; user-select: none;
+}
+.check:last-child { margin-bottom: 0; }
+.check input { width: auto; accent-color: var(--accent); }
+
+/* facet list */
+.facet { display: flex; flex-direction: column; gap: 1px; margin: 0 -5px; }
+.facet button {
+  display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  border: none; background: none; padding: 5px 7px; border-radius: 6px;
+  font-size: 13px; color: var(--text-dim); text-align: left; width: 100%;
+}
+.facet button:hover { background: var(--surface-2); }
+.facet button.on { background: var(--accent-dim); color: var(--accent); font-weight: 560; }
+.facet .n { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* ---------------- results bar ---------------- */
+
+.results {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 14px; font-size: 13px; color: var(--text-dim);
+}
+.results .count b { color: var(--text); font-weight: 640; }
+
+.sorts { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); padding: 2px; }
+.sorts button {
+  border: none; background: none; padding: 4px 11px; border-radius: 6px;
+  font-size: 12.5px; color: var(--text-faint);
+}
+.sorts button:hover { background: var(--surface-2); color: var(--text-dim); }
+.sorts button.on { background: var(--raised); color: var(--text); font-weight: 560; }
+
+/* ---------------- job card ---------------- */
+
+.job {
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 15px 17px; margin-bottom: 8px;
+  display: flex; gap: 17px;
+  transition: border-color .13s, background .13s;
+}
+.job:hover { border-color: var(--line); background: var(--surface-2); }
+.job.seen { opacity: .42; }
+
+/* score ring — the visual anchor of the whole page */
+.ring { flex: 0 0 auto; width: 52px; text-align: center; }
+.ring svg { display: block; transform: rotate(-90deg); }
+.ring .val {
+  font-size: 17px; font-weight: 680; letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.ring .cap {
+  font-size: 8.5px; color: var(--text-faint); text-transform: uppercase;
+  letter-spacing: .08em; margin-top: 5px;
+}
+.fitline { font-size: 11px; color: var(--text-faint); margin-top: 7px; font-variant-numeric: tabular-nums; }
+.fitline b { color: var(--text-dim); font-weight: 600; }
+
+.body { flex: 1; min-width: 0; }
+
+.title { font-size: 15px; font-weight: 610; letter-spacing: -0.012em; margin-bottom: 3px; }
+.title a { color: var(--text); text-decoration: none; }
+.title a:hover { color: var(--accent); }
+
+.meta { color: var(--text-dim); font-size: 13px; margin-bottom: 10px; }
+.meta .co { color: var(--text); font-weight: 550; }
+.meta .sep { color: var(--text-faint); margin: 0 6px; }
+
+.chips { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
+.chip {
+  background: var(--surface-2); border: 1px solid var(--line-soft);
+  border-radius: 999px; padding: 2px 9px; font-size: 11.5px;
+  color: var(--text-dim); white-space: nowrap;
+}
+.chip.fam { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
+.chip.skill { background: #4ade8014; border-color: transparent; color: var(--hot); }
+.chip.ghost { background: #f2705c18; border-color: transparent; color: var(--danger); }
+.chip.fresh { background: #4ade8014; border-color: transparent; color: var(--hot); font-weight: 560; }
+.chip.pay { color: var(--text); border-color: var(--line); }
+
+/* the five-axis breakdown */
+.bars { display: flex; gap: 4px; max-width: 400px; margin-bottom: 10px; }
+.bar { flex: 1; }
+.bar .track { height: 3px; background: var(--raised); border-radius: 2px; overflow: hidden; }
+.bar .fill { height: 100%; border-radius: 2px; background: var(--accent); }
+.bar .cap {
+  font-size: 8px; color: var(--text-faint); margin-top: 4px;
+  text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
+}
+
+.reasons { font-size: 12px; color: var(--text-faint); line-height: 1.5; margin-bottom: 10px; }
+
+.actions { display: flex; gap: 14px; align-items: center; font-size: 13px; }
+.actions a { color: var(--accent); text-decoration: none; font-weight: 550; }
+.actions a:hover { text-decoration: underline; }
+.actions button { padding: 3px 9px; font-size: 12px; }
+
+/* ---------------- misc ---------------- */
+
+a { color: var(--accent); }
+
+.empty {
+  color: var(--text-dim); text-align: center; padding: 70px 20px;
+  background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius);
+}
+.note {
+  font-size: 12px; color: var(--text-faint); line-height: 1.6;
+  border-left: 2px solid var(--line); padding-left: 11px; margin: 0 0 14px;
+}
+.note b { color: var(--text-dim); font-weight: 600; }
+
+.health { font-size: 11px; color: var(--text-faint); line-height: 1.75; }
+.health .err { color: var(--danger); }
+
+textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; line-height: 1.5; }
+
+.skeleton {
+  height: 96px; border-radius: var(--radius); margin-bottom: 8px;
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
+  background-size: 200% 100%; animation: shimmer 1.4s infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }

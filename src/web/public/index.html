@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Unsaturated</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --border: #e3e2dd; --text: #1a1a18;
+    --muted: #6b6a65; --accent: #b8562f; --good: #2f7d4f; --warn: #96701a;
+    --bad: #a33a2a; --chip: #f0efec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16161a; --panel: #1e1e23; --border: #32323a; --text: #ececef;
+      --muted: #9a9aa4; --accent: #e08a63; --chip: #2a2a31;
+      --good: #6cc08a; --warn: #d4a94a; --bad: #e0705c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--border); padding: 14px 20px;
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  h1 small { color: var(--muted); font-weight: 400; margin-left: 8px; font-size: 13px; }
+  .grow { flex: 1; }
+  button, select, input {
+    font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tabs { display: flex; gap: 6px; }
+  .tabs button.active { background: var(--chip); border-color: var(--muted); }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px; }
+  .filters {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 18px; padding: 12px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .filters label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .job {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 16px;
+  }
+  .score { flex: 0 0 62px; text-align: center; }
+  .score .n { font-size: 26px; font-weight: 650; line-height: 1.1; letter-spacing: -0.02em; }
+  .score .lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .s-hi { color: var(--good); } .s-mid { color: var(--warn); } .s-lo { color: var(--muted); }
+  .body { flex: 1; min-width: 0; }
+  .title { font-weight: 600; margin-bottom: 2px; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chip {
+    background: var(--chip); border-radius: 999px; padding: 2px 9px;
+    font-size: 12px; color: var(--muted);
+  }
+  .chip.ghost { background: #a33a2a22; color: var(--bad); }
+  .bars { display: flex; gap: 3px; margin-bottom: 8px; }
+  .bar { flex: 1; }
+  .bar .track { height: 4px; background: var(--chip); border-radius: 2px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); }
+  .bar .cap { font-size: 9px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .actions { display: flex; gap: 8px; align-items: center; }
+  a { color: var(--accent); }
+  .qbox {
+    background: #96701a18; border: 1px solid #96701a55; border-radius: 8px;
+    padding: 10px 12px; margin-top: 10px; font-size: 13px;
+  }
+  .qbox b { display: block; margin-bottom: 4px; }
+  .qbox li { margin-left: 16px; }
+  .empty { color: var(--muted); text-align: center; padding: 60px 20px; }
+  .health { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .health span { margin-right: 12px; }
+  .health .err { color: var(--bad); }
+  .note {
+    font-size: 12px; color: var(--muted); border-left: 2px solid var(--border);
+    padding-left: 10px; margin: 14px 0;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Unsaturated <small id="sub">loading live boards…</small></h1>
+  <div class="grow"></div>
+  <div class="tabs">
+    <button id="tab-feed" class="active" onclick="show('feed')">Feed</button>
+    <button id="tab-queue" onclick="show('queue')">Review queue (<span id="qn">0</span>)</button>
+  </div>
+  <button onclick="refresh()">Refresh</button>
+</header>
+
+<main>
+  <div id="feed">
+    <div class="filters">
+      <input id="q" placeholder="Search title, company, location" style="min-width:220px" oninput="load()" />
+      <label>Remote
+        <select id="remote" onchange="load()">
+          <option value="">any</option>
+          <option value="on_site">on-site</option>
+          <option value="hybrid">hybrid</option>
+          <option value="fully_remote">fully remote</option>
+        </select>
+      </label>
+      <label>Seniority
+        <select id="seniority" onchange="load()">
+          <option value="">any</option>
+          <option value="entry">entry</option>
+          <option value="senior">senior</option>
+          <option value="staff">staff</option>
+          <option value="principal">principal</option>
+          <option value="lead">lead</option>
+        </select>
+      </label>
+      <label>Min score
+        <select id="minScore" onchange="load()">
+          <option value="">any</option>
+          <option value="40">40+</option>
+          <option value="55">55+</option>
+          <option value="70">70+</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="hideGhosts" onchange="load()" checked /> hide likely ghost jobs</label>
+    </div>
+    <div class="health" id="health"></div>
+    <div class="note">
+      Score is <b>saturation</b>, not fit — higher means fewer people are likely applying.
+      It says nothing about whether you're qualified.
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div id="queue" style="display:none">
+    <div class="note">
+      Nothing here is ever sent automatically. The apply engine (Phase 4) is not built,
+      so approving marks intent only — no application is transmitted to any employer.
+    </div>
+    <div id="qlist"></div>
+  </div>
+</main>
+
+<script>
+const CAPS = [
+  ['discoveryFriction', 'discovery'],
+  ['applicationFriction', 'app friction'],
+  ['qualificationFriction', 'qualification'],
+  ['desirabilityDiscount', 'desirability'],
+  ['freshness', 'freshness'],
+];
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]
+  ));
+}
+
+function scoreClass(n) { return n >= 60 ? 's-hi' : n >= 40 ? 's-mid' : 's-lo'; }
+
+function salary(j) {
+  if (!j.salaryMin && !j.salaryMax) return null;
+  const c = j.salaryCurrency || '';
+  const k = v => v >= 1000 ? Math.round(v / 1000) + 'k' : v;
+  return `${c} ${k(j.salaryMin ?? 0)}–${k(j.salaryMax ?? 0)}`.trim();
+}
+
+function jobCard(j, inQueue) {
+  const bars = CAPS.map(([key, cap]) => `
+    <div class="bar">
+      <div class="track"><div class="fill" style="width:${Math.round((j.components[key] ?? 0) * 100)}%"></div></div>
+      <div class="cap">${cap}</div>
+    </div>`).join('');
+
+  const chips = [
+    j.remoteType && `<span class="chip">${esc(j.remoteType.replace('_', ' '))}</span>`,
+    j.seniority && `<span class="chip">${esc(j.seniority)}</span>`,
+    `<span class="chip">${esc(j.provider)}</span>`,
+    j.ageDays !== null && `<span class="chip">${j.ageDays}d old</span>`,
+    salary(j) && `<span class="chip">${esc(salary(j))}</span>`,
+    j.components.ghostRisk >= 0.4 && `<span class="chip ghost">ghost risk ${Math.round(j.components.ghostRisk * 100)}%</span>`,
+  ].filter(Boolean).join('');
+
+  const reasons = (j.reasons || []).map(r => `<span class="chip">${esc(r)}</span>`).join('');
+
+  return `
+  <div class="job">
+    <div class="score">
+      <div class="n ${scoreClass(j.score)}">${j.score}</div>
+      <div class="lbl">unsat.</div>
+    </div>
+    <div class="body">
+      <div class="title">${esc(j.title)}</div>
+      <div class="meta">${esc(j.company)}${j.location ? ' · ' + esc(j.location) : ''}</div>
+      <div class="chips">${chips}</div>
+      <div class="bars">${bars}</div>
+      <div class="chips">${reasons}</div>
+      <div class="actions">
+        ${j.applyUrl ? `<a href="${esc(j.applyUrl)}" target="_blank" rel="noopener">View posting →</a>` : ''}
+        ${inQueue ? '' : `<button onclick="enqueue('${esc(j.key)}')">Add to review queue</button>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+async function load() {
+  const p = new URLSearchParams();
+  for (const id of ['q', 'remote', 'seniority', 'minScore']) {
+    const v = document.getElementById(id).value;
+    if (v) p.set(id, v);
+  }
+  if (document.getElementById('hideGhosts').checked) p.set('hideGhosts', '1');
+
+  document.getElementById('list').innerHTML = '<div class="empty">Loading…</div>';
+  const r = await fetch('/api/jobs?' + p).then(r => r.json());
+
+  document.getElementById('sub').textContent =
+    `${r.total} live jobs · refreshed ${new Date(r.refreshedAt).toLocaleTimeString()}`;
+
+  document.getElementById('health').innerHTML = r.boards.map(b =>
+    `<span class="${b.error ? 'err' : ''}">${esc(b.company)}: ${b.error ? 'FAILED' : b.jobs + ' jobs'}</span>`
+  ).join('');
+
+  document.getElementById('list').innerHTML =
+    r.jobs.length ? r.jobs.map(j => jobCard(j, false)).join('')
+                  : '<div class="empty">No jobs match these filters.</div>';
+}
+
+async function enqueue(key) {
+  await fetch('/api/queue', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  loadQueue();
+}
+
+async function act(id, action) {
+  await fetch(`/api/queue/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+  loadQueue();
+}
+
+async function loadQueue() {
+  const r = await fetch('/api/queue').then(r => r.json());
+  document.getElementById('qn').textContent = r.entries.length;
+  document.getElementById('qlist').innerHTML = r.entries.length
+    ? r.entries.map(e => `
+      ${jobCard(e.job, true)}
+      <div class="qbox">
+        <b>State: ${esc(e.state)} — needs your answer before anything could be sent</b>
+        <ul>${e.openQuestions.map(q => `<li>${esc(q)}</li>`).join('')}</ul>
+        <div class="actions" style="margin-top:8px">
+          <button class="primary" onclick="act('${esc(e.id)}','approve')">Approve</button>
+          <button onclick="act('${esc(e.id)}','decline')">Decline</button>
+          <button onclick="act('${esc(e.id)}','remove')">Remove</button>
+        </div>
+      </div>`).join('')
+    : '<div class="empty">Queue is empty. Add jobs from the feed.</div>';
+}
+
+function show(tab) {
+  document.getElementById('feed').style.display = tab === 'feed' ? '' : 'none';
+  document.getElementById('queue').style.display = tab === 'queue' ? '' : 'none';
+  document.getElementById('tab-feed').classList.toggle('active', tab === 'feed');
+  document.getElementById('tab-queue').classList.toggle('active', tab === 'queue');
+  if (tab === 'queue') loadQueue();
+}
+
+async function refresh() {
+  document.getElementById('sub').textContent = 'refreshing live boards…';
+  await fetch('/api/refresh', { method: 'POST' });
+  load();
+}
+
+load();
+loadQueue();
+</script>
+</body>
+</html>
