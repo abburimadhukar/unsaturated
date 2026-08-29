@@ -51,8 +51,17 @@ export async function GET(request: Request) {
   if (minSalary !== undefined) query.minSalary = minSalary;
   if (p.get('hasSalary') === '1') query.hasSalary = true;
   if (p.get('ai') === '1') query.ai = true;
+  if (p.get('includeUnknown') === '0') query.includeUnknown = false;
 
   const rows = queryFeed(feed, query);
+
+  // How many of the returned rows only survived because unknowns are kept.
+  // Surfacing this stops a filter from quietly changing what "matched" means.
+  const unknownIncluded = {
+    country: query.country ? rows.filter((r) => !r.country).length : 0,
+    seniority: query.seniority ? rows.filter((r) => !r.seniority).length : 0,
+    remote: query.remote ? rows.filter((r) => !r.remoteType).length : 0,
+  };
 
   // Facets are computed on the cloud-scoped set rather than the fully filtered
   // one, so the counts show what each option WOULD yield instead of collapsing
@@ -67,6 +76,7 @@ export async function GET(request: Request) {
     total: feed.scanned ?? feed.jobs.length,
     inScope: feed.jobs.filter((j) => j.inScope).length,
     matched: rows.length,
+    unknownIncluded,
     shown: Math.min(rows.length, 200),
     maxAgeDays: MAX_AGE_DAYS,
     refreshedAt: feed.refreshedAt,

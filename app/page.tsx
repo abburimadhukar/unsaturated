@@ -32,6 +32,7 @@ interface Feed {
   total: number;
   inScope: number;
   matched: number;
+  unknownIncluded: { country: number; seniority: number; remote: number };
   maxAgeDays: number;
   refreshedAt: string;
   source?: string;
@@ -85,7 +86,7 @@ function agoLabel(days: number | null): string {
 
 const DEFAULTS = {
   q: '', family: '', country: 'US', remote: '', seniority: '',
-  postedWithinDays: '', minFit: '', ai: false,
+  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true,
   cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
 };
 
@@ -102,9 +103,12 @@ export default function Page() {
   const load = useCallback(async () => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) {
+      if (k === 'includeUnknown') continue;
       if (v === '' || v === false) continue;
       p.set(k, v === true ? '1' : String(v));
     }
+    // Sent only when turned off, since the server keeps unknowns by default.
+    if (!filters.includeUnknown) p.set('includeUnknown', '0');
     const res = await fetch(`/api/feed?${p}`);
     setData((await res.json()) as Feed);
     setLoading(false);
@@ -267,6 +271,11 @@ export default function Page() {
                 AI / ML roles only
               </label>
               <label className="check">
+                <input type="checkbox" checked={filters.includeUnknown}
+                  onChange={(e) => set('includeUnknown', e.target.checked)} />
+                Include jobs with missing details
+              </label>
+              <label className="check">
                 <input type="checkbox" checked={filters.hideGhosts}
                   onChange={(e) => set('hideGhosts', e.target.checked)} />
                 Hide likely ghost jobs
@@ -284,6 +293,11 @@ export default function Page() {
               <span className="count">
                 <b className="tnum">{data?.matched ?? 0}</b> roles
                 {filters.family && ` · ${FAMILY_LABELS[filters.family as never] ?? filters.family}`}
+                {(() => {
+                  const u = data?.unknownIncluded;
+                  const n = (u?.country ?? 0) + (u?.seniority ?? 0) + (u?.remote ?? 0);
+                  return n > 0 ? <span className="unk"> · includes {n} with unknown details</span> : null;
+                })()}
               </span>
               <div className="grow" />
               <div className="sorts">
@@ -322,7 +336,8 @@ export default function Page() {
 
                       <div className="meta">
                         <span className="co">{j.company}</span>
-                        {j.location && <><span className="sep">·</span>{j.location}</>}
+                        <span className="sep">·</span>
+                        {j.location ?? <span className="unk">location not specified</span>}
                       </div>
 
                       <div className="chips">
@@ -332,8 +347,12 @@ export default function Page() {
                           </span>
                         )}
                         {j.ai && <span className="chip ai">AI / ML</span>}
-                        {j.remoteType && <span className="chip">{WORK_LABELS[j.remoteType] ?? j.remoteType}</span>}
-                        {j.seniority && <span className="chip">{j.seniority}</span>}
+                        <span className={`chip${j.remoteType ? '' : ' unknown'}`}>
+                          {j.remoteType ? (WORK_LABELS[j.remoteType] ?? j.remoteType) : 'work type unknown'}
+                        </span>
+                        <span className={`chip${j.seniority ? '' : ' unknown'}`}>
+                          {j.seniority ?? 'level unknown'}
+                        </span>
                         {pay && <span className="chip pay">{pay}</span>}
                         {skills.length > 0 && j.fitKnown && (
                           <span className="chip match">

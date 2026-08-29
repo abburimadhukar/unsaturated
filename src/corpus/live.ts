@@ -1,6 +1,7 @@
 import { getAdapter } from '../ats/adapters/index.js';
 import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
+import { inferSeniorityFromText } from '../ats/normalize.js';
 import type { AtsProvider, BoardRef } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
@@ -168,7 +169,9 @@ async function loadBoard(board: CorpusBoard, now: number) {
         location: cleanLocation(job.locationRaw),
         country: inferCountry(job.locationRaw, job.country) ?? null,
         remoteType: job.remoteType ?? null,
-        seniority: job.seniority ?? null,
+        // Descriptions are only present after the backfill pass, so this is the
+        // first point where a level can be read out of the text.
+        seniority: job.seniority ?? inferSeniorityFromText(job.descriptionText) ?? null,
         salaryMin: job.salaryMin ?? null,
         salaryMax: job.salaryMax ?? null,
         salaryCurrency: job.salaryCurrency ?? null,
@@ -265,6 +268,8 @@ export interface FeedQuery {
   hasSalary?: boolean;
   minSalary?: number;
   ai?: boolean;
+  /** Keep rows whose filtered field is unknown rather than dropping them. */
+  includeUnknown?: boolean;
   hideGhosts?: boolean;
   hideSeen?: boolean;
   seenKeys?: Set<string>;
@@ -323,11 +328,19 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   });
 
   if (f.cloudOnly !== false) rows = rows.filter((j) => j.inScope);
-  if (f.remote) rows = rows.filter((j) => j.remoteType === f.remote);
-  if (f.seniority) rows = rows.filter((j) => j.seniority === f.seniority);
+  // Unknown values are KEPT by default. A job we could not classify is not the
+  // same as a job that fails the filter, and dropping it silently means the user
+  // never learns it existed — 150 roles disappeared behind the default country
+  // filter alone, many of them almost certainly US.
+  const keepUnknown = f.includeUnknown !== false;
+  const pass = (value: string | null | undefined, want: string) =>
+    value == null || value === '' ? keepUnknown : value === want;
+
+  if (f.remote) rows = rows.filter((j) => pass(j.remoteType, f.remote!));
+  if (f.seniority) rows = rows.filter((j) => pass(j.seniority, f.seniority!));
   if (f.family) rows = rows.filter((j) => j.family === f.family);
   if (f.provider) rows = rows.filter((j) => j.provider === f.provider);
-  if (f.country) rows = rows.filter((j) => j.country === f.country);
+  if (f.country) rows = rows.filter((j) => pass(j.country, f.country!));
   if (f.minSaturation !== undefined) rows = rows.filter((j) => j.saturation >= f.minSaturation!);
   if (f.postedWithinDays !== undefined) {
     rows = rows.filter((j) => j.ageDays !== null && j.ageDays <= f.postedWithinDays!);

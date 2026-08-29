@@ -168,3 +168,41 @@ export function normalizeTitle(raw: string): string {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }
+
+/**
+ * Infers seniority from description text when the title does not say.
+ *
+ * Titles carry the level only about two-thirds of the time — "Software Engineer"
+ * says nothing — but descriptions almost always state a years-of-experience
+ * requirement. Reading that closes most of the gap at the source, which is far
+ * better than hiding those jobs behind a filter.
+ *
+ * The FIRST stated figure wins, not the smallest. Descriptions lead with the
+ * headline requirement and then qualify it per skill — "minimum of 5 years in
+ * software engineering and 3 years of Kubernetes" is a senior role, and taking
+ * the smallest number would file it as mid.
+ */
+export function inferSeniorityFromText(description: string | undefined): string | undefined {
+  if (!description) return undefined;
+  const text = description.slice(0, 4000);
+
+  if (/\b(new grad|recent graduate|entry[- ]level|no experience required|0-2 years)\b/i.test(text)) {
+    return 'entry';
+  }
+
+  // "5+ years", "5-8 years", "minimum of 5 years", "at least 5 years"
+  const matches = [
+    ...text.matchAll(/\b(?:minimum(?: of)?|at least|over)?\s*(\d{1,2})\s*(?:\+|-\s*\d{1,2})?\s*(?:\+)?\s*years?\b/gi),
+  ];
+  const years = matches
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isFinite(n) && n >= 0 && n <= 25);
+  if (years.length === 0) return undefined;
+
+  const first = years[0]!;
+  if (first >= 10) return 'principal';
+  if (first >= 8) return 'staff';
+  if (first >= 5) return 'senior';
+  if (first >= 2) return 'mid';
+  return 'entry';
+}
