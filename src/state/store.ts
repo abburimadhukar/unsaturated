@@ -1,4 +1,4 @@
-import { extractSkills } from '../taxonomy/cloud.js';
+import { extractSkills } from '../taxonomy/families.js';
 
 /**
  * Process-local user state.

@@ -164,3 +164,40 @@ export const COUNTRY_LABELS: Record<string, string> = {
   EG: 'Egypt', ZA: 'South Africa', KE: 'Kenya', NG: 'Nigeria', MX: 'Mexico',
   BR: 'Brazil', AR: 'Argentina', CO: 'Colombia', CL: 'Chile', CR: 'Costa Rica',
 };
+
+/**
+ * Tidies a location for display.
+ *
+ * ATS feeds carry whatever the employer typed, which includes full street
+ * addresses ("7000 Target Pkwy N,NCD-0375 Brooklyn Park,MN 55445") and
+ * twenty-city lists. Neither is readable in a job card, so this keeps the part
+ * a person actually needs — the city and region — and summarises the rest.
+ */
+export function cleanLocation(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Multi-location lists: keep the first two, count the remainder.
+  const parts = s.split(/\s*;\s*/).filter(Boolean);
+  if (parts.length > 2) {
+    return `${parts[0]}, ${parts[1]} +${parts.length - 2} more`;
+  }
+  s = parts.join('; ');
+
+  // Drop a leading street address: a segment starting with a house number, or
+  // an internal mail-stop code.
+  s = s
+    .replace(/^\d+\s+[^,]*,\s*/, '')
+    .replace(/\b[A-Z]{2,4}-\d{3,}\b,?\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Trailing ZIP / postcode adds nothing once the city is present.
+  s = s.replace(/\s*\d{5}(-\d{4})?$/, '').replace(/,\s*$/, '').trim();
+
+  // "Brooklyn Park,MN" -> "Brooklyn Park, MN"
+  s = s.replace(/,(?=\S)/g, ', ');
+
+  return s.length > 0 ? s.slice(0, 80) : null;
+}

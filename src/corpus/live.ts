@@ -1,6 +1,6 @@
 import { getAdapter } from '../ats/adapters/index.js';
 import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
-import { inferCountry } from '../ats/geo.js';
+import { cleanLocation, inferCountry } from '../ats/geo.js';
 import type { AtsProvider, BoardRef } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
@@ -165,7 +165,7 @@ async function loadBoard(board: CorpusBoard, now: number) {
         title: job.title,
         company: board.company,
         provider: board.provider,
-        location: job.locationRaw ?? null,
+        location: cleanLocation(job.locationRaw),
         country: inferCountry(job.locationRaw, job.country) ?? null,
         remoteType: job.remoteType ?? null,
         seniority: job.seniority ?? null,
