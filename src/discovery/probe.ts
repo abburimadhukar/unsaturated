@@ -108,6 +108,7 @@ export async function discoverAll(
   companies: string[],
   concurrency = 4,
   onProgress?: (done: number, total: number, found: number) => void,
+  includeWorkday = true,
 ): Promise<ProbeStats> {
   const stats: ProbeStats = {
     companiesTried: companies.length,
@@ -124,9 +125,17 @@ export async function discoverAll(
       const company = companies[cursor++];
       if (company === undefined) break;
 
-      const hit = await discoverCompany(company, () => {
-        stats.requestsMade++;
-      });
+      // One malformed company name must never abort a run of hundreds. Before
+      // this, a single throw rejected Promise.all and discarded every board
+      // already discovered.
+      let hit: Discovery | null = null;
+      try {
+        hit = await discoverCompany(company, () => {
+          stats.requestsMade++;
+        }, includeWorkday);
+      } catch {
+        hit = null;
+      }
       if (hit) stats.found.push(hit);
       else stats.notFound.push(company);
 

@@ -144,7 +144,11 @@ export function slugCandidates(companyName: string): string[] {
 
   // Curated aliases are known-correct rather than guessed, so they lead.
   const aliasKey = companyName.toLowerCase().replace(/\s+/g, ' ').trim();
-  for (const alias of ALIASES[aliasKey] ?? []) push(alias);
+  // Object.hasOwn, not a plain lookup: a company genuinely named "Constructor"
+  // (or "toString", "valueOf"…) would otherwise resolve to the inherited
+  // Object.prototype member and crash the whole discovery run.
+  const aliases = Object.hasOwn(ALIASES, aliasKey) ? ALIASES[aliasKey] : undefined;
+  for (const alias of aliases ?? []) push(alias);
 
   const noNoise = base.replace(NOISE, '').replace(/\s+/g, ' ').trim();
   const noSector = noNoise.replace(SECTOR, '').replace(/\s+/g, ' ').trim();

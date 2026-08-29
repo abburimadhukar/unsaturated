@@ -14,6 +14,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { SEED_COMPANIES } from '../discovery/companies.js';
 import { ENTERPRISE_COMPANIES } from '../discovery/enterprises.js';
+import { SCALE_COMPANIES } from '../discovery/scale.js';
 import { discoverAll } from '../discovery/probe.js';
 
 interface StoredBoard {
@@ -40,8 +41,10 @@ async function main(): Promise<void> {
   if (file) {
     const text = await readFile(file, 'utf8');
     companies = text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  } else if (flag('scale')) {
+    companies = SCALE_COMPANIES;
   } else if (flag('all')) {
-    companies = [...SEED_COMPANIES, ...ENTERPRISE_COMPANIES];
+    companies = [...SEED_COMPANIES, ...ENTERPRISE_COMPANIES, ...SCALE_COMPANIES];
   } else if (flag('enterprise')) {
     companies = ENTERPRISE_COMPANIES;
   } else {
@@ -52,11 +55,12 @@ async function main(): Promise<void> {
   console.log(`Probing ${companies.length} companies across 8 ATS providers…\n`);
   const started = Date.now();
 
-  const stats = await discoverAll(companies, 5, (done, total, found) => {
+  const withWorkday = !flag('no-workday');
+  const stats = await discoverAll(companies, 8, (done, total, found) => {
     if (done % 10 === 0 || done === total) {
       process.stdout.write(`  ${done}/${total} probed · ${found} boards found\r`);
     }
-  });
+  }, withWorkday);
 
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
   console.log(`\n\nDone in ${seconds}s — ${stats.requestsMade} probe rounds.\n`);

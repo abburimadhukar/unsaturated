@@ -2,6 +2,7 @@ import { getAdapter } from '../ats/adapters/index.js';
 import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
+import { parseSalary } from '../ats/salary.js';
 import type { AtsProvider, BoardRef } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
@@ -152,6 +153,14 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // Re-classified after backfill so a newly fetched description contributes
       // its skills to both the fingerprint and the fit match.
       const cls: RoleClassification = classifyRole(job);
+
+      // Only Lever publishes a structured salary, so for everyone else the pay
+      // has to be read out of the description. Never overwrite a figure the
+      // employer stated in a real field.
+      const parsedPay =
+        job.salaryMin === undefined && job.salaryMax === undefined
+          ? parseSalary(job.descriptionText)
+          : undefined;
       const scored = scoreJob({
         job,
         provider: board.provider,
@@ -172,9 +181,9 @@ async function loadBoard(board: CorpusBoard, now: number) {
         // Descriptions are only present after the backfill pass, so this is the
         // first point where a level can be read out of the text.
         seniority: job.seniority ?? inferSeniorityFromText(job.descriptionText) ?? null,
-        salaryMin: job.salaryMin ?? null,
-        salaryMax: job.salaryMax ?? null,
-        salaryCurrency: job.salaryCurrency ?? null,
+        salaryMin: job.salaryMin ?? parsedPay?.min ?? null,
+        salaryMax: job.salaryMax ?? parsedPay?.max ?? null,
+        salaryCurrency: job.salaryCurrency ?? parsedPay?.currency ?? null,
         postedAt: job.postedAt?.toISOString() ?? null,
         ageDays,
         applyUrl: job.applyUrl ?? null,
