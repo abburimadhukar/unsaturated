@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ROLE_FAMILY_LABELS } from '../src/taxonomy/cloud.js';
+import { FAMILY_LABELS, FAMILY_ORDER } from '../src/taxonomy/families.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 
 interface Job {
@@ -18,10 +18,9 @@ interface Job {
   salaryCurrency: string | null;
   ageDays: number | null;
   applyUrl: string | null;
-  saturation: number;
   components: Record<string, number>;
-  reasons: string[];
   family: string | null;
+  ai: boolean;
   matchedSkills: string[];
   fit: number;
   fitKnown: boolean;
@@ -36,7 +35,7 @@ interface Feed {
   maxAgeDays: number;
   refreshedAt: string;
   source?: string;
-  boards: { company: string; provider: string; jobs: number; kept: number; error?: string }[];
+  boards: { company: string; provider: string; error?: string }[];
   facets: {
     family: Record<string, number>;
     provider: Record<string, number>;
@@ -48,18 +47,9 @@ interface Feed {
   jobs: Job[];
 }
 
-const AXES: [string, string][] = [
-  ['discoveryFriction', 'discover'],
-  ['applicationFriction', 'friction'],
-  ['qualificationFriction', 'qualify'],
-  ['desirabilityDiscount', 'desire'],
-  ['freshness', 'fresh'],
-];
-
 const SORTS: [string, string][] = [
-  ['saturation', 'Least contested'],
   ['newest', 'Newest'],
-  ['fit', 'Best fit'],
+  ['fit', 'Best match'],
   ['salary', 'Salary'],
 ];
 
@@ -69,37 +59,6 @@ const WORK_LABELS: Record<string, string> = {
   fully_remote: 'Remote',
   unknown: 'Unspecified',
 };
-
-/** Score colour is the product's core signal — green means uncontested. */
-function scoreColor(n: number): string {
-  if (n >= 65) return 'var(--hot)';
-  if (n >= 45) return 'var(--warm)';
-  return 'var(--cool)';
-}
-
-function ScoreRing({ value }: { value: number }) {
-  const r = 20;
-  const c = 2 * Math.PI * r;
-  const color = scoreColor(value);
-  return (
-    <svg width="48" height="48" viewBox="0 0 48 48" aria-hidden>
-      <circle cx="24" cy="24" r={r} fill="none" stroke="var(--raised)" strokeWidth="3.5" />
-      <circle
-        cx="24" cy="24" r={r} fill="none" stroke={color} strokeWidth="3.5" strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={c * (1 - Math.max(0, Math.min(100, value)) / 100)}
-      />
-      <text
-        x="24" y="24" transform="rotate(90 24 24)"
-        textAnchor="middle" dominantBaseline="central"
-        fill={color} fontSize="15" fontWeight="680"
-        style={{ fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}
-      >
-        {value}
-      </text>
-    </svg>
-  );
-}
 
 function salaryLabel(j: Job): string | null {
   if (!j.salaryMin && !j.salaryMax) return null;
@@ -112,17 +71,22 @@ function salaryLabel(j: Job): string | null {
 
 function ago(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${Math.max(mins, 1)}m ago`;
   const h = Math.round(mins / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
+  return h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
-const EMPTY_FILTERS = {
-  q: '', country: 'US', remote: '', family: '', seniority: '',
-  minSaturation: '', minFit: '', postedWithinDays: '',
-  cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'saturation',
+function agoLabel(days: number | null): string {
+  if (days === null) return '';
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days}d ago`;
+}
+
+const DEFAULTS = {
+  q: '', family: '', country: 'US', remote: '', seniority: '',
+  postedWithinDays: '', minFit: '', ai: false,
+  cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
 };
 
 export default function Page() {
@@ -131,7 +95,7 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [resume, setResume] = useState('');
   const [showResume, setShowResume] = useState(false);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState(DEFAULTS);
 
   const seen = useMemo(() => new Set(data?.state.seen ?? []), [data]);
 
@@ -141,20 +105,12 @@ export default function Page() {
       if (v === '' || v === false) continue;
       p.set(k, v === true ? '1' : String(v));
     }
-    if (!filters.cloudOnly) p.set('cloudOnly', '0');
     const res = await fetch(`/api/feed?${p}`);
     setData((await res.json()) as Feed);
     setLoading(false);
   }, [filters]);
 
   useEffect(() => { void load(); }, [load]);
-
-  async function refresh() {
-    setBusy(true);
-    await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
-    await load();
-    setBusy(false);
-  }
 
   async function saveResume() {
     setBusy(true);
@@ -167,8 +123,6 @@ export default function Page() {
     setBusy(false);
   }
 
-  // Opening a posting is treated as engagement; it dims the card so the feed
-  // reads as a worklist rather than an undifferentiated wall.
   async function open(job: Job) {
     await fetch('/api/state', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -178,7 +132,7 @@ export default function Page() {
   }
 
   const set = (k: string, v: string | boolean) => setFilters((f) => ({ ...f, [k]: v }));
-  const toggle = (k: 'remote' | 'family' | 'country', v: string) =>
+  const toggle = (k: 'remote' | 'family', v: string) =>
     setFilters((f) => ({ ...f, [k]: f[k] === v ? '' : v }));
 
   const skills = data?.profile.skills ?? [];
@@ -190,9 +144,9 @@ export default function Page() {
         <h1 className="brand"><span className="dot" />Unsaturated</h1>
         {data && (
           <div className="hstats">
-            <span><b className="tnum">{data.inScope}</b> cloud roles</span>
+            <span><b className="tnum">{data.inScope.toLocaleString()}</b> roles</span>
             <span><b className="tnum">{data.total.toLocaleString()}</b> scanned</span>
-            <span><b>{data.boards.filter((b) => !b.error).length}</b> boards</span>
+            <span>last {data.maxAgeDays} days</span>
             <span>updated {ago(data.refreshedAt)}</span>
           </div>
         )}
@@ -200,20 +154,29 @@ export default function Page() {
         <button onClick={() => setShowResume((s) => !s)}>
           {skills.length ? `Skills · ${skills.length}` : 'Add resume'}
         </button>
-        {data?.source !== 'snapshot' && (
-          <button onClick={() => void refresh()} disabled={busy}>
-            {busy ? 'Working…' : 'Refresh'}
-          </button>
-        )}
       </header>
+
+      {/* Families are the primary navigation now that ranking is by recency. */}
+      <nav className="families">
+        <button className={filters.family === '' ? 'on' : ''} onClick={() => set('family', '')}>
+          All
+          <span className="n">{Object.values(facets?.family ?? {}).reduce((a, b) => a + b, 0)}</span>
+        </button>
+        {FAMILY_ORDER.map((f) => (
+          <button key={f} className={filters.family === f ? 'on' : ''} onClick={() => toggle('family', f)}>
+            {FAMILY_LABELS[f]}
+            <span className="n">{facets?.family?.[f] ?? 0}</span>
+          </button>
+        ))}
+      </nav>
 
       <main>
         {showResume && (
           <div className="panel" style={{ marginBottom: 14 }}>
             <h3>Resume</h3>
             <p className="note">
-              Paste your resume. Skills are matched by keyword <b>in your browser session only</b> —
-              nothing is stored on disk or sent anywhere else.
+              Paste your resume to get match percentages. Skills are extracted by keyword
+              <b> in this session only</b> — nothing is written to disk.
             </p>
             <textarea
               value={resume} onChange={(e) => setResume(e.target.value)}
@@ -263,10 +226,7 @@ export default function Page() {
               </div>
               <div className="field">
                 <label>Posted within</label>
-                <select
-                  value={filters.postedWithinDays}
-                  onChange={(e) => set('postedWithinDays', e.target.value)}
-                >
+                <select value={filters.postedWithinDays} onChange={(e) => set('postedWithinDays', e.target.value)}>
                   <option value="">Any time</option>
                   <option value="1">24 hours</option>
                   <option value="3">3 days</option>
@@ -282,10 +242,7 @@ export default function Page() {
                 {Object.entries(facets?.remote ?? {})
                   .sort((a, b) => b[1] - a[1])
                   .map(([k, n]) => (
-                    <button
-                      key={k} className={filters.remote === k ? 'on' : ''}
-                      onClick={() => toggle('remote', k)}
-                    >
+                    <button key={k} className={filters.remote === k ? 'on' : ''} onClick={() => toggle('remote', k)}>
                       <span>{WORK_LABELS[k] ?? k}</span><span className="n">{n}</span>
                     </button>
                   ))}
@@ -293,36 +250,10 @@ export default function Page() {
             </div>
 
             <div className="panel">
-              <h3>Role family</h3>
-              <div className="facet">
-                {Object.entries(facets?.family ?? {})
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([k, n]) => (
-                    <button
-                      key={k} className={filters.family === k ? 'on' : ''}
-                      onClick={() => toggle('family', k)}
-                    >
-                      <span>{(ROLE_FAMILY_LABELS as Record<string, string>)[k] ?? k}</span>
-                      <span className="n">{n}</span>
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            <div className="panel">
-              <h3>Thresholds</h3>
-              <div className="field">
-                <label>Minimum score</label>
-                <select value={filters.minSaturation} onChange={(e) => set('minSaturation', e.target.value)}>
-                  <option value="">Any</option>
-                  <option value="45">45+</option>
-                  <option value="60">60+</option>
-                  <option value="70">70+ (least contested)</option>
-                </select>
-              </div>
+              <h3>Refine</h3>
               {skills.length > 0 && (
                 <div className="field">
-                  <label>Minimum fit</label>
+                  <label>Minimum match</label>
                   <select value={filters.minFit} onChange={(e) => set('minFit', e.target.value)}>
                     <option value="">Any</option>
                     <option value="0.3">30%+</option>
@@ -332,9 +263,8 @@ export default function Page() {
                 </div>
               )}
               <label className="check">
-                <input type="checkbox" checked={filters.cloudOnly}
-                  onChange={(e) => set('cloudOnly', e.target.checked)} />
-                Cloud roles only
+                <input type="checkbox" checked={filters.ai} onChange={(e) => set('ai', e.target.checked)} />
+                AI / ML roles only
               </label>
               <label className="check">
                 <input type="checkbox" checked={filters.hideGhosts}
@@ -347,29 +277,13 @@ export default function Page() {
                 Hide ones I&apos;ve opened
               </label>
             </div>
-
-            {data && (
-              <div className="panel">
-                <h3>Sources</h3>
-                <div className="health">
-                  {Object.entries(data.facets.provider)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([p, n]) => <div key={p}>{p} · {n}</div>)}
-                  {data.boards.filter((b) => b.error).length > 0 && (
-                    <div className="err" style={{ marginTop: 6 }}>
-                      {data.boards.filter((b) => b.error).length} board(s) failing
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </aside>
 
           <section>
             <div className="results">
               <span className="count">
                 <b className="tnum">{data?.matched ?? 0}</b> roles
-                {filters.country && ` in ${(COUNTRY_LABELS as Record<string, string>)[filters.country] ?? filters.country}`}
+                {filters.family && ` · ${FAMILY_LABELS[filters.family as never] ?? filters.family}`}
               </span>
               <div className="grow" />
               <div className="sorts">
@@ -381,42 +295,31 @@ export default function Page() {
               </div>
             </div>
 
-            <p className="note">
-              <b>Score</b> measures how <b>uncontested</b> a role is — higher means fewer people are
-              likely applying. It is not a measure of whether you are qualified; that is the separate
-              fit number. Last {data?.maxAgeDays ?? 30} days only.
-            </p>
-
             {loading ? (
               <>{[0, 1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</>
             ) : !data || data.jobs.length === 0 ? (
               <div className="empty">
                 No roles match these filters.
                 <div style={{ marginTop: 12 }}>
-                  <button onClick={() => setFilters(EMPTY_FILTERS)}>Reset filters</button>
+                  <button onClick={() => setFilters(DEFAULTS)}>Reset filters</button>
                 </div>
               </div>
             ) : (
               data.jobs.map((j) => {
                 const pay = salaryLabel(j);
+                const fresh = j.ageDays !== null && j.ageDays <= 2;
                 return (
                   <article className={`job ${seen.has(j.key) ? 'seen' : ''}`} key={j.key}>
-                    <div className="ring">
-                      <ScoreRing value={j.saturation} />
-                      <div className="cap">uncontested</div>
-                      {skills.length > 0 && (
-                        <div className="fitline">
-                          {j.fitKnown ? <><b>{Math.round(j.fit * 100)}%</b> fit<br />{j.fitHave.length}/{j.fitBasis}</> : 'no desc'}
-                        </div>
-                      )}
-                    </div>
-
                     <div className="body">
-                      <div className="title">
-                        {j.applyUrl
-                          ? <a href={j.applyUrl} target="_blank" rel="noopener noreferrer" onClick={() => void open(j)}>{j.title}</a>
-                          : j.title}
+                      <div className="jobhead">
+                        <div className="title">
+                          {j.applyUrl
+                            ? <a href={j.applyUrl} target="_blank" rel="noopener noreferrer" onClick={() => void open(j)}>{j.title}</a>
+                            : j.title}
+                        </div>
+                        <div className={`age ${fresh ? 'fresh' : ''}`}>{agoLabel(j.ageDays)}</div>
                       </div>
+
                       <div className="meta">
                         <span className="co">{j.company}</span>
                         {j.location && <><span className="sep">·</span>{j.location}</>}
@@ -425,45 +328,29 @@ export default function Page() {
                       <div className="chips">
                         {j.family && (
                           <span className="chip fam">
-                            {(ROLE_FAMILY_LABELS as Record<string, string>)[j.family] ?? j.family}
+                            {(FAMILY_LABELS as Record<string, string>)[j.family] ?? j.family}
                           </span>
                         )}
+                        {j.ai && <span className="chip ai">AI / ML</span>}
                         {j.remoteType && <span className="chip">{WORK_LABELS[j.remoteType] ?? j.remoteType}</span>}
                         {j.seniority && <span className="chip">{j.seniority}</span>}
-                        {j.ageDays !== null && (
-                          <span className={`chip${j.ageDays <= 2 ? ' fresh' : ''}`}>
-                            {j.ageDays === 0 ? 'today' : `${j.ageDays}d ago`}
-                          </span>
-                        )}
                         {pay && <span className="chip pay">{pay}</span>}
-                        {(j.components.ghostRisk ?? 0) >= 0.4 && (
-                          <span className="chip ghost">
-                            ghost risk {Math.round((j.components.ghostRisk ?? 0) * 100)}%
+                        {skills.length > 0 && j.fitKnown && (
+                          <span className="chip match">
+                            {Math.round(j.fit * 100)}% match · {j.fitHave.length}/{j.fitBasis}
                           </span>
                         )}
-                      </div>
-
-                      <div className="bars">
-                        {AXES.map(([key, cap]) => (
-                          <div className="bar" key={key}>
-                            <div className="track">
-                              <div className="fill" style={{ width: `${Math.round((j.components[key] ?? 0) * 100)}%` }} />
-                            </div>
-                            <div className="cap">{cap}</div>
-                          </div>
-                        ))}
+                        {(j.components.ghostRisk ?? 0) >= 0.4 && (
+                          <span className="chip ghost">possible ghost job</span>
+                        )}
                       </div>
 
                       {j.matchedSkills.length > 0 && (
                         <div className="chips">
-                          {j.matchedSkills.slice(0, 9).map((s) => (
+                          {j.matchedSkills.slice(0, 10).map((s) => (
                             <span className="chip skill" key={s}>{s}</span>
                           ))}
                         </div>
-                      )}
-
-                      {j.reasons.length > 0 && (
-                        <div className="reasons">{j.reasons.slice(0, 3).join(' · ')}</div>
                       )}
 
                       <div className="actions">
@@ -472,7 +359,7 @@ export default function Page() {
                             Open posting ↗
                           </a>
                         )}
-                        <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>{j.provider}</span>
+                        <span className="src">{j.provider}</span>
                       </div>
                     </div>
                   </article>

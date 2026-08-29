@@ -11,7 +11,7 @@ import { getProfile, getState } from '../../../src/state/store.js';
 
 export const dynamic = 'force-dynamic';
 
-const SORTS: SortKey[] = ['saturation', 'newest', 'salary', 'fit'];
+const SORTS: SortKey[] = ['newest', 'salary', 'fit'];
 
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     hideSeen: p.get('hideSeen') === '1',
     seenKeys: new Set(state.seen),
     skills: profile.skills,
-    sort: sortRaw && SORTS.includes(sortRaw) ? sortRaw : 'saturation',
+    sort: sortRaw && SORTS.includes(sortRaw) ? sortRaw : 'newest',
   };
 
   for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q'] as const) {
@@ -50,6 +50,7 @@ export async function GET(request: Request) {
   if (within !== undefined) query.postedWithinDays = within;
   if (minSalary !== undefined) query.minSalary = minSalary;
   if (p.get('hasSalary') === '1') query.hasSalary = true;
+  if (p.get('ai') === '1') query.ai = true;
 
   const rows = queryFeed(feed, query);
 

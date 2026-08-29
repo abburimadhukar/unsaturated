@@ -179,20 +179,6 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
 .job:hover { border-color: var(--line); background: var(--surface-2); }
 .job.seen { opacity: .42; }
 
-/* score ring — the visual anchor of the whole page */
-.ring { flex: 0 0 auto; width: 52px; text-align: center; }
-.ring svg { display: block; transform: rotate(-90deg); }
-.ring .val {
-  font-size: 17px; font-weight: 680; letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-}
-.ring .cap {
-  font-size: 8.5px; color: var(--text-faint); text-transform: uppercase;
-  letter-spacing: .08em; margin-top: 5px;
-}
-.fitline { font-size: 11px; color: var(--text-faint); margin-top: 7px; font-variant-numeric: tabular-nums; }
-.fitline b { color: var(--text-dim); font-weight: 600; }
-
 .body { flex: 1; min-width: 0; }
 
 .title { font-size: 15px; font-weight: 610; letter-spacing: -0.012em; margin-bottom: 3px; }
@@ -214,16 +200,6 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
 .chip.ghost { background: #f2705c18; border-color: transparent; color: var(--danger); }
 .chip.fresh { background: #4ade8014; border-color: transparent; color: var(--hot); font-weight: 560; }
 .chip.pay { color: var(--text); border-color: var(--line); }
-
-/* the five-axis breakdown */
-.bars { display: flex; gap: 4px; max-width: 400px; margin-bottom: 10px; }
-.bar { flex: 1; }
-.bar .track { height: 3px; background: var(--raised); border-radius: 2px; overflow: hidden; }
-.bar .fill { height: 100%; border-radius: 2px; background: var(--accent); }
-.bar .cap {
-  font-size: 8px; color: var(--text-faint); margin-top: 4px;
-  text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
-}
 
 .reasons { font-size: 12px; color: var(--text-faint); line-height: 1.5; margin-bottom: 10px; }
 
@@ -257,3 +233,45 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
   background-size: 200% 100%; animation: shimmer 1.4s infinite;
 }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+
+/* ---------------- family navigation ---------------- */
+
+.families {
+  position: sticky; top: 56px; z-index: 25;
+  display: flex; gap: 4px; padding: 9px 22px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line-soft);
+  overflow-x: auto; scrollbar-width: none;
+}
+.families::-webkit-scrollbar { display: none; }
+.families button {
+  display: flex; align-items: center; gap: 7px; white-space: nowrap;
+  background: none; border: 1px solid transparent; border-radius: 999px;
+  padding: 5px 13px; font-size: 13px; color: var(--text-dim);
+}
+.families button:hover { background: var(--surface-2); border-color: transparent; }
+.families button.on {
+  background: var(--accent-dim); color: var(--accent);
+  border-color: transparent; font-weight: 600;
+}
+.families .n {
+  font-size: 11px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.families button.on .n { color: var(--accent); }
+
+/* ---------------- job card head ---------------- */
+
+.jobhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 3px; }
+.jobhead .title { flex: 1; min-width: 0; margin-bottom: 0; }
+.age {
+  flex: 0 0 auto; font-size: 11.5px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.age.fresh { color: var(--hot); font-weight: 600; }
+
+.chip.ai { background: #a78bfa1a; border-color: transparent; color: #a78bfa; font-weight: 550; }
+.chip.match { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
+.actions .src { color: var(--text-faint); font-size: 11.5px; margin-left: auto; }

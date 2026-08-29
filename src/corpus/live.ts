@@ -5,7 +5,7 @@ import type { AtsProvider, BoardRef } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
-import { classifyCloudRole, type CloudClassification, type RoleFamily } from '../taxonomy/cloud.js';
+import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
 import { loadBoards, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
 
@@ -17,8 +17,8 @@ import { loadSnapshot } from './snapshot.js';
  * this keeps the app runnable on a clean checkout with no database.
  */
 
-/** Postings older than this are dropped at ingest. */
-export const MAX_AGE_DAYS = 30;
+/** Postings older than this are dropped at ingest — three weeks. */
+export const MAX_AGE_DAYS = 21;
 
 export interface FeedJob {
   key: string;
@@ -41,7 +41,9 @@ export interface FeedJob {
   reasons: string[];
 
   inScope: boolean;
-  family: RoleFamily | null;
+  family: Family | null;
+  /** AI/ML role, whatever its family. */
+  ai: boolean;
   matchedSkills: string[];
   skillScore: number;
 }
@@ -130,7 +132,7 @@ async function loadBoard(board: CorpusBoard, now: number) {
     // cloud roles are backfilled. Backfilling the whole crawl would be tens of
     // thousands of requests to make a handful of fit scores work.
     if (needsBackfill(board.provider)) {
-      const candidates = fresh.filter((job) => classifyCloudRole(job).inScope);
+      const candidates = fresh.filter((job) => classifyRole(job).family !== null);
       const ref: BoardRef = {
         provider: board.provider,
         token: board.token,
@@ -148,7 +150,7 @@ async function loadBoard(board: CorpusBoard, now: number) {
 
       // Re-classified after backfill so a newly fetched description contributes
       // its skills to both the fingerprint and the fit match.
-      const cls: CloudClassification = classifyCloudRole(job);
+      const cls: RoleClassification = classifyRole(job);
       const scored = scoreJob({
         job,
         provider: board.provider,
@@ -176,10 +178,11 @@ async function loadBoard(board: CorpusBoard, now: number) {
         saturation: scored.score,
         components: scored.components as unknown as Record<string, number>,
         reasons: scored.reasons,
-        inScope: cls.inScope,
+        inScope: cls.family !== null,
+        ai: cls.ai,
         family: cls.family,
         matchedSkills: cls.matchedSkills,
-        skillScore: cls.skillScore,
+        skillScore: cls.score,
       });
     }
 
@@ -247,7 +250,7 @@ export async function getFeed(): Promise<Feed> {
   return refreshFeed();
 }
 
-export type SortKey = 'saturation' | 'newest' | 'salary' | 'fit';
+export type SortKey = 'newest' | 'salary' | 'fit';
 
 export interface FeedQuery {
   cloudOnly?: boolean;
@@ -261,6 +264,7 @@ export interface FeedQuery {
   postedWithinDays?: number;
   hasSalary?: boolean;
   minSalary?: number;
+  ai?: boolean;
   hideGhosts?: boolean;
   hideSeen?: boolean;
   seenKeys?: Set<string>;
@@ -306,13 +310,7 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   const skills = f.skills ?? [];
 
   let rows: FeedRow[] = feed.jobs.map((j) => {
-    const fit = scoreFit(skills, {
-      inScope: j.inScope,
-      skillScore: j.skillScore,
-      matchedSkills: j.matchedSkills,
-      family: j.family,
-      titleMatched: false,
-    });
+    const fit = scoreFit(skills, { matchedSkills: j.matchedSkills });
     return {
       ...j,
       fit: fit.score,
@@ -344,6 +342,7 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   if (f.minFit !== undefined && skills.length > 0) {
     rows = rows.filter((j) => !j.fitKnown || j.fit >= f.minFit!);
   }
+  if (f.ai) rows = rows.filter((j) => j.ai);
   if (f.hideGhosts) rows = rows.filter((j) => (j.components.ghostRisk ?? 0) < 0.4);
 
   if (f.q) {

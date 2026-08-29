@@ -1,4 +1,3 @@
-import type { CloudClassification } from '../taxonomy/cloud.js';
 
 /**
  * Fit is a GATE, not a ranker.
@@ -36,7 +35,12 @@ export interface FitResult {
 /** Below this many named skills, a ratio is not yet trustworthy on its own. */
 const FULL_EVIDENCE = 5;
 
-export function scoreFit(candidateSkills: string[], job: CloudClassification): FitResult {
+/**
+ * Takes only the skills a job named, rather than a whole classification object.
+ * Fit does not care which family a role belongs to — decoupling this keeps the
+ * scorer working unchanged as the taxonomy grows.
+ */
+export function scoreFit(candidateSkills: string[], job: { matchedSkills: string[] }): FitResult {
   const required = job.matchedSkills;
   if (required.length === 0) {
     return { score: 0.5, known: false, basis: 0, confidence: 0, have: [], missing: [] };
