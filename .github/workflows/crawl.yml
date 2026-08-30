@@ -35,6 +35,12 @@ jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # GitHub forbids the `secrets` context inside a step-level `if:`, so the
+    # presence check is resolved once here into a plain env var the steps can
+    # read. Without this the workflow fails to parse entirely.
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +56,7 @@ jobs:
       # Preferred path: crawl straight into Supabase. No redeploy, so a run is
       # ~70s instead of ~4min and the site is current the moment it finishes.
       - name: Crawl into Supabase
-        if: ${{ secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+        if: env.HAS_SUPABASE == 'yes'
         env:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -63,7 +69,7 @@ jobs:
       # redeploy. Slower and costlier in Actions minutes, but it keeps the site
       # fresh rather than letting it freeze.
       - name: Crawl and redeploy (no Supabase key)
-        if: ${{ secrets.SUPABASE_SECRET_KEY == '' && secrets.SUPABASE_SERVICE_ROLE_KEY == '' }}
+        if: env.HAS_SUPABASE == 'no'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
