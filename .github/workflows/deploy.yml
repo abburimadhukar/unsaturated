@@ -1,0 +1,54 @@
+# Deploy the site whenever its code changes.
+#
+# Until now the site only shipped when someone ran the Netlify CLI by hand, so a
+# fix could sit merged on main and never reach a visitor. Job data does not need
+# this — the crawler writes to Supabase and the site reads it live — but code
+# does.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only the things that change what the site serves. Board lists and
+      # discovery tooling affect the crawler, not the web app.
+      - 'app/**'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'next.config.mjs'
+      - 'netlify.toml'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `--build` runs Netlify's own pipeline, which is required for Next.js:
+      # the @netlify/plugin-nextjs adapter turns the build output into
+      # functions. A bare `next build` plus `--dir=.next` uploads static files
+      # and silently loses every API route.
+      #
+      # That pipeline uses netlify.toml's command, which also bakes the crawl
+      # snapshot. Slower than strictly necessary, but it keeps the fallback the
+      # site relies on when the database is unreachable.
+      - name: Build and deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: npx --yes netlify-cli@latest deploy --build --prod
