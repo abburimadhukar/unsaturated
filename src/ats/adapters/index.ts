@@ -7,6 +7,8 @@ import { smartRecruitersAdapter } from './smartrecruiters.js';
 import { workableAdapter } from './workable.js';
 import { workdayAdapter } from './workday.js';
 import { ripplingAdapter } from './rippling.js';
+import { usajobsAdapter } from './usajobs.js';
+import { socrataAdapter } from './socrata.js';
 import type { AtsAdapter, AtsProvider } from '../types.js';
 
 /**
@@ -26,6 +28,8 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   personio: personioAdapter,
   workday: workdayAdapter,
   rippling: ripplingAdapter,
+  usajobs: usajobsAdapter,
+  socrata: socrataAdapter,
 };
 
 export function getAdapter(provider: AtsProvider): AtsAdapter {

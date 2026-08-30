@@ -12,7 +12,9 @@ import { getAdapter, SUPPORTED_PROVIDERS } from '../ats/adapters/index.js';
 import { config } from '../config.js';
 import type { AtsProvider, NormalizedJob } from '../ats/types.js';
 
-const PROBE_TOKENS: Record<AtsProvider, string> = {
+// Partial: usajobs and socrata are not name-probeable board vendors - they are
+// single fixed endpoints, so there is no per-company token to smoke-test.
+const PROBE_TOKENS: Partial<Record<AtsProvider, string>> = {
   greenhouse: 'gruve',
   lever: 'lyrahealth',
   ashby: 'ashby',

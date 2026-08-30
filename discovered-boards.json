@@ -7138,5 +7138,10 @@
     "provider": "smartrecruiters",
     "token": "turnitinllc",
     "company": "Turnitin, LLC"
+  },
+  {
+    "provider": "socrata",
+    "token": "data.cityofnewyork.us|kpav-sd4t",
+    "company": "City of New York"
   }
 ]

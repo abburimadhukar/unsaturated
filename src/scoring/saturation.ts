@@ -66,6 +66,10 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   breezy: 0.85,
   // Small-company boards that syndicate nowhere else.
   rippling: 0.85,
+  // Government postings are rarely syndicated and almost never browsed by the
+  // tech job-seeking crowd, so competition per opening is unusually low.
+  usajobs: 0.85,
+  socrata: 0.9,
 };
 
 /**
@@ -83,6 +87,10 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   smartrecruiters: 0.55,
   workday: 1,
   rippling: 0.4,
+  // Federal and municipal applications are long, form-heavy and demand
+  // supporting documents - exactly the friction most applicants abandon.
+  usajobs: 0.95,
+  socrata: 0.8,
 };
 
 /** Metro areas with the deepest local applicant pools. */

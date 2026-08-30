@@ -14,7 +14,9 @@ export type AtsProvider =
   | 'breezy'
   | 'personio'
   | 'workday'
-  | 'rippling';
+  | 'rippling'
+  | 'usajobs'
+  | 'socrata';
 
 export interface BoardRef {
   provider: AtsProvider;
