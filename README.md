@@ -6,7 +6,7 @@ A job board that reads jobs **straight from employers**, not from other job site
 
 ```
 1,437 companies watched   ·   22,500 jobs read every hour
-3,535 kept   ·   software 1,797 · cloud 902 · data 808 · HRIS 28
+3,515 kept   ·   software 1,642 · cloud 1,015 · data 830 · HRIS 28
 Runs by itself. Costs nothing.
 ```
 
