@@ -33,7 +33,12 @@ export function db(): SupabaseClient {
 }
 
 export function dbWrite(): SupabaseClient {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  // Supabase renamed this: newer projects issue a "secret key" (sb_secret_...)
+  // where older ones issued a service_role JWT. Both grant the same bypass of
+  // RLS, so either name is accepted rather than making the operator care which
+  // vintage of dashboard they are looking at.
+  const key =
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (key) {
     writeClient ??= createClient(URL, key, { auth: { persistSession: false } });
     return writeClient;
@@ -45,7 +50,8 @@ export function dbWrite(): SupabaseClient {
   // succeed while a temporary anon-write policy is deliberately in place. Once
   // that policy is dropped, this path fails closed on its own.
   console.warn(
-    'SUPABASE_SERVICE_ROLE_KEY not set — attempting writes with the publishable key. ' +
+    'No secret key set (SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY) — ' +
+      'attempting writes with the publishable key. ' +
       'This only works while a temporary anon-write policy exists.',
   );
   writeClient ??= createClient(URL, PUBLISHABLE, { auth: { persistSession: false } });
@@ -54,7 +60,7 @@ export function dbWrite(): SupabaseClient {
 
 /** True when a write key is available, so callers can degrade rather than throw. */
 export function canWrite(): boolean {
-  return Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  return Boolean(process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
 export const SUPABASE_URL = URL;

@@ -50,8 +50,9 @@ jobs:
       # Preferred path: crawl straight into Supabase. No redeploy, so a run is
       # ~70s instead of ~4min and the site is current the moment it finishes.
       - name: Crawl into Supabase
-        if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
+        if: ${{ secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
         env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
@@ -62,7 +63,7 @@ jobs:
       # redeploy. Slower and costlier in Actions minutes, but it keeps the site
       # fresh rather than letting it freeze.
       - name: Crawl and redeploy (no Supabase key)
-        if: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY == '' }}
+        if: ${{ secrets.SUPABASE_SECRET_KEY == '' && secrets.SUPABASE_SERVICE_ROLE_KEY == '' }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
