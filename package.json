@@ -20,7 +20,8 @@
     "snapshot": "tsx src/cli/snapshot.ts",
     "crawl:db": "tsx src/cli/crawl-db.ts",
     "harvest:hn": "tsx src/cli/harvest-hn.ts",
-    "harvest:names": "tsx src/cli/harvest-names.ts"
+    "harvest:names": "tsx src/cli/harvest-names.ts",
+    "detect": "tsx src/cli/detect-careers.ts"
   },
   "dependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",

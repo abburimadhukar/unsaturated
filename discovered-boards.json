@@ -7143,5 +7143,430 @@
     "provider": "socrata",
     "token": "data.cityofnewyork.us|kpav-sd4t",
     "company": "City of New York"
+  },
+  {
+    "provider": "workday",
+    "token": "isu",
+    "company": "Iastate",
+    "extra": {
+      "host": "isu.wd1.myworkdayjobs.com",
+      "site": "IowaStateJobs",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "osu",
+    "company": "OSU",
+    "extra": {
+      "host": "osu.wd1.myworkdayjobs.com",
+      "site": "OSUCareers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "oregonstate",
+    "company": "Oregonstate",
+    "extra": {
+      "host": "oregonstate.wd501.myworkdayjobs.com",
+      "site": "OSU_Careers_Site",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "nshe",
+    "company": "Nshe",
+    "extra": {
+      "host": "nshe.wd1.myworkdayjobs.com",
+      "site": "UNR-external",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "wsu",
+    "company": "WSU",
+    "extra": {
+      "host": "wsu.wd5.myworkdayjobs.com",
+      "site": "WSU_Jobs",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "rembrandtfoods",
+    "company": "Rembrandtfoods",
+    "extra": {
+      "host": "rembrandtfoods.wd12.myworkdayjobs.com",
+      "site": "Rembrandt_Foods",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "lsu",
+    "company": "LSU",
+    "extra": {
+      "host": "lsu.wd1.myworkdayjobs.com",
+      "site": "LSU",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "uasys",
+    "company": "Uasys",
+    "extra": {
+      "host": "uasys.wd5.myworkdayjobs.com",
+      "site": "UAF_External_Career_Site",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "olemiss",
+    "company": "Olemiss",
+    "extra": {
+      "host": "olemiss.wd12.myworkdayjobs.com",
+      "site": "External__Staff",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "tamus",
+    "company": "Tamus",
+    "extra": {
+      "host": "tamus.wd1.myworkdayjobs.com",
+      "site": "TAMU_External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "ucf",
+    "company": "UCF",
+    "extra": {
+      "host": "ucf.wd1.myworkdayjobs.com",
+      "site": "athletics",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "clemson",
+    "company": "Clemson",
+    "extra": {
+      "host": "clemson.wd12.myworkdayjobs.com",
+      "site": "CUFDN_Careers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "umiami",
+    "company": "Umiami",
+    "extra": {
+      "host": "umiami.wd1.myworkdayjobs.com",
+      "site": "UMFaculty",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "uofl",
+    "company": "Louisville",
+    "extra": {
+      "host": "uofl.wd1.myworkdayjobs.com",
+      "site": "UofLCareerSite",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "njit",
+    "company": "Njit",
+    "extra": {
+      "host": "njit.wd108.myworkdayjobs.com",
+      "site": "NJIT_Careers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "rit",
+    "company": "RIT",
+    "extra": {
+      "host": "rit.wd12.myworkdayjobs.com",
+      "site": "careers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "smartrecruiters",
+    "token": "my-applications",
+    "company": "MY Applications"
+  },
+  {
+    "provider": "workday",
+    "token": "wisconsin",
+    "company": "Wisconsin",
+    "extra": {
+      "host": "wisconsin.wd1.myworkdayjobs.com",
+      "site": "UW_Milwaukee",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "brown",
+    "company": "Brown",
+    "extra": {
+      "host": "brown.wd5.myworkdayjobs.com",
+      "site": "staff-careers-brown",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "uchicago",
+    "company": "Uchicago",
+    "extra": {
+      "host": "uchicago.wd5.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "wustl",
+    "company": "Wustl",
+    "extra": {
+      "host": "wustl.wd1.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "georgetown",
+    "company": "Georgetown",
+    "extra": {
+      "host": "georgetown.wd1.myworkdayjobs.com",
+      "site": "Georgetown_Admin_Careers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "american",
+    "company": "American",
+    "extra": {
+      "host": "american.wd1.myworkdayjobs.com",
+      "site": "AU",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "brandeis",
+    "company": "Brandeis",
+    "extra": {
+      "host": "brandeis.wd5.myworkdayjobs.com",
+      "site": "Jobs",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "wpi",
+    "company": "WPI",
+    "extra": {
+      "host": "wpi.wd5.myworkdayjobs.com",
+      "site": "WPI_External_Career_Site",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "howard",
+    "company": "Howard",
+    "extra": {
+      "host": "howard.wd1.myworkdayjobs.com",
+      "site": "HU",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "ccf",
+    "company": "Clevelandclinic",
+    "extra": {
+      "host": "ccf.wd1.myworkdayjobs.com",
+      "site": "ClevelandClinicCareers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "massgeneralbrigham",
+    "company": "Massgeneralbrigham",
+    "extra": {
+      "host": "massgeneralbrigham.wd1.myworkdayjobs.com",
+      "site": "MGBExternal",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "gohealthuc",
+    "company": "Gohealthuc",
+    "extra": {
+      "host": "gohealthuc.wd12.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "ochsner",
+    "company": "Ochsner",
+    "extra": {
+      "host": "ochsner.wd1.myworkdayjobs.com",
+      "site": "Ochsner",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "sentara",
+    "company": "Sentara",
+    "extra": {
+      "host": "sentara.wd1.myworkdayjobs.com",
+      "site": "SCS",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "imh",
+    "company": "Intermountainhealthcare",
+    "extra": {
+      "host": "imh.wd108.myworkdayjobs.com",
+      "site": "IntermountainCareers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "sharp",
+    "company": "Sharp",
+    "extra": {
+      "host": "sharp.wd1.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "stanfordmedicine",
+    "company": "Stanfordhealthcare",
+    "extra": {
+      "host": "stanfordmedicine.wd115.myworkdayjobs.com",
+      "site": "SHC_External_Career_Site",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "stanfordhealthcare",
+    "company": "Stanfordhealthcare",
+    "extra": {
+      "host": "stanfordhealthcare.wd5.myworkdayjobs.com",
+      "site": "SHC_External_Career_Site",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "houstonmethodist",
+    "company": "Houstonmethodist",
+    "extra": {
+      "host": "houstonmethodist.wd12.myworkdayjobs.com",
+      "site": "GTI",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "ohiohealth",
+    "company": "Ohiohealth",
+    "extra": {
+      "host": "ohiohealth.wd5.myworkdayjobs.com",
+      "site": "OhioHealthJobs",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "saintlukes",
+    "company": "Saintlukes",
+    "extra": {
+      "host": "saintlukes.wd1.myworkdayjobs.com",
+      "site": "saintlukeshealthcareers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "promedica",
+    "company": "Promedica",
+    "extra": {
+      "host": "promedica.wd12.myworkdayjobs.com",
+      "site": "External_Careers",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "allina",
+    "company": "Allinahealth",
+    "extra": {
+      "host": "allina.wd5.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "sanford",
+    "company": "Sanfordhealth",
+    "extra": {
+      "host": "sanford.wd5.myworkdayjobs.com",
+      "site": "SanfordHealth",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "aah",
+    "company": "Aurorahealthcare",
+    "extra": {
+      "host": "aah.wd5.myworkdayjobs.com",
+      "site": "External",
+      "locale": "en-US"
+    }
+  },
+  {
+    "provider": "workday",
+    "token": "vumc",
+    "company": "Vumc",
+    "extra": {
+      "host": "vumc.wd1.myworkdayjobs.com",
+      "site": "vumccareers",
+      "locale": "en-US"
+    }
   }
 ]
