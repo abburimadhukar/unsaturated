@@ -13,6 +13,8 @@ interface Job {
   country: string | null;
   remoteType: string | null;
   seniority: string | null;
+  employmentType: string | null;
+  department: string | null;
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
@@ -86,7 +88,7 @@ function agoLabel(days: number | null): string {
 
 const DEFAULTS = {
   q: '', family: '', country: 'US', remote: '', seniority: '',
-  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true,
+  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true, employmentType: '',
   cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
 };
 
@@ -229,6 +231,16 @@ export default function Page() {
                 </select>
               </div>
               <div className="field">
+                <label>Employment type</label>
+                <select value={filters.employmentType} onChange={(e) => set('employmentType', e.target.value)}>
+                  <option value="">Any</option>
+                  <option value="fulltime">Full-time</option>
+                  <option value="contract">Contract</option>
+                  <option value="parttime">Part-time</option>
+                  <option value="intern">Internship</option>
+                </select>
+              </div>
+              <div className="field">
                 <label>Posted within</label>
                 <select value={filters.postedWithinDays} onChange={(e) => set('postedWithinDays', e.target.value)}>
                   <option value="">Any time</option>
@@ -353,6 +365,7 @@ export default function Page() {
                         <span className={`chip${j.seniority ? '' : ' unknown'}`}>
                           {j.seniority ?? 'level unknown'}
                         </span>
+                        {j.employmentType && <span className="chip">{j.employmentType}</span>}
                         {pay && <span className="chip pay">{pay}</span>}
                         {skills.length > 0 && j.fitKnown && (
                           <span className="chip match">

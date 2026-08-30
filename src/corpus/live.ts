@@ -31,6 +31,8 @@ export interface FeedJob {
   country: string | null;
   remoteType: string | null;
   seniority: string | null;
+  employmentType: string | null;
+  department: string | null;
   salaryMin: number | null;
   salaryMax: number | null;
   salaryCurrency: string | null;
@@ -181,6 +183,8 @@ async function loadBoard(board: CorpusBoard, now: number) {
         // Descriptions are only present after the backfill pass, so this is the
         // first point where a level can be read out of the text.
         seniority: job.seniority ?? inferSeniorityFromText(job.descriptionText) ?? null,
+        employmentType: job.employmentType ?? null,
+        department: job.department ?? null,
         salaryMin: job.salaryMin ?? parsedPay?.min ?? null,
         salaryMax: job.salaryMax ?? parsedPay?.max ?? null,
         salaryCurrency: job.salaryCurrency ?? parsedPay?.currency ?? null,
@@ -288,6 +292,7 @@ export interface FeedQuery {
   minSaturation?: number;
   minFit?: number;
   postedWithinDays?: number;
+  employmentType?: string;
   hasSalary?: boolean;
   minSalary?: number;
   ai?: boolean;
@@ -361,6 +366,15 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
 
   if (f.remote) rows = rows.filter((j) => pass(j.remoteType, f.remote!));
   if (f.seniority) rows = rows.filter((j) => pass(j.seniority, f.seniority!));
+  if (f.employmentType) {
+    // Normalised because vendors spell this every possible way: "Full-time",
+    // "FullTime", "full_time", "Permanent".
+    const want = f.employmentType.toLowerCase().replace(/[^a-z]/g, '');
+    rows = rows.filter((j) => {
+      if (!j.employmentType) return keepUnknown;
+      return j.employmentType.toLowerCase().replace(/[^a-z]/g, '').includes(want);
+    });
+  }
   if (f.family) rows = rows.filter((j) => j.family === f.family);
   if (f.provider) rows = rows.filter((j) => j.provider === f.provider);
   if (f.country) rows = rows.filter((j) => pass(j.country, f.country!));

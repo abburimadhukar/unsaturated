@@ -20,6 +20,7 @@ const PROBE_TOKENS: Record<AtsProvider, string> = {
   smartrecruiters: 'soprasteria1',
   breezy: 'breezy',
   personio: 'personio',
+  rippling: 'bizzycar',
   // Workday needs host + site as well as the tenant, so it is exercised by
   // `npm run discover` rather than by this single-token smoke test.
   workday: '',

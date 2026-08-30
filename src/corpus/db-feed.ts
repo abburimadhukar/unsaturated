@@ -21,6 +21,8 @@ interface JobRow {
   country: string | null;
   remote_type: string | null;
   seniority: string | null;
+  employment_type: string | null;
+  department: string | null;
   salary_min: number | null;
   salary_max: number | null;
   salary_currency: string | null;
@@ -51,6 +53,8 @@ function toFeedJob(r: JobRow, now: number): FeedJob {
     country: r.country,
     remoteType: r.remote_type,
     seniority: r.seniority,
+    employmentType: r.employment_type,
+    department: r.department,
     salaryMin: r.salary_min,
     salaryMax: r.salary_max,
     salaryCurrency: r.salary_currency,
@@ -104,7 +108,7 @@ export async function readFeed(): Promise<Feed | null> {
       .from('jobs')
       .select(
         'key,provider,board_token,company,title,location,country,remote_type,seniority,' +
-          'salary_min,salary_max,salary_currency,posted_at,apply_url,family,ai,' +
+          'employment_type,department,salary_min,salary_max,salary_currency,posted_at,apply_url,family,ai,' +
           'matched_skills,skill_score,ghost_risk',
       )
       .is('closed_at', null)
@@ -169,6 +173,8 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
     country: j.country,
     remote_type: j.remoteType,
     seniority: j.seniority,
+    employment_type: j.employmentType,
+    department: j.department,
     salary_min: j.salaryMin,
     salary_max: j.salaryMax,
     salary_currency: j.salaryCurrency,

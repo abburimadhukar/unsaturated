@@ -14,7 +14,7 @@ interface GreenhouseJob {
   content?: string;
   metadata?: { name?: string; value?: unknown }[] | null;
   departments?: { name?: string }[];
-  offices?: { name?: string }[];
+  offices?: { name?: string; location?: string }[];
 }
 
 /**
@@ -32,7 +32,11 @@ export const greenhouseAdapter: AtsAdapter = {
     const body = await getJson<{ jobs?: GreenhouseJob[] }>(url, 'greenhouse', board.token, ctx);
 
     return (body.jobs ?? []).map((job): NormalizedJob => {
-      const locationRaw = job.location?.name;
+      // offices[].location is a full "City, Region, Country" string where
+      // location.name is often just an office nickname ("Office - London"),
+      // which country inference cannot read.
+      const officeLocation = job.offices?.find((o) => o.location)?.location;
+      const locationRaw = officeLocation ?? job.location?.name;
       return {
         externalId: String(job.id),
         title: job.title,

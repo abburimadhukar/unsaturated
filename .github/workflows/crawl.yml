@@ -10,20 +10,16 @@ name: crawl
 
 on:
   schedule:
-    # Every 2 hours, at 17 past.
+    # Hourly, at 17 past.
     #
-    # Not hourly, because of the minutes budget: a run costs ~4.1 min, of which
-    # 174s is the Netlify deploy. Hourly would be ~2,950 min/month against the
-    # 2,000 free minutes a private repo gets - the workflow would simply stop
-    # partway through each month. Every 2 hours is ~1,480 min, which fits.
-    #
-    # This goes back to hourly once the crawler writes to Supabase instead of
-    # redeploying: without the deploy step a run is ~70s, and even hourly is
-    # only ~840 min.
+    # Affordable now that the crawler writes to Supabase instead of redeploying:
+    # a run is ~74s, so hourly costs ~890 min/month against the 2,000 a private
+    # repo gets free. The crawl-and-deploy path it replaced was ~4min, which
+    # would have overrun the budget by half.
     #
     # 17 past because GitHub delays scheduled jobs queued on the hour, and drops
     # them outright under load.
-    - cron: '17 */2 * * *'
+    - cron: '17 * * * *'
   workflow_dispatch: {}
 
 # A slow crawl must never overlap with the next one.

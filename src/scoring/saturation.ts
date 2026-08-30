@@ -64,6 +64,8 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   workday: 0.75,
   personio: 0.75,
   breezy: 0.85,
+  // Small-company boards that syndicate nowhere else.
+  rippling: 0.85,
 };
 
 /**
@@ -80,6 +82,7 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   personio: 0.5,
   smartrecruiters: 0.55,
   workday: 1,
+  rippling: 0.4,
 };
 
 /** Metro areas with the deepest local applicant pools. */

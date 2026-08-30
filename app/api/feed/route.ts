@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     sort: sortRaw && SORTS.includes(sortRaw) ? sortRaw : 'newest',
   };
 
-  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q'] as const) {
+  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType'] as const) {
     const v = str(key);
     if (v) query[key] = v;
   }

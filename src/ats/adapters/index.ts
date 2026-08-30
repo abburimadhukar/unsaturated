@@ -6,6 +6,7 @@ import { personioAdapter } from './personio.js';
 import { smartRecruitersAdapter } from './smartrecruiters.js';
 import { workableAdapter } from './workable.js';
 import { workdayAdapter } from './workday.js';
+import { ripplingAdapter } from './rippling.js';
 import type { AtsAdapter, AtsProvider } from '../types.js';
 
 /**
@@ -24,6 +25,7 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   breezy: breezyAdapter,
   personio: personioAdapter,
   workday: workdayAdapter,
+  rippling: ripplingAdapter,
 };
 
 export function getAdapter(provider: AtsProvider): AtsAdapter {

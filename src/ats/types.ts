@@ -13,7 +13,8 @@ export type AtsProvider =
   | 'smartrecruiters'
   | 'breezy'
   | 'personio'
-  | 'workday';
+  | 'workday'
+  | 'rippling';
 
 export interface BoardRef {
   provider: AtsProvider;

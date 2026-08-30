@@ -37,6 +37,7 @@ const PROBE_ORDER: AtsProvider[] = [
   'smartrecruiters',
   'breezy',
   'personio',
+  'rippling',
 ];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
