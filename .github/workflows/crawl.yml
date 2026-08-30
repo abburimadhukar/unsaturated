@@ -19,7 +19,13 @@ on:
     #
     # 17 past because GitHub delays scheduled jobs queued on the hour, and drops
     # them outright under load.
+    # Three slots an hour, not because we want three crawls but because
+    # GitHub fired only 1 of 7 scheduled slots on this repo. More attempts
+    # raise the odds one lands. The crawler itself refuses to run twice
+    # within 45 minutes, so redundant triggers exit in seconds.
     - cron: '17 * * * *'
+    - cron: '37 * * * *'
+    - cron: '57 * * * *'
   workflow_dispatch: {}
 
 # A slow crawl must never overlap with the next one.

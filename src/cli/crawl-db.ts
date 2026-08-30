@@ -8,9 +8,43 @@
  */
 import { refreshFeed } from '../corpus/live.js';
 import { writeFeed } from '../corpus/db-feed.js';
+import { db } from '../db/supabase.js';
+
+/**
+ * Skip if the corpus was refreshed very recently.
+ *
+ * GitHub drops most scheduled runs on a free private repo, so the schedule
+ * carries several slots per hour to raise the odds one of them fires. This
+ * guard is what makes that safe: duplicate triggers exit in seconds instead of
+ * re-crawling a thousand boards and burning the minutes budget.
+ */
+const MIN_GAP_MINUTES = 45;
+
+async function recentlyCrawled(): Promise<boolean> {
+  if (process.argv.includes('--force')) return false;
+  try {
+    const { data } = await db()
+      .from('crawl_runs')
+      .select('finished_at')
+      .not('finished_at', 'is', null)
+      .order('finished_at', { ascending: false })
+      .limit(1);
+    const last = data?.[0]?.finished_at as string | undefined;
+    if (!last) return false;
+    const mins = (Date.now() - Date.parse(last)) / 60_000;
+    if (mins < MIN_GAP_MINUTES) {
+      console.log(`Last crawl was ${mins.toFixed(0)} min ago (< ${MIN_GAP_MINUTES}); skipping.`);
+      return true;
+    }
+  } catch {
+    // Cannot tell how stale it is — crawl rather than skip.
+  }
+  return false;
+}
 
 async function main(): Promise<void> {
   const started = Date.now();
+  if (await recentlyCrawled()) return;
   console.log('Crawling all boards…');
 
   const feed = await refreshFeed();

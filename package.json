@@ -19,7 +19,8 @@
     "dev:legacy": "tsx src/web/server.ts",
     "snapshot": "tsx src/cli/snapshot.ts",
     "crawl:db": "tsx src/cli/crawl-db.ts",
-    "harvest:hn": "tsx src/cli/harvest-hn.ts"
+    "harvest:hn": "tsx src/cli/harvest-hn.ts",
+    "harvest:names": "tsx src/cli/harvest-names.ts"
   },
   "dependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",
