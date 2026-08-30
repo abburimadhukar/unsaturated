@@ -115,7 +115,7 @@ const HRIS_SKILLS: SkillTerm[] = [
 // ---------------------------------------------------------------------------
 
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems engineer|system engineer|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|mlops|ml ?platform|ai infrastructure|technical operations|techops|site operations)\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems engineer|system engineer|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|mlops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
 
 const SOFTWARE_TITLES =
   /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
@@ -166,7 +166,11 @@ const GLOBAL_EXCLUSIONS: [RegExp, string][] = [
   [/\b(accountant|accounting|controller|bookkeep)\b/i, 'accounting'],
   [/\b(counsel|attorney|paralegal|legal|compliance officer)\b/i, 'legal'],
   [/\b(designer|creative director|illustrator|\bux\b)\b/i, 'design'],
-  [/\b(developer relations|developer advocate|evangelist|technical writer)\b/i, 'devrel/docs'],
+  [/\b(developer relations|developer advocate|devrel|evangelist|technical writer)\b/i, 'devrel/docs'],
+  // Drafts left on public boards; not real openings.
+  [/^copy of\b/i, 'draft'],
+  // Revenue-side engineering roles, not the four families.
+  [/\b(gtm|go.to.market|growth (content )?engineer|deal desk)\b/i, 'revenue'],
   [/\b(solutions?|sales|customer success|customer reliability|implementation)\s+(engineer|architect|consultant|manager)\b/i, 'customer-facing'],
   [/\bsales\b|\bbusiness development\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
   [/\b(financial analyst|finance manager|treasury|investor relations)\b/i, 'finance'],
@@ -213,10 +217,10 @@ interface FamilySpec {
  * the catch-all.
  */
 const SPECS: FamilySpec[] = [
-  { id: 'hris', titles: HRIS_TITLES, skills: HRIS_SKILLS, threshold: 7 },
-  { id: 'data', titles: DATA_TITLES, skills: DATA_SKILLS, threshold: 7 },
-  { id: 'cloud', titles: CLOUD_TITLES, skills: CLOUD_SKILLS, threshold: 7 },
-  { id: 'software', titles: SOFTWARE_TITLES, skills: SOFTWARE_SKILLS, threshold: 7 },
+  { id: 'hris', titles: HRIS_TITLES, skills: HRIS_SKILLS, threshold: 5 },
+  { id: 'data', titles: DATA_TITLES, skills: DATA_SKILLS, threshold: 5 },
+  { id: 'cloud', titles: CLOUD_TITLES, skills: CLOUD_SKILLS, threshold: 5 },
+  { id: 'software', titles: SOFTWARE_TITLES, skills: SOFTWARE_SKILLS, threshold: 5 },
 ];
 
 function matchSkills(terms: SkillTerm[], haystack: string): { score: number; names: string[] } {
@@ -251,7 +255,11 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   // "Platform Engineering" and "Platform Engineer" are the same role, but every
   // title pattern below is written in the singular. Normalising here is one
   // change instead of doubling every alternative in four large regexes.
-  const titleForMatch = title.replace(/\bengineering\b/gi, 'engineer');
+  const titleForMatch = title
+    .replace(/\bengineering\b/gi, 'engineer')
+    // Hyphenated compounds are the same words: 'Forward-Deployed',
+    // 'Full-Stack', 'Front-End' all failed against space-separated patterns.
+    .replace(/-/g, ' ');
 
   // Pass 1 — a matching title is the strongest signal available.
   for (const spec of SPECS) {
@@ -282,4 +290,18 @@ export function extractSkills(text: string): string[] {
     for (const t of terms) if (t.pattern.test(text)) found.add(t.canonical);
   }
   return [...found];
+}
+
+/**
+ * Per-family skill scores for a job, regardless of what classifyRole decided.
+ *
+ * classifyRole only reports a score once a family has won, so every near-miss
+ * looks identical to a job with no signal at all. Tuning the threshold is
+ * guesswork without this.
+ */
+export function debugScores(job: NormalizedJob): Record<Family, number> {
+  const haystack = `${job.title} ${(job.descriptionText ?? '').slice(0, 4000)}`;
+  const out = {} as Record<Family, number>;
+  for (const spec of SPECS) out[spec.id] = matchSkills(spec.skills, haystack).score;
+  return out;
 }
