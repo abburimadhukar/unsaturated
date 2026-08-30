@@ -26,7 +26,12 @@ on:
     - cron: '17 * * * *'
     - cron: '37 * * * *'
     - cron: '57 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Crawl even if the corpus was refreshed in the last 45 minutes'
+        type: boolean
+        default: false
 
 # A slow crawl must never overlap with the next one.
 concurrency:
@@ -65,7 +70,7 @@ jobs:
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
-        run: npm run crawl:db
+        run: npm run crawl:db -- ${{ inputs.force && '--force' || '' }}
 
       # Fallback while the service-role key is missing: bake a snapshot and
       # redeploy. Slower and costlier in Actions minutes, but it keeps the site
