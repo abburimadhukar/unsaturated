@@ -110,14 +110,24 @@ Only four kinds of job are kept:
 **AI is a tag, not a family.** AI infrastructure is a cloud job, ML engineering is
 a data job, LLM app work is a software job. They are labelled, not separated.
 
-**The trick: it matches on skills, not job titles.** In this industry the same
-job is called DevOps Engineer, SRE, Platform Engineer or Infrastructure Engineer
-depending purely on company fashion — measured on a million-job index,
-"devops engineer" and "kubernetes engineer" return near-identical counts because
-they are the same population. So a job qualifies on the tools it mentions.
+**Two signals, checked in order: the title, then the tools.**
 
-HRIS is the exception and matches on titles, because those roles are not defined
-by a tech stack — an HRIS Analyst is defined by the product they administer.
+The title is tried first, against a list of every name the same job goes by —
+DevOps Engineer, SRE, Platform Engineer and Infrastructure Engineer are one role
+under four fashions. Measured on a million-job index, "devops engineer" and
+"kubernetes engineer" return near-identical counts because they are the same
+population.
+
+But titles lie. A job called "Software Engineer" whose description is all Spark,
+Airflow and Snowflake is a data role. So when a title matches a family and the
+description clearly points somewhere else, the tools win.
+
+And when the title says nothing useful — "Member of Technical Staff", "Staff
+Engineer" — the tools decide on their own.
+
+HRIS is the exception: its titles are authoritative and never overridden,
+because those roles are defined by the product someone administers rather than
+by a tech stack, so they carry no tool fingerprint at all.
 
 ---
 

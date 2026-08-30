@@ -235,6 +235,27 @@ function matchSkills(terms: SkillTerm[], haystack: string): { score: number; nam
   return { score, names: [...found.keys()] };
 }
 
+/**
+ * The best-scoring family other than `exclude`, if one clears its threshold and
+ * beats the score the title-matched family managed.
+ */
+function strongestOtherFamily(
+  exclude: Family,
+  haystack: string,
+  beat: number,
+): RoleClassification | null {
+  let best: RoleClassification | null = null;
+  for (const spec of SPECS) {
+    if (spec.id === exclude || spec.id === 'hris') continue;
+    const { score, names } = matchSkills(spec.skills, haystack);
+    if (score < spec.threshold || score <= beat) continue;
+    if (!best || score > best.score) {
+      best = { family: spec.id, score, matchedSkills: names, titleMatched: false, ai: false };
+    }
+  }
+  return best;
+}
+
 export function classifyRole(job: NormalizedJob): RoleClassification {
   const title = job.title;
   // Descriptions are capped — past a few thousand characters we are matching
@@ -261,11 +282,26 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     // 'Full-Stack', 'Front-End' all failed against space-separated patterns.
     .replace(/-/g, ' ');
 
-  // Pass 1 — a matching title is the strongest signal available.
+  // Pass 1 — a matching title, but only if the description does not clearly
+  // disagree with it.
+  //
+  // "Software Engineer" describing Spark, Airflow, dbt and Snowflake is a data
+  // role wearing a generic title. Returning on the title alone filed it as
+  // software with zero matched skills, which also left resume matching with
+  // nothing to compare against.
   for (const spec of SPECS) {
     if (!spec.titles.test(titleForMatch)) continue;
     if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(titleForMatch)) continue;
+
     const { score, names } = matchSkills(spec.skills, haystack);
+
+    // HRIS is title-authoritative: those roles are defined by the product they
+    // administer, not by a tech stack, so they never carry a skill fingerprint.
+    if (spec.id !== 'hris' && score < spec.threshold) {
+      const better = strongestOtherFamily(spec.id, haystack, score);
+      if (better) return { ...better, titleMatched: false, ai };
+    }
+
     return { family: spec.id, score, matchedSkills: names, titleMatched: true, ai };
   }
 
