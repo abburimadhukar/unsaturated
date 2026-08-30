@@ -46,7 +46,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           # Caching npm keeps each run near a minute, which matters against the
           # 2,000 minute/month budget on a private repo.
           cache: npm

@@ -13,7 +13,7 @@
   publish = ".next"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
   # Keep the build-time crawl polite and inside Netlify's build window.
   CRAWLER_CONCURRENCY = "8"
   CRAWLER_DELAY_MS = "120"
