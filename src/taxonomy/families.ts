@@ -155,7 +155,12 @@ const GLOBAL_EXCLUSIONS: [RegExp, string][] = [
   [/\b(help ?desk|service desk|desktop support|field (service|technician))\b/i, 'end-user support'],
   [/\b(intern|internship|co[- ]?op)\b/i, 'internship'],
   [/\b(nurse|physician|therapist|clinician|caregiver|pharmacist|dental|veterinar)\b/i, 'clinical'],
-  [/\b(driver|warehouse|forklift|janitor|custodian|security officer|guard)\b/i, 'manual'],
+  [/\b(forklift|janitor|custodian|security officer|guard)\b/i, 'manual'],
+  // "warehouse" and "driver" each have an engineering homograph, and the blunt
+  // word was dropping real roles: "Cloud Data Warehouse Engineer" was filed as
+  // warehouse labour, and any device-driver role as delivery driving.
+  [/(?<!\bdata\s)\bwarehous(e|ing)\b/i, 'manual'],
+  [/(?<!\b(device|kernel|linux|display|gpu|storage|network)\s)\bdrivers?\b(?!\s+(engineer|developer|development))/i, 'manual'],
   [/\b(teacher|professor|lecturer|faculty)\b/i, 'education'],
   [/\b(marketing|content writer|copywriter|social media|seo specialist)\b/i, 'marketing'],
 
