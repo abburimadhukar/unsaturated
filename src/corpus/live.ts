@@ -85,15 +85,20 @@ export interface Feed {
  */
 interface CacheShape {
   cached: Feed | null;
+  /** When `cached` was populated, for expiry. */
+  cachedAt: number;
   inFlight: Promise<Feed> | null;
 }
+/** How long a served feed may be reused before re-reading the database. */
+const FEED_CACHE_MS = 60_000;
+
 const CACHE_KEY = Symbol.for('unsaturated.corpus');
 
 function cache(): CacheShape {
   const g = globalThis as unknown as Record<symbol, CacheShape | undefined>;
   let existing = g[CACHE_KEY];
   if (!existing) {
-    existing = { cached: null, inFlight: null };
+    existing = { cached: null, cachedAt: 0, inFlight: null };
     g[CACHE_KEY] = existing;
   }
   return existing;
@@ -251,7 +256,10 @@ export async function refreshFeed(): Promise<Feed> {
 
 export async function getFeed(): Promise<Feed> {
   const c = cache();
-  if (c.cached) return c.cached;
+  // Expire the cache. Without a TTL a warm serverless instance serves whatever
+  // it first read for as long as it stays alive — the crawler would update the
+  // database hourly and the site would keep showing hours-old data.
+  if (c.cached && Date.now() - c.cachedAt < FEED_CACHE_MS) return c.cached;
 
   // Source order: database, then the build snapshot, then a live crawl.
   //
@@ -264,6 +272,7 @@ export async function getFeed(): Promise<Feed> {
     const fromDb = await readFeed();
     if (fromDb && fromDb.jobs.length > 0) {
       c.cached = fromDb;
+      c.cachedAt = Date.now();
       return fromDb;
     }
   } catch (err) {
@@ -273,6 +282,7 @@ export async function getFeed(): Promise<Feed> {
   const snap = await loadSnapshot();
   if (snap) {
     c.cached = { ...snap, source: 'snapshot' };
+    c.cachedAt = Date.now();
     return c.cached;
   }
 
