@@ -55,6 +55,12 @@ export interface FeedJob {
 export interface BoardHealth {
   company: string;
   provider: AtsProvider;
+  /**
+   * The board's own token. Company names are not unique — 13 of them run two
+   * boards each — so closing stale jobs has to key on provider+token or a
+   * healthy board authorises closing a failing sibling's postings.
+   */
+  token?: string;
   jobs: number;
   kept: number;
   /** Descriptions fetched by the backfill pass. */
@@ -109,6 +115,7 @@ async function loadBoard(board: CorpusBoard, now: number) {
   const health: BoardHealth = {
     company: board.company,
     provider: board.provider,
+    token: board.token,
     jobs: 0,
     kept: 0,
     ms: 0,
@@ -244,6 +251,10 @@ export async function refreshFeed(): Promise<Feed> {
       refreshedAt: new Date().toISOString(),
       source: 'live',
     };
+    // Stamp the cache we just filled. Without this getFeed's TTL check reads a
+    // cachedAt of 0, treats the fresh crawl as already expired, and re-crawls
+    // every board on the very next request.
+    c.cachedAt = Date.now();
     return c.cached;
   })();
 

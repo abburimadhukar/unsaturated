@@ -1,5 +1,5 @@
 import { extractSkills } from '../taxonomy/families.js';
-import { db } from '../db/supabase.js';
+import { db, dbWrite } from '../db/supabase.js';
 
 /**
  * User state: resume skills, and which jobs have been seen or opened.
@@ -106,7 +106,7 @@ export async function setProfileSkills(skills: string[]): Promise<Profile> {
 
 async function persistProfile(profile: Profile): Promise<void> {
   try {
-    await db().from('user_state').upsert(
+    await dbWrite().from('user_state').upsert(
       {
         user_id: USER_ID,
         skills: profile.skills,
@@ -132,7 +132,7 @@ export async function markApplied(key: string): Promise<void> {
 
 async function mark(key: string, flags: { seen: boolean; applied: boolean }): Promise<void> {
   try {
-    await db().from('job_events').upsert(
+    await dbWrite().from('job_events').upsert(
       { user_id: USER_ID, job_key: key, seen: flags.seen, applied: flags.applied, at: new Date().toISOString() },
       { onConflict: 'user_id,job_key' },
     );

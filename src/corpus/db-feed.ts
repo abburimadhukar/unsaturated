@@ -117,6 +117,10 @@ export async function readFeed(): Promise<Feed | null> {
       // excluding them would silently drop those boards entirely.
       .or(`posted_at.gte.${cutoff},posted_at.is.null`)
       .order('posted_at', { ascending: false, nullsFirst: false })
+      // Tiebreaker. posted_at is heavily non-unique — ATS feeds stamp a whole
+      // board at once — and Postgres gives no stable order within a tie, so
+      // paging could duplicate or skip rows whose page boundary fell inside one.
+      .order('key', { ascending: true })
       .range(from, from + PAGE - 1);
 
     if (error) {
@@ -155,6 +159,10 @@ export async function readFeed(): Promise<Feed | null> {
  */
 export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed: number }> {
   const client = dbWrite();
+  // crawl_runs.started_at defaulted to now() at INSERT time, which is stamped
+  // milliseconds AFTER the client-supplied finished_at — so every row recorded a
+  // negative duration and the table could not answer "how long did that take".
+  const startedAt = new Date().toISOString();
 
   // Deduplicate by key before writing. Workday reuses one requisition id across
   // every location a role is posted in, so the same key can appear several times
@@ -193,28 +201,54 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await client.from('jobs').upsert(chunk, { onConflict: 'key' });
+    // count:'exact' so jobs_upserted records rows actually written rather than
+    // rows attempted — the old counter reported the input size unconditionally,
+    // which would read as a full success even if nothing changed.
+    const { error, count } = await client
+      .from('jobs')
+      .upsert(chunk, { onConflict: 'key', count: 'exact' });
     if (error) throw new Error(`supabase upsert failed: ${error.message}`);
-    upserted += chunk.length;
+    upserted += count ?? chunk.length;
   }
 
   // Close postings that vanished, but only on boards that returned data this
   // run — otherwise one failing board would wipe its entire history.
-  const healthyTokens = new Set(
-    feed.boards.filter((b) => !b.error && b.jobs > 0).map((b) => b.company),
+  //
+  // Scoped by provider+token rather than company name. Thirteen companies in the
+  // board list run two boards each, so matching on the name alone let a healthy
+  // Greenhouse board authorise closing every job from the same company's failing
+  // Ashby board — the exact wipe this scoping exists to prevent.
+  const healthyBoards = new Set(
+    feed.boards
+      .filter((b) => !b.error && b.jobs > 0 && b.token)
+      .map((b) => `${b.provider}:${b.token}`),
   );
   const seenKeys = new Set(feed.jobs.map((j) => j.key));
   let closed = 0;
 
-  if (healthyTokens.size > 0 && seenKeys.size > 0) {
-    const { data } = await client
-      .from('jobs')
-      .select('key,company')
-      .is('closed_at', null);
-    const stale = (data ?? [])
-      .filter((r) => healthyTokens.has((r as { company: string }).company))
-      .filter((r) => !seenKeys.has((r as { key: string }).key))
-      .map((r) => (r as { key: string }).key);
+  if (healthyBoards.size > 0 && seenKeys.size > 0) {
+    // Paged. A bare select is capped at 1000 rows by PostgREST, so with 3,535
+    // open jobs, 72% of them were structurally unclosable — they stayed on the
+    // site forever after the employer withdrew them. Ordered by key so the
+    // page boundaries are stable across requests.
+    const open: { key: string; provider: string; board_token: string }[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await client
+        .from('jobs')
+        .select('key,provider,board_token')
+        .is('closed_at', null)
+        .order('key', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw new Error(`supabase close-scan failed: ${error.message}`);
+      const batch = (data ?? []) as unknown as typeof open;
+      open.push(...batch);
+      if (batch.length < PAGE) break;
+    }
+
+    const stale = open
+      .filter((r) => healthyBoards.has(`${r.provider}:${r.board_token}`))
+      .filter((r) => !seenKeys.has(r.key))
+      .map((r) => r.key);
 
     for (let i = 0; i < stale.length; i += CHUNK) {
       const chunk = stale.slice(i, i + CHUNK);
@@ -222,11 +256,31 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
         .from('jobs')
         .update({ closed_at: new Date().toISOString() })
         .in('key', chunk);
-      if (!error) closed += chunk.length;
+      // Previously a failed close just failed to increment the counter, so a
+      // broken close pass was indistinguishable from having nothing to close.
+      if (error) {
+        console.error(`close failed for ${chunk.length} jobs: ${error.message}`);
+        continue;
+      }
+      closed += chunk.length;
     }
   }
 
+  // A crawl that persisted nothing must never stamp the corpus fresh. readFeed's
+  // staleness guard only looks at the newest run's finished_at, so a total
+  // pipeline failure used to be served as the previous run's rows under a
+  // brand-new "updated 1m ago" — the failure mode hardest to notice. Throwing
+  // instead leaves the corpus honestly stale and turns the workflow red.
+  if (rows.length === 0) {
+    const failed = feed.boards.filter((b) => b.error).length;
+    throw new Error(
+      `crawl persisted zero jobs (${failed} of ${feed.boards.length} boards failed) — ` +
+        'refusing to mark the corpus fresh',
+    );
+  }
+
   await client.from('crawl_runs').insert({
+    started_at: startedAt,
     finished_at: new Date().toISOString(),
     boards_total: feed.boards.length,
     boards_ok: feed.boards.filter((b) => !b.error).length,

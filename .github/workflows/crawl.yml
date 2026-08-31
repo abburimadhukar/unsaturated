@@ -10,22 +10,19 @@ name: crawl
 
 on:
   schedule:
-    # Hourly, at 17 past.
+    # Six slots an hour, not because we want six crawls but because GitHub's
+    # scheduler is unreliable: measured over 22 hours, 1 of 66 declared slots
+    # actually fired (1.5%), leaving a 12.4-hour gap with no crawl at all. Every
+    # green run in that window was triggered by hand.
     #
-    # Affordable now that the crawler writes to Supabase instead of redeploying:
-    # a run is ~74s, so hourly costs ~890 min/month against the 2,000 a private
-    # repo gets free. The crawl-and-deploy path it replaced was ~4min, which
-    # would have overrun the budget by half.
+    # The crawler refuses to run twice within 45 minutes, so at most one or two
+    # of these do real work and the rest exit in seconds. The repo is public, so
+    # Actions minutes are unmetered — the old "2,000 minutes on a private repo"
+    # budget this cadence was tuned against no longer applies.
     #
-    # 17 past because GitHub delays scheduled jobs queued on the hour, and drops
-    # them outright under load.
-    # Three slots an hour, not because we want three crawls but because
-    # GitHub fired only 1 of 7 scheduled slots on this repo. More attempts
-    # raise the odds one lands. The crawler itself refuses to run twice
-    # within 45 minutes, so redundant triggers exit in seconds.
-    - cron: '17 * * * *'
-    - cron: '37 * * * *'
-    - cron: '57 * * * *'
+    # Offset off the hour because GitHub delays jobs queued on the hour and
+    # drops them outright under load.
+    - cron: '7,17,27,37,47,57 * * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -33,15 +30,23 @@ on:
         type: boolean
         default: false
 
-# A slow crawl must never overlap with the next one.
+# A slow crawl must never overlap with the next one — nor with a deploy, which
+# runs its own full crawl to bake the snapshot. Sharing one group with deploy.yml
+# stops both sweeping all 1,437 boards at once: 16 simultaneous connections
+# presented to the same ATS vendors under a single user agent is exactly the
+# behaviour the crawler's concurrency limit exists to avoid.
 concurrency:
-  group: crawl
+  group: crawl-or-deploy
   cancel-in-progress: false
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Needed by the failure step below, which files/updates an issue.
+    permissions:
+      contents: read
+      issues: write
 
     # GitHub forbids the `secrets` context inside a step-level `if:`, so the
     # presence check is resolved once here into a plain env var the steps can
@@ -84,3 +89,26 @@ jobs:
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
         run: npx --yes netlify-cli@latest deploy --build --prod
+
+      # Make failure visible. Until now the only signal was a red square in the
+      # Actions tab that nobody checks — so the pipeline could stop entirely
+      # while the site kept serving plausible-looking data under a recent
+      # timestamp. One open issue is kept and reused rather than filing a new
+      # one per failure.
+      - name: Raise an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list --label crawl-failure --state open \
+            --json number --jq '.[0].number // empty')
+          body="Crawl run failed: $RUN_URL
+
+          The corpus was not refreshed. If this keeps failing the site will fall
+          back to the build-time snapshot after 6 hours."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title 'Crawl is failing' --label crawl-failure --body "$body"
+          fi

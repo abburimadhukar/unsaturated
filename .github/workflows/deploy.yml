@@ -21,9 +21,13 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
+# Shares a group with crawl.yml. `netlify deploy --build` runs the snapshot
+# crawl, so a deploy and a scheduled crawl overlapping means two full 1,437-board
+# sweeps at once. cancel-in-progress is off because the thing we might cancel is
+# a crawl mid-write, not just a redundant deploy.
 concurrency:
-  group: deploy
-  cancel-in-progress: true
+  group: crawl-or-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
