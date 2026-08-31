@@ -22,6 +22,18 @@ const URL = process.env.SUPABASE_URL ?? 'https://vupjabahniolbnbmeidk.supabase.c
 const PUBLISHABLE =
   process.env.SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_BUdygNHc_QserbZ0tSJBWg_pGBwmfYq';
 
+// Both defaults point at production. That is convenient and it is also how a
+// misconfiguration hides: set SUPABASE_URL to staging, forget the key, and you
+// get production's key against staging's host — auth fails, readFeed returns
+// null, the site quietly serves the build snapshot, and nothing distinguishes
+// that from an ordinary outage. Say so once at startup instead.
+if (process.env.SUPABASE_URL && !process.env.SUPABASE_PUBLISHABLE_KEY) {
+  console.warn(
+    'SUPABASE_URL is set but SUPABASE_PUBLISHABLE_KEY is not — ' +
+      'falling back to the built-in production key, which will not match a different host.',
+  );
+}
+
 let readClient: SupabaseClient | null = null;
 let writeClient: SupabaseClient | null = null;
 

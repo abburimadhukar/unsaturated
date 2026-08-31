@@ -100,10 +100,13 @@ export const workdayAdapter: AtsAdapter = {
       for (const p of postings) {
         if (!p.title) continue;
         const externalPath = p.externalPath ?? '';
-        // bulletFields normally carries the requisition id, which is the only
-        // stable identifier Workday exposes on the list endpoint.
+        // externalPath first: it is the canonical URL path and always unique.
+        // bulletFields normally carries the requisition id, but it is a
+        // tenant-configured display list — a tenant that puts the location or
+        // the posting date in slot 0 gives every job on the board the same id,
+        // or one that changes daily.
         const reqId = p.bulletFields?.[0];
-        const externalId = reqId ?? (externalPath || p.title);
+        const externalId = externalPath || reqId || p.title;
         const listingUrl = externalPath
           ? `https://${host}/${locale}/${site}${externalPath}`
           : undefined;
@@ -163,8 +166,31 @@ export function parsePostedOn(text: string | undefined, now = Date.now()): Date 
   const days = /(\d+)\s*days?\s*ago/.exec(t);
   if (days?.[1]) return new Date(now - Number(days[1]) * 86_400_000);
 
-  const months = /(\d+)\s*months?\s*ago/.exec(t);
-  if (months?.[1]) return new Date(now - Number(months[1]) * 30 * 86_400_000);
+  // Weeks were missing entirely, so "Posted 3 Weeks Ago" — a shape Workday
+  // emits constantly — returned undefined. Undated jobs are exempt from the
+  // 21-day retention cutoff, so those postings never aged out at all.
+  const weeks = /(\d+)\+?\s*weeks?\s*ago/.exec(t);
+  if (weeks?.[1]) return startOfDay(now - Number(weeks[1]) * 7 * 86_400_000);
+
+  const months = /(\d+)\+?\s*months?\s*ago/.exec(t);
+  if (months?.[1]) return startOfDay(now - Number(months[1]) * 30 * 86_400_000);
+
+  const hours = /(\d+)\+?\s*hours?\s*ago/.exec(t);
+  if (hours?.[1]) return startOfDay(now);
+
+  // Some tenants configure a real date rather than prose.
+  const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (iso) {
+    const ms = Date.parse(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00Z`);
+    if (Number.isFinite(ms)) return new Date(ms);
+  }
+  const mdy = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/.exec(t);
+  if (mdy) {
+    const ms = Date.parse(
+      `${mdy[3]}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}T00:00:00Z`,
+    );
+    if (Number.isFinite(ms)) return new Date(ms);
+  }
 
   return undefined;
 }

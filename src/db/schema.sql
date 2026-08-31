@@ -1,220 +1,157 @@
--- Unsaturated: schema for the shared job corpus + per-tenant application pipeline.
+-- Supabase schema, as it actually exists.
 --
--- Tenancy rule: companies/boards/jobs are GLOBAL. Saturation is a property of a
--- job, not of an applicant, so one crawl and one scoring pass serves every user.
--- Only candidate_profiles and applications are per-tenant. Crawl cost stays flat
--- as users are added.
+-- This file previously described a nine-table Postgres design that was never
+-- built: it declared `companies`, `job_repost_events`, `job_scores`, `users`,
+-- `candidate_profiles` and `applications`, keyed `jobs` on a uuid with
+-- UNIQUE(board_id, external_id), and omitted `user_state` and `job_events` —
+-- the two tables the running application depends on. Its `crawl_runs` used
+-- column names the crawler does not write, so applying it would have rejected
+-- the crawler's own insert. Anyone reading it to understand the data model
+-- learned a fiction.
 --
--- PII rule: everything personally identifying lives in candidate_profiles alone,
--- so deletion is a single-row cascade rather than a hunt across the schema.
-
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Five tables, matching production. Safe to re-run.
 
 -- ---------------------------------------------------------------------------
--- Shared corpus
+-- jobs — one row per posting, keyed by "provider:token:externalId"
 -- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS companies (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  domain        text UNIQUE,           -- canonical identity; null for ATS-only companies
-  name          text NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now()
+create table if not exists public.jobs (
+  key             text primary key,
+  provider        text not null,
+  board_token     text not null,
+  company         text not null,
+  title           text not null,
+  location        text,
+  country         text,
+  remote_type     text,
+  seniority       text,
+  employment_type text,
+  department      text,
+  salary_min      numeric,
+  salary_max      numeric,
+  salary_currency text,
+  posted_at       timestamptz,
+  apply_url       text,
+  family          text,
+  ai              boolean not null default false,
+  matched_skills  text[]  not null default '{}',
+  skill_score     integer not null default 0,
+  ghost_risk      numeric not null default 0,
+  -- When we first stored the row. Undated postings expire on this, so a
+  -- provider that publishes no dates cannot accumulate forever.
+  first_seen_at   timestamptz not null default now(),
+  last_seen_at    timestamptz not null default now(),
+  -- Set when a posting stops appearing on a board that crawled successfully.
+  closed_at       timestamptz
 );
 
--- A board is one (ATS provider, tenant token) pair -- e.g. ('lever','lyrahealth').
--- This table IS the token registry; the resolver's job is to fill it.
-CREATE TABLE IF NOT EXISTS boards (
-  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_id         uuid REFERENCES companies(id) ON DELETE SET NULL,
-  provider           text NOT NULL,
-  token              text NOT NULL,
-  -- Some providers need a second path segment (Workday site, Personio locale).
-  extra              jsonb NOT NULL DEFAULT '{}'::jsonb,
-  active             boolean NOT NULL DEFAULT true,
-  last_crawled_at    timestamptz,
-  last_success_at    timestamptz,
-  consecutive_failures int NOT NULL DEFAULT 0,
-  last_error         text,
-  discovered_via     text,             -- 'apply_url' | 'manual' | 'careers_probe'
-  created_at         timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (provider, token)
+create index if not exists jobs_open_posted_idx
+  on public.jobs (posted_at desc nulls last) where closed_at is null;
+create index if not exists jobs_family_idx on public.jobs (family) where closed_at is null;
+create index if not exists jobs_country_idx on public.jobs (country) where closed_at is null;
+
+-- ---------------------------------------------------------------------------
+-- boards — vestigial. The crawler reads discovered-boards.json, not this table.
+-- ---------------------------------------------------------------------------
+create table if not exists public.boards (
+  id                   uuid primary key default gen_random_uuid(),
+  provider             text not null,
+  token                text not null,
+  company              text not null,
+  extra                jsonb not null default '{}',
+  active               boolean not null default true,
+  last_crawled_at      timestamptz,
+  last_error           text,
+  consecutive_failures integer not null default 0,
+  created_at           timestamptz not null default now(),
+  unique (provider, token)
 );
 
-CREATE INDEX IF NOT EXISTS boards_crawl_order_idx
-  ON boards (active, last_crawled_at NULLS FIRST);
-
-CREATE TABLE IF NOT EXISTS jobs (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  board_id         uuid NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-  external_id      text NOT NULL,      -- the ATS's own id
-
-  title            text NOT NULL,
-  description_text text,
-  description_html text,
-
-  location_raw     text,
-  country          text,
-  region           text,
-  city             text,
-  remote_type      text,               -- 'fully_remote' | 'hybrid' | 'on_site' | null
-  employment_type  text,
-  department       text,
-  team             text,
-  seniority        text,
-
-  salary_min       numeric,
-  salary_max       numeric,
-  salary_currency  text,
-
-  apply_url        text,
-  listing_url      text,
-
-  -- posted_at comes from the ATS itself, which is why direct ingest matters:
-  -- aggregators overwrite it with their own crawl date and destroy the signal.
-  posted_at        timestamptz,
-
-  -- content_hash detects edits; identity_hash detects the SAME ROLE relisted
-  -- under a new external_id, which is how ghost jobs are caught.
-  content_hash     text NOT NULL,
-  identity_hash    text NOT NULL,
-
-  first_seen_at    timestamptz NOT NULL DEFAULT now(),
-  last_seen_at     timestamptz NOT NULL DEFAULT now(),
-  closed_at        timestamptz,        -- set when it stops appearing in the feed
-
-  raw              jsonb NOT NULL,
-  created_at       timestamptz NOT NULL DEFAULT now(),
-  updated_at       timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (board_id, external_id)
-);
-
-CREATE INDEX IF NOT EXISTS jobs_open_idx        ON jobs (closed_at) WHERE closed_at IS NULL;
-CREATE INDEX IF NOT EXISTS jobs_identity_idx    ON jobs (identity_hash);
-CREATE INDEX IF NOT EXISTS jobs_posted_at_idx   ON jobs (posted_at DESC NULLS LAST);
-CREATE INDEX IF NOT EXISTS jobs_board_idx       ON jobs (board_id);
-
--- A role that closes and reopens with the same identity is either a ghost job or
--- an evergreen staffing req. Either way it is low-signal, and this is the table
--- the ghost classifier reads in Phase 2.
-CREATE TABLE IF NOT EXISTS job_repost_events (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  identity_hash    text NOT NULL,
-  board_id         uuid NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
-  previous_job_id  uuid REFERENCES jobs(id) ON DELETE SET NULL,
-  new_job_id       uuid REFERENCES jobs(id) ON DELETE CASCADE,
-  gap_days         numeric,
-  detected_at      timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS job_repost_identity_idx ON job_repost_events (identity_hash);
-
--- Phase 2 writes here. Kept separate from jobs so scoring can be recomputed and
--- versioned without rewriting the corpus.
-CREATE TABLE IF NOT EXISTS job_scores (
-  job_id             uuid PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
-  scorer_version     text NOT NULL,
-  saturation_score   numeric,          -- 0..100, higher = less contested
-  discovery_friction numeric,
-  application_friction numeric,
-  qualification_friction numeric,
-  desirability_discount numeric,
-  freshness          numeric,
-  ghost_risk         numeric,          -- 0..1, high = probably not a real opening
-  components         jsonb NOT NULL DEFAULT '{}'::jsonb,
-  scored_at          timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS job_scores_rank_idx ON job_scores (saturation_score DESC);
-
-CREATE TABLE IF NOT EXISTS crawl_runs (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  started_at    timestamptz NOT NULL DEFAULT now(),
+-- ---------------------------------------------------------------------------
+-- crawl_runs — one row per completed crawl. readFeed's freshness check reads
+-- the newest finished_at; a run that persisted nothing is never recorded.
+-- ---------------------------------------------------------------------------
+create table if not exists public.crawl_runs (
+  id            uuid primary key default gen_random_uuid(),
+  started_at    timestamptz not null default now(),
   finished_at   timestamptz,
-  boards_total  int NOT NULL DEFAULT 0,
-  boards_ok     int NOT NULL DEFAULT 0,
-  boards_failed int NOT NULL DEFAULT 0,
-  jobs_new      int NOT NULL DEFAULT 0,
-  jobs_updated  int NOT NULL DEFAULT 0,
-  jobs_closed   int NOT NULL DEFAULT 0,
-  reposts_found int NOT NULL DEFAULT 0
+  boards_total  integer not null default 0,
+  boards_ok     integer not null default 0,
+  boards_failed integer not null default 0,
+  jobs_scanned  integer not null default 0,
+  jobs_upserted integer not null default 0,
+  jobs_closed   integer not null default 0
 );
 
 -- ---------------------------------------------------------------------------
--- Tenancy
+-- user_state / job_events — per visitor, keyed by an anonymous cookie id.
+--
+-- The 'default' column default is a leftover from when every visitor shared one
+-- row; the application always supplies a real id now.
 -- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS users (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  email       text NOT NULL UNIQUE,
-  created_at  timestamptz NOT NULL DEFAULT now()
+create table if not exists public.user_state (
+  user_id      text primary key default 'default',
+  skills       text[] not null default '{}',
+  resume_chars integer not null default 0,
+  updated_at   timestamptz not null default now()
 );
 
--- All applicant PII is confined to this table. Dropping a user's row removes
--- every identifying field the system holds about them.
-CREATE TABLE IF NOT EXISTS candidate_profiles (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  full_name      text,
-  email          text,
-  phone          text,
-  location       text,
-  resume_url     text,
-  resume_text    text,
-  links          jsonb NOT NULL DEFAULT '{}'::jsonb,
-
-  -- Eligibility inputs. These are declared by the user and are NEVER inferred:
-  -- a wrong answer here is a misrepresentation on a real application.
-  work_authorization jsonb NOT NULL DEFAULT '{}'::jsonb,
-  requires_sponsorship boolean,
-  willing_remote_only  boolean NOT NULL DEFAULT false,
-  target_countries     text[] NOT NULL DEFAULT '{}',
-
-  skills         text[] NOT NULL DEFAULT '{}',
-  years_experience numeric,
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now()
+create table if not exists public.job_events (
+  user_id text not null default 'default',
+  job_key text not null,
+  seen    boolean not null default true,
+  applied boolean not null default false,
+  at      timestamptz not null default now(),
+  primary key (user_id, job_key)
 );
 
-CREATE INDEX IF NOT EXISTS candidate_profiles_user_idx ON candidate_profiles (user_id);
+-- ---------------------------------------------------------------------------
+-- Row level security
+--
+-- These policies previously existed only in the Supabase dashboard — unversioned
+-- and unreviewable — while this file contained no RLS at all.
+--
+-- The publishable key is committed to a public repo, so anon is deliberately
+-- read-only on the corpus. user_state and job_events still accept anon
+-- INSERT/UPDATE because the deployed site writes with that key; once
+-- SUPABASE_SECRET_KEY is set in the hosting environment those two policies
+-- should be dropped, leaving anon with SELECT alone. anon DELETE is granted
+-- nowhere: nothing in the application deletes, and a stranger with the
+-- published key could otherwise wipe both tables.
+-- ---------------------------------------------------------------------------
+alter table public.jobs       enable row level security;
+alter table public.boards     enable row level security;
+alter table public.crawl_runs enable row level security;
+alter table public.user_state enable row level security;
+alter table public.job_events enable row level security;
 
--- The review queue. There is deliberately no state that submits without passing
--- through 'pending_review' -> 'approved'.
-DO $$ BEGIN
-  CREATE TYPE application_state AS ENUM (
-    'drafted',
-    'pending_review',
-    'approved',
-    'submitted',
-    'failed',
-    'declined'
-  );
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+drop policy if exists "jobs are publicly readable" on public.jobs;
+create policy "jobs are publicly readable" on public.jobs
+  for select to anon, authenticated using (true);
 
-CREATE TABLE IF NOT EXISTS applications (
-  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id        uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  job_id         uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-  state          application_state NOT NULL DEFAULT 'drafted',
+drop policy if exists "boards are publicly readable" on public.boards;
+create policy "boards are publicly readable" on public.boards
+  for select to anon, authenticated using (true);
 
-  -- Why this job surfaced, frozen at draft time so the feedback loop can learn
-  -- from what the scorer believed then rather than what it believes now.
-  score_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
-  draft          jsonb NOT NULL DEFAULT '{}'::jsonb,
+drop policy if exists "crawl runs are publicly readable" on public.crawl_runs;
+create policy "crawl runs are publicly readable" on public.crawl_runs
+  for select to anon, authenticated using (true);
 
-  -- Fields the engine refused to guess and needs a human answer for.
-  open_questions jsonb NOT NULL DEFAULT '[]'::jsonb,
+drop policy if exists "user_state readable pre-auth" on public.user_state;
+create policy "user_state readable pre-auth" on public.user_state
+  for select to anon, authenticated using (true);
+drop policy if exists "user_state insertable pre-auth" on public.user_state;
+create policy "user_state insertable pre-auth" on public.user_state
+  for insert to anon, authenticated with check (true);
+drop policy if exists "user_state updatable pre-auth" on public.user_state;
+create policy "user_state updatable pre-auth" on public.user_state
+  for update to anon, authenticated using (true) with check (true);
 
-  approved_at    timestamptz,
-  submitted_at   timestamptz,
-  failure_reason text,
-
-  outcome        text,   -- 'no_response' | 'screen' | 'interview' | 'offer' | 'rejected'
-  outcome_at     timestamptz,
-
-  created_at     timestamptz NOT NULL DEFAULT now(),
-  updated_at     timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, job_id)
-);
-
-CREATE INDEX IF NOT EXISTS applications_queue_idx ON applications (user_id, state);
-CREATE INDEX IF NOT EXISTS applications_outcome_idx ON applications (outcome) WHERE outcome IS NOT NULL;
+drop policy if exists "job_events readable pre-auth" on public.job_events;
+create policy "job_events readable pre-auth" on public.job_events
+  for select to anon, authenticated using (true);
+drop policy if exists "job_events insertable pre-auth" on public.job_events;
+create policy "job_events insertable pre-auth" on public.job_events
+  for insert to anon, authenticated with check (true);
+drop policy if exists "job_events updatable pre-auth" on public.job_events;
+create policy "job_events updatable pre-auth" on public.job_events
+  for update to anon, authenticated using (true) with check (true);

@@ -89,7 +89,14 @@ export function parseDate(value: unknown): Date | undefined {
     return Number.isNaN(d.getTime()) ? undefined : d;
   }
   if (typeof value !== 'string' || value.trim() === '') return undefined;
-  const d = new Date(value);
+
+  // A timestamp with no offset ("2026-08-24T00:00:00.000") is parsed as LOCAL
+  // time per the ES spec, so postedAt shifted by the crawler machine's UTC
+  // offset — up to a day of drift at the retention-window boundary, and a
+  // different answer on a developer laptop than on the CI runner. Treat a
+  // floating timestamp as UTC, which is what these portals mean by it.
+  const floating = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value.trim());
+  const d = new Date(floating ? `${value.trim().replace(' ', 'T')}Z` : value);
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 

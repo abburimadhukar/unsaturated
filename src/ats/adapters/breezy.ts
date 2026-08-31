@@ -1,6 +1,6 @@
 import { getJson } from '../http.js';
 import { inferRemoteType, inferSeniority, parseDate, stripHtml } from '../normalize.js';
-import type { AtsAdapter, NormalizedJob } from '../types.js';
+import { AtsFetchError, type AtsAdapter, type NormalizedJob } from '../types.js';
 
 /** Breezy returns some location fields as either a bare string or {name}. */
 type NameOrString = string | { name?: string } | undefined;
@@ -48,7 +48,13 @@ export const breezyAdapter: AtsAdapter = {
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
     const url = `https://${encodeURIComponent(board.token)}.breezy.hr/json`;
     const jobs = await getJson<BreezyJob[]>(url, 'breezy', board.token, ctx);
-    if (!Array.isArray(jobs)) return [];
+    if (!Array.isArray(jobs)) {
+      throw new AtsFetchError(
+        `breezy/${board.token}: unexpected response shape`,
+        'breezy',
+        board.token,
+      );
+    }
 
     return jobs.map((job): NormalizedJob => {
       const externalId = job.id ?? job._id ?? job.friendly_id ?? job.name;

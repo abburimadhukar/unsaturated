@@ -109,6 +109,17 @@ export default function Page() {
   const [resume, setResume] = useState('');
   const [showResume, setShowResume] = useState(false);
   const [filters, setFilters] = useState(DEFAULTS);
+  // Collapsed by default on a phone; the CSS hides the toggle on desktop, where
+  // the panels are always shown.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const activeFilterCount = useMemo(
+    () =>
+      Object.entries(filters).filter(
+        ([k, v]) => v !== (DEFAULTS as Record<string, unknown>)[k] && k !== 'sort',
+      ).length,
+    [filters],
+  );
 
   // Typing in the search box fired one request per keystroke with no ordering
   // guard, so a response for "kube" could land after "kubernetes" and leave the
@@ -261,7 +272,16 @@ export default function Page() {
         )}
 
         <div className="layout">
-          <aside className="sidebar">
+          <aside className={`sidebar${filtersOpen ? '' : ' collapsed'}`}>
+            {/* Visible only under 940px — see globals.css. */}
+            <button
+              className="filtertoggle"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              <span>Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}</span>
+              <span>{filtersOpen ? '▲' : '▼'}</span>
+            </button>
             <div className="panel">
               <div className="field">
                 <input

@@ -23,10 +23,22 @@ interface SmartRecruitersDetail {
 }
 
 /** Providers whose list endpoint already includes the description. */
-const SELF_SUFFICIENT: AtsProvider[] = ['greenhouse', 'lever', 'ashby'];
+const SELF_SUFFICIENT: AtsProvider[] = ['greenhouse', 'lever', 'ashby', 'socrata', 'usajobs'];
+
+/**
+ * Providers this module can actually fetch a description for — the cases
+ * fetchDescription implements.
+ *
+ * needsBackfill used to be the inverse of SELF_SUFFICIENT alone, so it returned
+ * true for personio, breezy, rippling and socrata, none of which fetchDescription
+ * handles. The caller then ran a whole classify-and-filter pass and reported
+ * `described = 0` for boards that were never reachable, which reads as "these
+ * jobs have no descriptions" rather than "we never asked".
+ */
+const BACKFILLABLE: AtsProvider[] = ['workday', 'smartrecruiters', 'workable'];
 
 export function needsBackfill(provider: AtsProvider): boolean {
-  return !SELF_SUFFICIENT.includes(provider);
+  return !SELF_SUFFICIENT.includes(provider) && BACKFILLABLE.includes(provider);
 }
 
 async function getJson<T>(url: string, ctx: FetchContext, init?: RequestInit): Promise<T | null> {

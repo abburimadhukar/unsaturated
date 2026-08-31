@@ -114,6 +114,23 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
   .sidebar { position: static !important; }
 }
 
+/* On a phone the sidebar precedes the job list in DOM order, so without this a
+   visitor scrolls past a search box, four selects, a facet list and six
+   checkboxes — three full panels — before reaching a single job. Collapsed
+   behind a toggle instead; on desktop the toggle is hidden and the panels are
+   always open. */
+.filtertoggle { display: none; }
+@media (max-width: 940px) {
+  .filtertoggle {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+    padding: 11px 14px;
+  }
+  .sidebar.collapsed .panel { display: none; }
+}
+
 .sidebar { position: sticky; top: 78px; display: flex; flex-direction: column; gap: 8px; }
 
 .panel {

@@ -1,6 +1,6 @@
 import { getJson } from '../http.js';
 import { inferSeniority, resolveRemoteType } from '../normalize.js';
-import type { AtsAdapter, NormalizedJob } from '../types.js';
+import { AtsFetchError, type AtsAdapter, type NormalizedJob } from '../types.js';
 
 interface RipplingJob {
   uuid?: string;
@@ -28,7 +28,13 @@ export const ripplingAdapter: AtsAdapter = {
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
     const url = `https://api.rippling.com/platform/api/ats/v1/board/${encodeURIComponent(board.token)}/jobs`;
     const jobs = await getJson<RipplingJob[]>(url, 'rippling', board.token, ctx);
-    if (!Array.isArray(jobs)) return [];
+    if (!Array.isArray(jobs)) {
+      throw new AtsFetchError(
+        `rippling/${board.token}: unexpected response shape`,
+        'rippling',
+        board.token,
+      );
+    }
 
     return jobs.flatMap((job): NormalizedJob[] => {
       const title = job.name?.trim();

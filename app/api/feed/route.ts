@@ -87,11 +87,9 @@ export async function GET(request: Request) {
     const v = str(key);
     if (v) query[key] = v;
   }
-  const minSat = num('minSaturation', { min: 0, max: 100 });
   const minFit = num('minFit', { min: 0, max: 1 });
   const within = num('postedWithinDays', { min: 1, max: MAX_AGE_DAYS });
   const minSalary = num('minSalary', { min: 0, max: 10_000_000 });
-  if (minSat !== undefined) query.minSaturation = minSat;
   if (minFit !== undefined) query.minFit = minFit;
   if (within !== undefined) query.postedWithinDays = within;
   if (minSalary !== undefined) query.minSalary = minSalary;

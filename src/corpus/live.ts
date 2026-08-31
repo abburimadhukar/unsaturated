@@ -95,8 +95,16 @@ interface CacheShape {
   cachedAt: number;
   inFlight: Promise<Feed> | null;
 }
-/** How long a served feed may be reused before re-reading the database. */
-const FEED_CACHE_MS = 60_000;
+/**
+ * How long a served feed may be reused before re-reading the database.
+ *
+ * Five minutes, not one: a full read pulls ~2.8 MB from Supabase to serve 200
+ * rows, and the crawler only writes hourly, so a 60-second TTL was re-reading
+ * the same data 60 times an hour per warm instance — enough to burn the free
+ * tier's 5 GB monthly egress in about 30 hours at trivial traffic. Nothing here
+ * changes faster than the crawl that feeds it.
+ */
+const FEED_CACHE_MS = 5 * 60_000;
 
 const CACHE_KEY = Symbol.for('unsaturated.corpus');
 
@@ -108,6 +116,27 @@ function cache(): CacheShape {
     g[CACHE_KEY] = existing;
   }
   return existing;
+}
+
+/** Hours worked in a full-time year, for reading an hourly rate as annual pay. */
+const HOURS_PER_YEAR = 2080;
+
+/**
+ * Sanity-checks a salary a provider gave us in a structured field.
+ *
+ * These are stored in an annual column, but not every provider means annual by
+ * them — one published an hourly interval, which surfaced as a role paying
+ * "$120 to $134" a year. Anything below a plausible annual wage is read as
+ * hourly; anything below even a plausible hourly rate is discarded rather than
+ * displayed, because a wrong number is worse than none.
+ */
+function annualiseStructured(value: number | undefined): number | undefined {
+  if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  if (value >= 15_000) return Math.round(value);
+  if (value >= 8) return Math.round(value * HOURS_PER_YEAR);
+  return undefined;
 }
 
 async function loadBoard(board: CorpusBoard, now: number) {
@@ -141,7 +170,7 @@ async function loadBoard(board: CorpusBoard, now: number) {
     // silently remove whole providers whose feeds omit a publish date.
     const fresh = jobs.filter((job) => {
       if (!job.postedAt) return true;
-      return Math.round((now - job.postedAt.getTime()) / 86_400_000) <= MAX_AGE_DAYS;
+      return Math.floor((now - job.postedAt.getTime()) / 86_400_000) <= MAX_AGE_DAYS;
     });
 
     // Descriptions cost one request per job, so only jobs that already look like
@@ -198,8 +227,11 @@ async function loadBoard(board: CorpusBoard, now: number) {
         seniority: job.seniority ?? inferSeniorityFromText(job.descriptionText) ?? null,
         employmentType: job.employmentType ?? null,
         department: job.department ?? null,
-        salaryMin: job.salaryMin ?? parsedPay?.min ?? null,
-        salaryMax: job.salaryMax ?? parsedPay?.max ?? null,
+        // annualiseStructured, because a structured field is not always annual:
+        // one provider published an hourly interval and it was written straight
+        // into the annual column, so a role showed as "$120–$134" a year.
+        salaryMin: annualiseStructured(job.salaryMin) ?? parsedPay?.min ?? null,
+        salaryMax: annualiseStructured(job.salaryMax) ?? parsedPay?.max ?? null,
         salaryCurrency: job.salaryCurrency ?? parsedPay?.currency ?? null,
         postedAt: job.postedAt?.toISOString() ?? null,
         ageDays,
@@ -210,7 +242,11 @@ async function loadBoard(board: CorpusBoard, now: number) {
         inScope: cls.family !== null,
         ai: cls.ai,
         family: cls.family,
-        matchedSkills: cls.matchedSkills,
+        // Every skill the posting named, not only the winning family's. Storing
+        // just the family fingerprint meant a job filed as `software` discarded
+        // the AWS and Terraform it also listed, so a cloud candidate scored 0%
+        // against it.
+        matchedSkills: cls.allSkills.length > 0 ? cls.allSkills : cls.matchedSkills,
         skillScore: cls.score,
       });
     }
@@ -237,7 +273,9 @@ export async function refreshFeed(): Promise<Feed> {
     // abusive and would get the crawler rate-limited within a single refresh.
     const results: { jobs: FeedJob[]; health: BoardHealth }[] = [];
     let cursor = 0;
-    const workers = Array.from({ length: Math.min(8, boards.length) }, async () => {
+    // config.concurrency, not a hardcoded 8: setting CRAWLER_CONCURRENCY in the
+    // workflow had no effect at all on the path that workflow actually runs.
+    const workers = Array.from({ length: Math.min(config.concurrency, boards.length) }, async () => {
       while (cursor < boards.length) {
         const board = boards[cursor++];
         if (!board) break;
@@ -471,7 +509,6 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   if (f.family) rows = rows.filter((j) => j.family === f.family);
   if (f.provider) rows = rows.filter((j) => j.provider === f.provider);
   if (f.country) rows = rows.filter((j) => pass(j.country, f.country!));
-  if (f.minSaturation !== undefined) rows = rows.filter((j) => j.saturation >= f.minSaturation!);
   if (f.postedWithinDays !== undefined) {
     // Undated jobs are kept for the same reason ingest keeps them: several
     // providers omit a publish date, and dropping them silently removes those

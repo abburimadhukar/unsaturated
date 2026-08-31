@@ -1,4 +1,4 @@
-import { inferSeniority, resolveRemoteType, stripHtml } from '../normalize.js';
+import { inferSeniority, parseDate, resolveRemoteType, stripHtml } from '../normalize.js';
 import { AtsFetchError, type AtsAdapter, type NormalizedJob } from '../types.js';
 
 /**
@@ -136,7 +136,7 @@ export const usajobsAdapter: AtsAdapter = {
           salaryCurrency: 'USD',
           applyUrl: d.ApplyURI?.[0] ?? d.PositionURI,
           listingUrl: d.PositionURI,
-          postedAt: d.PublicationStartDate ? new Date(d.PublicationStartDate) : undefined,
+          postedAt: parseDate(d.PublicationStartDate),
           raw: d,
         });
       }

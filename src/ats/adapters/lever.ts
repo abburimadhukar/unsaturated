@@ -1,6 +1,6 @@
 import { getJson } from '../http.js';
 import { inferRemoteType, inferSeniority, parseDate, stripHtml } from '../normalize.js';
-import type { AtsAdapter, NormalizedJob } from '../types.js';
+import { AtsFetchError, type AtsAdapter, type NormalizedJob } from '../types.js';
 
 interface LeverPosting {
   id: string;
@@ -37,7 +37,15 @@ export const leverAdapter: AtsAdapter = {
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
     const url = `https://api.lever.co/v0/postings/${encodeURIComponent(board.token)}?mode=json`;
     const postings = await getJson<LeverPosting[]>(url, 'lever', board.token, ctx);
-    if (!Array.isArray(postings)) return [];
+    if (!Array.isArray(postings)) {
+      // Lever reports several failure modes as a 200 carrying {"error": ...}.
+      // Returning [] turned those into "no openings".
+      throw new AtsFetchError(
+        `lever/${board.token}: unexpected response shape`,
+        'lever',
+        board.token,
+      );
+    }
 
     return postings.map((p): NormalizedJob => {
       const locationRaw = p.categories?.location ?? p.categories?.allLocations?.join('; ');

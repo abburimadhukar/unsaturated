@@ -38,6 +38,9 @@ interface JobRow {
 /** Supabase caps a single select at 1000 rows, so reads are paged. */
 const PAGE = 1000;
 
+/** Closed jobs older than this are deleted outright. */
+const PURGE_AFTER_DAYS = 45;
+
 function toFeedJob(r: JobRow, now: number): FeedJob {
   const postedMs = r.posted_at ? Date.parse(r.posted_at) : NaN;
   const ageDays = Number.isFinite(postedMs)
@@ -118,7 +121,12 @@ export async function readFeed(): Promise<Feed | null> {
       .not('family', 'is', null)
       // Undated postings are kept: several providers omit a publish date, and
       // excluding them would silently drop those boards entirely.
-      .or(`posted_at.gte.${cutoff},posted_at.is.null`)
+      // Undated postings are kept — several providers omit a publish date, and
+      // excluding them would drop those boards entirely — but they still have to
+      // expire, or a Rippling posting sitting on the board for a year is served
+      // as current inventory forever. first_seen_at is when WE first stored it,
+      // which is a fact we own rather than a date we invented.
+      .or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen_at.gte.${cutoff})`)
       .order('posted_at', { ascending: false, nullsFirst: false })
       // Tiebreaker. posted_at is heavily non-unique — ATS feeds stamp a whole
       // board at once — and Postgres gives no stable order within a tie, so
@@ -267,6 +275,27 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
       }
       closed += chunk.length;
     }
+  }
+
+  // Reclaim rows nothing will ever serve again.
+  //
+  // Nothing deleted from `jobs` before this: rows only ever had closed_at set,
+  // and readFeed filters them out at query time, so expired postings stayed
+  // resident forever. At ~1 KB a row the 500 MB ceiling is far off, but the
+  // board list tripled in a day and there was no purge, no TTL and no pg_cron.
+  // Deleting only what is both closed and well past the retention window keeps
+  // this safe: a job still inside MAX_AGE_DAYS is never touched.
+  const purgeBefore = new Date(Date.now() - PURGE_AFTER_DAYS * 86_400_000).toISOString();
+  const { error: purgeError, count: purged } = await client
+    .from('jobs')
+    .delete({ count: 'exact' })
+    .not('closed_at', 'is', null)
+    .lt('closed_at', purgeBefore);
+  if (purgeError) {
+    // Never fatal: reclaiming space must not fail a crawl that already wrote.
+    console.error('purge failed:', purgeError.message);
+  } else if (purged) {
+    console.log(`purged ${purged} jobs closed before ${purgeBefore.slice(0, 10)}`);
   }
 
   // A crawl that persisted nothing must never stamp the corpus fresh. readFeed's

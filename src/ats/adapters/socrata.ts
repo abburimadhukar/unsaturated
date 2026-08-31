@@ -1,6 +1,6 @@
 import { getJson } from '../http.js';
-import { inferSeniority, resolveRemoteType, stripHtml } from '../normalize.js';
-import type { AtsAdapter, NormalizedJob } from '../types.js';
+import { inferSeniority, parseDate, resolveRemoteType, stripHtml } from '../normalize.js';
+import { AtsFetchError, type AtsAdapter, type NormalizedJob } from '../types.js';
 
 /**
  * Socrata open-data job portals — municipal and state government postings.
@@ -70,7 +70,15 @@ export const socrataAdapter: AtsAdapter = {
       return `https://${host}/d/${dataset}`;
     };
     const [host, dataset] = board.token.split('|');
-    if (!host || !dataset) return [];
+    if (!host || !dataset) {
+      // A token missing its "|" separator silently yielded zero jobs and no
+      // error, so the board read as healthy-and-empty indefinitely.
+      throw new AtsFetchError(
+        `socrata/${board.token}: token must be "host|dataset"`,
+        'socrata',
+        board.token,
+      );
+    }
 
     const out: NormalizedJob[] = [];
     for (let offset = 0; ; offset += PAGE) {
@@ -110,7 +118,7 @@ export const socrataAdapter: AtsAdapter = {
           salaryCurrency: 'USD',
           applyUrl: applyLink(host, dataset, r.job_id),
           listingUrl: applyLink(host, dataset, r.job_id),
-          postedAt: r.posting_date ? new Date(r.posting_date) : undefined,
+          postedAt: parseDate(r.posting_date),
           raw: r,
         });
       }

@@ -188,7 +188,7 @@ const HARD_EXCLUSIONS: [RegExp, string][] = [
   [/^copy of\b/i, 'draft'],
   // Revenue-side roles. "solutions architect" is excluded from this list on
   // purpose — at a vendor it is pre-sales, but at an enterprise it is ordinary
-  // internal architecture, and taxonomy/cloud.ts already declares it in scope.
+  // internal architecture, so the title alone is not disqualifying.
   [/\b(gtm|go.to.market|deal desk)\b/i, 'revenue'],
   // The HRIS lookahead matters: "HRIS Implementation Consultant" and "Workday
   // Implementation Consultant" are the dominant titles in that family, not
@@ -227,6 +227,15 @@ export interface RoleClassification {
   /** Summed weight of matched skill terms for the winning family. */
   score: number;
   matchedSkills: string[];
+  /**
+   * Every skill the posting named, across all four vocabularies.
+   *
+   * `matchedSkills` is the winning family's fingerprint, which is the right
+   * input for classification and the wrong one for resume matching: a job filed
+   * as `software` threw away the AWS and Terraform it also mentioned, so a
+   * candidate with deep cloud experience scored 0% against it.
+   */
+  allSkills: string[];
   titleMatched: boolean;
   /** True when the role involves AI/ML, whatever its family. */
   ai: boolean;
@@ -256,6 +265,10 @@ const SPECS: FamilySpec[] = [
   { id: 'software', titles: SOFTWARE_TITLES, skills: SOFTWARE_SKILLS, threshold: 5 },
 ];
 
+/** How far another family must out-score a title match before it takes over. */
+const DOMINANCE_RATIO = 2;
+const DOMINANCE_MARGIN = 8;
+
 function matchSkills(terms: SkillTerm[], haystack: string): { score: number; names: string[] } {
   const found = new Map<string, number>();
   for (const t of terms) {
@@ -283,10 +296,26 @@ function strongestOtherFamily(
     const { score, names } = matchSkills(spec.skills, haystack);
     if (score < spec.threshold || score <= beat) continue;
     if (!best || score > best.score) {
-      best = { family: spec.id, score, matchedSkills: names, titleMatched: false, ai: false };
+      best = {
+        family: spec.id,
+        score,
+        matchedSkills: names,
+        allSkills: allMatchedSkills(haystack),
+        titleMatched: false,
+        ai: false,
+      };
     }
   }
   return best;
+}
+
+/** Union of every family's matched skills — the input resume matching wants. */
+function allMatchedSkills(haystack: string): string[] {
+  const found = new Set<string>();
+  for (const spec of SPECS) {
+    for (const name of matchSkills(spec.skills, haystack).names) found.add(name);
+  }
+  return [...found];
 }
 
 export function classifyRole(job: NormalizedJob): RoleClassification {
@@ -297,7 +326,7 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   const haystack = `${title} ${body}`;
 
   const empty: RoleClassification = {
-    family: null, score: 0, matchedSkills: [], titleMatched: false, ai: false,
+    family: null, score: 0, matchedSkills: [], allSkills: [], titleMatched: false, ai: false,
   };
 
   for (const [pattern, reason] of HARD_EXCLUSIONS) {
@@ -335,12 +364,36 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
 
     // HRIS is title-authoritative: those roles are defined by the product they
     // administer, not by a tech stack, so they never carry a skill fingerprint.
-    if (spec.id !== 'hris' && score < spec.threshold) {
-      const better = strongestOtherFamily(spec.id, haystack, score);
-      if (better) return { ...better, titleMatched: false, ai };
+    if (spec.id !== 'hris') {
+      if (score < spec.threshold) {
+        // The title matched but its own vocabulary barely registers, so let a
+        // family the description clearly describes take it instead.
+        const better = strongestOtherFamily(spec.id, haystack, score);
+        if (better) return { ...better, titleMatched: false, ai };
+      } else {
+        // The title matched AND has evidence — but another family can still
+        // dominate. "Data Analyst" whose description is entirely Kubernetes,
+        // Terraform and AWS stayed `data` on a score of 5 against cloud's 20,
+        // because the override only rescued below-threshold title matches.
+        //
+        // The bar is deliberately high: double the score and at least 8 points
+        // clear. A Data Engineer mentioning AWS in passing must not become a
+        // cloud role.
+        const better = strongestOtherFamily(spec.id, haystack, score * DOMINANCE_RATIO);
+        if (better && better.score - score >= DOMINANCE_MARGIN) {
+          return { ...better, titleMatched: false, ai };
+        }
+      }
     }
 
-    return { family: spec.id, score, matchedSkills: names, titleMatched: true, ai };
+    return {
+      family: spec.id,
+      score,
+      matchedSkills: names,
+      allSkills: allMatchedSkills(haystack),
+      titleMatched: true,
+      ai,
+    };
   }
 
   // Pass 2 — no title match, so fall back to the strongest skill fingerprint.
@@ -351,7 +404,14 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     if (spec.id === 'hris') continue; // never inferred from skills alone
     const { score, names } = matchSkills(spec.skills, haystack);
     if (score >= spec.threshold && score > best.score) {
-      best = { family: spec.id, score, matchedSkills: names, titleMatched: false, ai };
+      best = {
+        family: spec.id,
+        score,
+        matchedSkills: names,
+        allSkills: allMatchedSkills(haystack),
+        titleMatched: false,
+        ai,
+      };
     }
   }
   return best;
