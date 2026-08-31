@@ -280,3 +280,7 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
    is a filter lying by omission. */
 .unk { color: var(--text-faint); font-style: italic; }
 .chip.unknown { color: var(--text-faint); font-style: italic; border-style: dashed; }
+
+/* "Load more" — the feed pages 200 at a time. */
+.more { display: flex; justify-content: center; padding: 22px 0 8px; }
+.more button { padding: 10px 20px; }

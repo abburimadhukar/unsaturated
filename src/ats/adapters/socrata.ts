@@ -35,6 +35,20 @@ interface SocrataRow {
 
 const PAGE = 1000;
 
+/**
+ * Human-facing portal for a Socrata host.
+ *
+ * The apply link used to point at the dataset's JSON row
+ * (…/resource/kpav-sd4t.json?job_id=771431), which is an API response, not a
+ * page anyone can apply on — a dead end on 1,453 NYC postings. Where the portal
+ * is known the link goes there; otherwise it falls back to the dataset's own
+ * human view rather than inventing one.
+ */
+const PORTALS: Record<string, (jobId: string) => string> = {
+  'data.cityofnewyork.us': (id) =>
+    `https://cityjobs.nyc.gov/jobs?keywords=${encodeURIComponent(id)}`,
+};
+
 /** Portals publish pay per Annum, Hourly or Daily. */
 function annualize(raw: string | undefined, frequency: string | undefined): number | undefined {
   const n = Number(raw);
@@ -50,6 +64,11 @@ export const socrataAdapter: AtsAdapter = {
   endpointPattern: 'https://{host}/resource/{dataset}.json',
 
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
+    const applyLink = (host: string, dataset: string, jobId: string | undefined) => {
+      const portal = PORTALS[host];
+      if (portal && jobId) return portal(jobId);
+      return `https://${host}/d/${dataset}`;
+    };
     const [host, dataset] = board.token.split('|');
     if (!host || !dataset) return [];
 
@@ -57,7 +76,11 @@ export const socrataAdapter: AtsAdapter = {
     for (let offset = 0; ; offset += PAGE) {
       const url =
         `https://${host}/resource/${dataset}.json?$limit=${PAGE}&$offset=${offset}` +
-        `&$order=posting_date DESC`;
+        // Ordered by :id, the row identifier, because it is unique. Paging over
+        // a non-unique sort (posting_date) is unstable in SoQL and was both
+        // duplicating and skipping rows across the offset boundary — a live
+        // crawl returned 1,453 rows carrying only 1,441 distinct job ids.
+        `&$order=:id`;
       const rows = await getJson<SocrataRow[]>(url, 'socrata', board.token, ctx);
       if (!Array.isArray(rows) || rows.length === 0) break;
 
@@ -85,11 +108,8 @@ export const socrataAdapter: AtsAdapter = {
           salaryMin: annualize(r.salary_range_from, r.salary_frequency),
           salaryMax: annualize(r.salary_range_to, r.salary_frequency),
           salaryCurrency: 'USD',
-          // Socrata exposes no per-posting apply URL, so link to the portal's
-          // canonical job page rather than inventing one.
-          applyUrl: r.job_id
-            ? `https://${host}/resource/${dataset}.json?job_id=${encodeURIComponent(r.job_id)}`
-            : undefined,
+          applyUrl: applyLink(host, dataset, r.job_id),
+          listingUrl: applyLink(host, dataset, r.job_id),
           postedAt: r.posting_date ? new Date(r.posting_date) : undefined,
           raw: r,
         });

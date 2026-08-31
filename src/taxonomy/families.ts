@@ -60,7 +60,10 @@ const CLOUD_SKILLS: SkillTerm[] = [
   { pattern: /\b(bash|shell scripting|powershell)\b/i, canonical: 'Scripting', weight: 1 },
   { pattern: /\b(vpc|subnet|bgp|ospf|load balanc|firewall|\bvpn\b|tcp\/ip)\b/i, canonical: 'Networking', weight: 2 },
   { pattern: /\b(vmware|vsphere|esxi|hyper-v|nutanix|citrix)\b/i, canonical: 'Virtualization', weight: 3 },
-  { pattern: /\b(san\b|nas\b|ceph|netapp|storage array)\b/i, canonical: 'Storage', weight: 3 },
+  // Bare "san"/"nas" matched "San Francisco", "San Jose" and every other San-
+  // city, adding +3 — 60% of the threshold — to any job whose description
+  // mentioned one. Spelled out instead.
+  { pattern: /\b(storage area network|network attached storage|ceph|netapp|storage array|iscsi|fibre channel)\b/i, canonical: 'Storage', weight: 3 },
   { pattern: /\b(devsecops|cspm|cnapp|soc ?2|fedramp|cis benchmark)\b/i, canonical: 'Cloud Security', weight: 3 },
   { pattern: /\b(active directory|group policy|windows server|sccm|intune)\b/i, canonical: 'Windows/AD', weight: 2 },
   { pattern: /\b(finops|cloud cost|reserved instances?)\b/i, canonical: 'FinOps', weight: 3 },
@@ -72,7 +75,9 @@ const SOFTWARE_SKILLS: SkillTerm[] = [
   { pattern: /\b(typescript|javascript|node\.?js|nodejs)\b/i, canonical: 'JS/TS', weight: 3 },
   { pattern: /\b(react|next\.?js|vue|angular|svelte)\b/i, canonical: 'Frontend FW', weight: 3 },
   { pattern: /\b(java|spring boot|spring)\b/i, canonical: 'Java', weight: 2 },
-  { pattern: /\b(golang|\bgo\b lang|\.net|c#|ruby on rails|rails|php|laravel)\b/i, canonical: 'Other Backend', weight: 2 },
+  // The old trailing \b sat after "#", a non-word character, so it demanded a
+  // word character right after it and "c#" could never match at all.
+  { pattern: /(\bgolang\b|\.net\b|c#|\bruby on rails\b|\brails\b|\bphp\b|\blaravel\b)/i, canonical: 'Other Backend', weight: 2 },
   { pattern: /\b(rest api|restful|graphql|grpc|microservices?)\b/i, canonical: 'APIs', weight: 2 },
   { pattern: /\b(postgres(ql)?|mysql|mongodb|redis|dynamodb)\b/i, canonical: 'Databases', weight: 2 },
   { pattern: /\b(html|css|tailwind|sass)\b/i, canonical: 'Web UI', weight: 1 },
@@ -115,13 +120,13 @@ const HRIS_SKILLS: SkillTerm[] = [
 // ---------------------------------------------------------------------------
 
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems engineer|system engineer|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|mlops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|mlops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
 
 const SOFTWARE_TITLES =
-  /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
+  /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|ux engineer|growth engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
 
 const DATA_TITLES =
-  /\b(data engineer|data analyst|analytics engineer|data scientist|data architect|database engineer|database administrator|\bdba\b|etl developer|data platform|big data|business intelligence|\bbi\b (developer|analyst|engineer)|reporting analyst|machine learning engineer|ml engineer|machine learning scientist|research scientist|quantitative analyst|decision scientist|data quality)\b/i;
+  /\b(data engineer|data analyst|analytics engineer|data scientist|data architect|database engineer|database administrator|\bdba\b|etl developer|data platform|data warehouse|big data|business intelligence|\bbi\b (developer|analyst|engineer)|reporting analyst|machine learning engineer|ml engineer|machine learning scientist|research scientist|quantitative analyst|decision scientist|data quality)\b/i;
 
 const HRIS_TITLES =
   /\b(hris|hcm|hrms|human resources? (information|systems)|hr systems|hr technology|people systems|people technology|workday (consultant|analyst|specialist|administrator|functional|integration)|successfactors (consultant|analyst)|payroll (analyst|systems|configuration)|benefits (analyst|systems)|compensation analyst|hr data analyst|hr operations analyst|total rewards analyst)\b/i;
@@ -146,8 +151,24 @@ const AI_BODY_STRONG =
 // Exclusions
 // ---------------------------------------------------------------------------
 
-/** Never in any family, regardless of what the description mentions. */
-const GLOBAL_EXCLUSIONS: [RegExp, string][] = [
+/**
+ * Exclusions come in two strengths.
+ *
+ * HARD rules name a job that is never in scope however the title is dressed: a
+ * Sales Engineer is a sales job even though "engineer" is in the title.
+ *
+ * SOFT rules match a word carrying both a non-engineering and an engineering
+ * sense — controller, marketing, legal, warehouse, driver — and are skipped when
+ * the title also names an engineering role. As blunt word matches these were
+ * deleting 35% of realistic engineering titles: every Kubernetes "Controller"
+ * role went out as accounting, all of martech data engineering as marketing, and
+ * legal-tech engineering as legal. Nothing recorded it, because an excluded job
+ * leaves no trace in the corpus.
+ */
+const ENGINEERING_ROLE =
+  /\b(engineer|engineering|developer|architect|administrator|programmer|sre|devops|scientist|analyst)\b/i;
+
+const HARD_EXCLUSIONS: [RegExp, string][] = [
   [/\b(sales|account)\s+(engineer|executive|manager|director)\b/i, 'sales'],
   [/\bpre[- ]?sales\b/i, 'pre-sales'],
   [/\b(recruiter|talent acquisition|sourcer|staffing (specialist|coordinator))\b/i, 'recruiting'],
@@ -155,31 +176,38 @@ const GLOBAL_EXCLUSIONS: [RegExp, string][] = [
   [/\b(help ?desk|service desk|desktop support|field (service|technician))\b/i, 'end-user support'],
   [/\b(intern|internship|co[- ]?op)\b/i, 'internship'],
   [/\b(nurse|physician|therapist|clinician|caregiver|pharmacist|dental|veterinar)\b/i, 'clinical'],
-  [/\b(forklift|janitor|custodian|security officer|guard)\b/i, 'manual'],
-  // "warehouse" and "driver" each have an engineering homograph, and the blunt
-  // word was dropping real roles: "Cloud Data Warehouse Engineer" was filed as
-  // warehouse labour, and any device-driver role as delivery driving.
-  [/(?<!\bdata\s)\bwarehous(e|ing)\b/i, 'manual'],
-  [/(?<!\b(device|kernel|linux|display|gpu|storage|network)\s)\bdrivers?\b(?!\s+(engineer|developer|development))/i, 'manual'],
   [/\b(teacher|professor|lecturer|faculty)\b/i, 'education'],
-  [/\b(marketing|content writer|copywriter|social media|seo specialist)\b/i, 'marketing'],
-
-  // Non-engineering roles at technology companies. Their descriptions carry the
-  // same stack keywords as the engineering ones, so without this the skill
-  // fingerprint happily files a Strategic Sourcing Manager under Cloud.
-  [/\b(product|program|project|procurement|sourcing|category|community|office)\s+manager\b/i, 'non-engineering management'],
-  [/\b(accountant|accounting|controller|bookkeep)\b/i, 'accounting'],
-  [/\b(counsel|attorney|paralegal|legal|compliance officer)\b/i, 'legal'],
-  [/\b(designer|creative director|illustrator|\bux\b)\b/i, 'design'],
+  [/\b(counsel|attorney|paralegal|compliance officer)\b/i, 'legal'],
   [/\b(developer relations|developer advocate|devrel|evangelist|technical writer)\b/i, 'devrel/docs'],
+  // Physical-security and manual roles. "security officer" is deliberately NOT
+  // here: Chief Information Security Officer and Cloud Security Officer are
+  // infosec titles, not night watchmen.
+  [/\b(forklift|janitor|custodian|security guard|armed guard)\b/i, 'manual'],
+  [/\b(delivery|truck|cdl|bus|van)\s+drivers?\b/i, 'manual'],
   // Drafts left on public boards; not real openings.
   [/^copy of\b/i, 'draft'],
-  // Revenue-side engineering roles, not the four families.
-  [/\b(gtm|go.to.market|growth (content )?engineer|deal desk)\b/i, 'revenue'],
-  [/\b(solutions?|sales|customer success|customer reliability|implementation)\s+(engineer|architect|consultant|manager)\b/i, 'customer-facing'],
+  // Revenue-side roles. "solutions architect" is excluded from this list on
+  // purpose — at a vendor it is pre-sales, but at an enterprise it is ordinary
+  // internal architecture, and taxonomy/cloud.ts already declares it in scope.
+  [/\b(gtm|go.to.market|deal desk)\b/i, 'revenue'],
+  // The HRIS lookahead matters: "HRIS Implementation Consultant" and "Workday
+  // Implementation Consultant" are the dominant titles in that family, not
+  // customer-facing sales roles, and HRIS is the thinnest family in the corpus.
+  [/^(?!.*\b(hris|hcm|hrms|workday|successfactors|peoplesoft|ukg|dayforce|payroll|benefits)\b).*\b(solutions?|sales|customer success|customer reliability|implementation)\s+(engineer|consultant|manager)\b/i, 'customer-facing'],
   [/\bsales\b|\bbusiness development\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
   [/\b(financial analyst|finance manager|treasury|investor relations)\b/i, 'finance'],
   [/\b(executive assistant|office administrator|receptionist|facilities)\b/i, 'admin'],
+];
+
+const SOFT_EXCLUSIONS: [RegExp, string][] = [
+  [/\b(marketing|content writer|copywriter|social media|seo specialist)\b/i, 'marketing'],
+  [/\b(accountant|accounting|controller|bookkeep)\b/i, 'accounting'],
+  [/\blegal\b/i, 'legal'],
+  [/\b(designer|creative director|illustrator|ux\s+(designer|researcher|writer))\b/i, 'design'],
+  [/\b(product|program|project|procurement|sourcing|category|community|office)\s+manager\b/i, 'non-engineering management'],
+  [/\bwarehous(e|ing)\b/i, 'manual'],
+  [/\bdrivers?\b/i, 'manual'],
+  [/\bgrowth (content )?engineer\b/i, 'revenue'],
 ];
 
 /**
@@ -272,8 +300,13 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     family: null, score: 0, matchedSkills: [], titleMatched: false, ai: false,
   };
 
-  for (const [pattern, reason] of GLOBAL_EXCLUSIONS) {
+  for (const [pattern, reason] of HARD_EXCLUSIONS) {
     if (pattern.test(title)) return { ...empty, excludedReason: reason };
+  }
+  if (!ENGINEERING_ROLE.test(title)) {
+    for (const [pattern, reason] of SOFT_EXCLUSIONS) {
+      if (pattern.test(title)) return { ...empty, excludedReason: reason };
+    }
   }
 
   const ai = AI_TITLE.test(title) || AI_BODY_STRONG.test(body);

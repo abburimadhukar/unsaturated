@@ -34,7 +34,7 @@ const PAY_CONTEXT =
 
 /** Phrases whose numbers are never a salary. */
 const ANTI_CONTEXT =
-  /\b(401\s*\(?k\)?|revenue|funding|raised|valuation|series [a-e]\b|arr\b|market cap|budget of|equity value)\b/i;
+  /\b(401\s*\(?k\)?|revenue|funding|raised|valuation|series [a-e]\b|arr\b|market cap|budget of|equity|stock (option|grant)|rsu|total (comp|compensation)|signing bonus|relocation|tuition|vest(ing|ed)?)\b/i;
 
 const ANNUAL_MIN = 15_000;
 const ANNUAL_MAX = 1_200_000;
@@ -72,12 +72,15 @@ function annualize(value: number, window: string): number | undefined {
   return value >= ANNUAL_MIN && value <= ANNUAL_MAX ? Math.round(value) : undefined;
 }
 
-const NUM = String.raw`\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*[kK]|\d{2,7}`;
+const NUM = String.raw`\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*[kK]|\d{2,7}(?:\.\d{1,2})?`;
 const RANGE = new RegExp(
   String.raw`([$£€₹]|\b(?:USD|GBP|EUR|CAD|AUD|INR)\b)?\s*(${NUM})\s*(?:-|–|—|to|and)\s*([$£€₹])?\s*(${NUM})`,
   'gi',
 );
-const SINGLE = new RegExp(String.raw`([$£€₹])\s*(${NUM})`, 'gi');
+const SINGLE = new RegExp(
+  String.raw`([$£€₹]|\b(?:USD|GBP|EUR|CAD|AUD|INR|SGD|CHF|SEK|DKK|NOK|PLN)\b)\s*(${NUM})`,
+  'gi',
+);
 
 /**
  * Returns the first defensible pay range found, or undefined.
@@ -85,6 +88,21 @@ const SINGLE = new RegExp(String.raw`([$£€₹])\s*(${NUM})`, 'gi');
  * Ranges are preferred over single figures: "between $150,000 and $190,000" is
  * unambiguous, whereas a lone "$150,000" could be a bonus cap or an equity note.
  */
+/**
+ * The sentence a figure sits in, capped either side.
+ *
+ * Anti-context has to be near the number to mean anything: a fixed 140-character
+ * lookbehind reached back across sentence boundaries into unrelated prose.
+ */
+function contextWindow(text: string, at: number, len: number): string {
+  const from = Math.max(0, at - 90);
+  const to = Math.min(text.length, at + len + 60);
+  const before = text.slice(from, at);
+  // Start after the last sentence break, so a previous sentence cannot poison it.
+  const cut = before.search(/[.;\n][^.;\n]*$/);
+  return (cut === -1 ? before : before.slice(cut + 1)) + text.slice(at, to);
+}
+
 export function parseSalary(description: string | undefined): ParsedSalary | undefined {
   if (!description) return undefined;
   const text = description.slice(0, 8000);
@@ -93,7 +111,9 @@ export function parseSalary(description: string | undefined): ParsedSalary | und
   for (const match of text.matchAll(RANGE)) {
     const at = match.index ?? 0;
     // A window around the match decides whether these numbers are pay at all.
-    const window = text.slice(Math.max(0, at - 140), at + match[0].length + 90);
+    // Narrowed from 140/90: at that width "We raised a $50M Series C" two
+    // sentences away suppressed a perfectly good band on the next line.
+    const window = contextWindow(text, at, match[0].length);
     if (ANTI_CONTEXT.test(window)) continue;
     if (!PAY_CONTEXT.test(window) && !/[$£€₹]/.test(match[0])) continue;
 
@@ -103,7 +123,13 @@ export function parseSalary(description: string | undefined): ParsedSalary | und
 
     const lo = annualize(rawLo, window);
     const hi = annualize(rawHi, window);
-    if (lo === undefined || hi === undefined) continue;
+    if (lo === undefined || hi === undefined) {
+      // Out of plausible annual range. This used to `continue` without marking
+      // the rejection, so the single-figure fallback below then picked up the
+      // low end of a range we had just decided was not a salary.
+      rejectedRange = true;
+      continue;
+    }
     // A "range" that runs backwards, or spans more than 5x, is not a pay band.
     if (hi < lo || hi > lo * 5) {
       rejectedRange = true;
@@ -118,7 +144,7 @@ export function parseSalary(description: string | undefined): ParsedSalary | und
   if (rejectedRange) return undefined;
   for (const match of text.matchAll(SINGLE)) {
     const at = match.index ?? 0;
-    const window = text.slice(Math.max(0, at - 140), at + match[0].length + 90);
+    const window = contextWindow(text, at, match[0].length);
     if (ANTI_CONTEXT.test(window)) continue;
     if (!PAY_CONTEXT.test(window)) continue;
 

@@ -162,7 +162,8 @@ async function loadBoard(board: CorpusBoard, now: number) {
 
     for (const job of fresh) {
       const ageMs = job.postedAt ? now - job.postedAt.getTime() : null;
-      const ageDays = ageMs === null ? null : Math.round(ageMs / 86_400_000);
+      // Floor, not round — see db-feed.ts.
+      const ageDays = ageMs === null ? null : Math.floor(ageMs / 86_400_000);
 
       // Re-classified after backfill so a newly fetched description contributes
       // its skills to both the fingerprint and the fit match.
@@ -360,6 +361,62 @@ export interface FeedRow extends FeedJob {
   fitMissing: string[];
 }
 
+/**
+ * Rough USD conversion for ranking only — never for display.
+ *
+ * Salary sorting compared raw integers across currencies, so a 408,000 PLN
+ * salary (about $102k) outranked $405,500 USD. Exact rates do not matter for
+ * ordering; being within ~10% does. Unpriced jobs return undefined so the
+ * caller decides where they belong rather than being coerced to 0.
+ */
+const USD_PER: Record<string, number> = {
+  USD: 1, EUR: 1.08, GBP: 1.27, CAD: 0.73, AUD: 0.65, NZD: 0.6,
+  CHF: 1.12, SEK: 0.095, NOK: 0.092, DKK: 0.145, PLN: 0.25, CZK: 0.043,
+  HUF: 0.0027, RON: 0.22, INR: 0.012, SGD: 0.74, HKD: 0.128, JPY: 0.0064,
+  BRL: 0.18, MXN: 0.05, ZAR: 0.055, ILS: 0.27, AED: 0.27, PHP: 0.017,
+};
+
+function usdValue(j: { salaryMin: number | null; salaryMax: number | null; salaryCurrency: string | null }): number | undefined {
+  const raw = j.salaryMax ?? j.salaryMin;
+  if (raw === null) return undefined;
+  const rate = USD_PER[(j.salaryCurrency ?? 'USD').toUpperCase()] ?? 1;
+  return raw * rate;
+}
+
+/** Collapses vendor employment-type spellings onto one canonical word. */
+export function canonicalEmployment(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const t = raw.toLowerCase();
+  if (/\b(intern|internship|trainee|apprentice)\b/.test(t)) return 'internship';
+  if (/\b(part[\s_-]?time|parttime)\b/.test(t)) return 'part_time';
+  if (/\b(contract|contractor|freelance|temporary|temp|fixed[\s_-]?term|b2b)\b/.test(t)) return 'contract';
+  if (/\b(volunteer)\b/.test(t)) return 'volunteer';
+  if (/\b(full[\s_-]?time|fulltime|permanent|regular|indefinite)\b/.test(t)) return 'full_time';
+  return undefined;
+}
+
+/** Collapses vendor seniority spellings onto the canonical ladder. */
+export function canonicalLevel(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  const t = raw.toLowerCase();
+  if (/^not applicable$|^n\/?a$/.test(t.trim())) return undefined;
+  if (/\b(intern|student|trainee)\b/.test(t)) return 'entry';
+  if (/\b(entry|junior|graduate|new grad|associate)\b/.test(t)) return 'entry';
+  if (/\b(executive|chief|vp|vice president)\b/.test(t)) return 'executive';
+  if (/\bdirector\b/.test(t)) return 'director';
+  if (/\b(principal|distinguished|fellow)\b/.test(t)) return 'principal';
+  if (/\bstaff\b/.test(t)) return 'staff';
+  if (/\bmid[\s-]senior\b/.test(t)) return 'senior';
+  if (/\bsenior\b/.test(t)) return 'senior';
+  // "(Non-Manager)" contains "manager" — Workday's exact phrasing — so this has
+  // to be ruled out before the manager test, or an individual contributor is
+  // filed as a tech lead.
+  if (/\bnon[\s-]?manager\b/.test(t)) return 'mid';
+  if (/\b(manager|head of|lead)\b/.test(t)) return 'lead';
+  if (/\b(mid|intermediate|experienced)\b/.test(t)) return 'mid';
+  return undefined;
+}
+
 export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   const skills = f.skills ?? [];
 
@@ -386,14 +443,29 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
     value == null || value === '' ? keepUnknown : value === want;
 
   if (f.remote) rows = rows.filter((j) => pass(j.remoteType, f.remote!));
-  if (f.seniority) rows = rows.filter((j) => pass(j.seniority, f.seniority!));
-  if (f.employmentType) {
-    // Normalised because vendors spell this every possible way: "Full-time",
-    // "FullTime", "full_time", "Permanent".
-    const want = f.employmentType.toLowerCase().replace(/[^a-z]/g, '');
+  if (f.seniority) {
+    // Compared with `===` against raw vendor strings, so "entry" and
+    // "entry level" were disjoint sets and the dropdown reached neither
+    // cleanly. Both sides are canonicalised now.
+    const wantLevel = canonicalLevel(f.seniority);
     rows = rows.filter((j) => {
-      if (!j.employmentType) return keepUnknown;
-      return j.employmentType.toLowerCase().replace(/[^a-z]/g, '').includes(want);
+      const got = canonicalLevel(j.seniority);
+      if (!got) return keepUnknown;
+      return got === wantLevel;
+    });
+  }
+  if (f.employmentType) {
+    // Canonical buckets, because vendors spell this every possible way:
+    // "Full-time", "FullTime", "full_time", "Permanent", "Regular".
+    //
+    // This was a substring `.includes()` test, which made the filter a no-op for
+    // every value: `employmentType=zzzz` returned 2,201 jobs, and "intern"
+    // matched "International Office Entity" — the only "internship" it found.
+    const want = canonicalEmployment(f.employmentType);
+    rows = rows.filter((j) => {
+      const got = canonicalEmployment(j.employmentType);
+      if (!got) return keepUnknown;
+      return got === want;
     });
   }
   if (f.family) rows = rows.filter((j) => j.family === f.family);
@@ -401,11 +473,16 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   if (f.country) rows = rows.filter((j) => pass(j.country, f.country!));
   if (f.minSaturation !== undefined) rows = rows.filter((j) => j.saturation >= f.minSaturation!);
   if (f.postedWithinDays !== undefined) {
-    rows = rows.filter((j) => j.ageDays !== null && j.ageDays <= f.postedWithinDays!);
+    // Undated jobs are kept for the same reason ingest keeps them: several
+    // providers omit a publish date, and dropping them silently removes those
+    // boards. This was the only filter in the function that deleted them.
+    rows = rows.filter(
+      (j) => (j.ageDays === null ? keepUnknown : j.ageDays <= f.postedWithinDays!),
+    );
   }
   if (f.hasSalary) rows = rows.filter((j) => j.salaryMin !== null || j.salaryMax !== null);
   if (f.minSalary !== undefined) {
-    rows = rows.filter((j) => (j.salaryMax ?? j.salaryMin ?? 0) >= f.minSalary!);
+    rows = rows.filter((j) => (usdValue(j) ?? 0) >= f.minSalary!);
   }
   if (f.hideSeen && f.seenKeys) rows = rows.filter((j) => !f.seenKeys!.has(j.key));
   // Jobs with no description are never excluded by a fit threshold — we can't
@@ -431,7 +508,9 @@ export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
       rows.sort((a, b) => (a.ageDays ?? 9999) - (b.ageDays ?? 9999));
       break;
     case 'salary':
-      rows.sort((a, b) => (b.salaryMax ?? b.salaryMin ?? 0) - (a.salaryMax ?? a.salaryMin ?? 0));
+      // Compared in USD. Ranking the raw integers put 408,000 PLN (~$102k)
+      // above $405,500 USD, and the same comparator backs the minSalary filter.
+      rows.sort((a, b) => (usdValue(b) ?? -1) - (usdValue(a) ?? -1));
       break;
     case 'fit':
       // Ranked on evidence-discounted confidence, so a 100% match against one

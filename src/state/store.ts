@@ -14,7 +14,6 @@ import { db, dbWrite } from '../db/supabase.js';
  * data changes rarely.
  */
 
-const USER_ID = 'default';
 const CACHE_MS = 5_000;
 
 export interface Profile {
@@ -32,24 +31,32 @@ interface Cached {
 
 const CACHE_KEY = Symbol.for('unsaturated.state');
 
-function slot(): { value: Cached | null } {
-  const g = globalThis as unknown as Record<symbol, { value: Cached | null } | undefined>;
-  g[CACHE_KEY] ??= { value: null };
+/**
+ * One cache entry per visitor. This was a single shared slot, so on a warm
+ * serverless instance one visitor's cached profile was served to the next.
+ * Bounded so a stream of distinct cookies cannot grow it without limit.
+ */
+const MAX_CACHED_VISITORS = 500;
+
+function slots(): Map<string, Cached> {
+  const g = globalThis as unknown as Record<symbol, Map<string, Cached> | undefined>;
+  g[CACHE_KEY] ??= new Map<string, Cached>();
   return g[CACHE_KEY]!;
 }
 
 const EMPTY: Profile = { skills: [], resumeChars: 0, updatedAt: null };
 
-async function load(): Promise<Cached> {
-  const s = slot();
-  if (s.value && Date.now() - s.value.loadedAt < CACHE_MS) return s.value;
+async function load(userId: string): Promise<Cached> {
+  const cache = slots();
+  const hit = cache.get(userId);
+  if (hit && Date.now() - hit.loadedAt < CACHE_MS) return hit;
 
   const fresh: Cached = { profile: EMPTY, seen: new Set(), applied: new Set(), loadedAt: Date.now() };
   try {
     const client = db();
     const [{ data: st }, { data: ev }] = await Promise.all([
-      client.from('user_state').select('skills,resume_chars,updated_at').eq('user_id', USER_ID).maybeSingle(),
-      client.from('job_events').select('job_key,seen,applied').eq('user_id', USER_ID),
+      client.from('user_state').select('skills,resume_chars,updated_at').eq('user_id', userId).maybeSingle(),
+      client.from('job_events').select('job_key,seen,applied').eq('user_id', userId),
     ]);
 
     if (st) {
@@ -70,45 +77,50 @@ async function load(): Promise<Cached> {
     console.error('user state load failed:', err);
   }
 
-  s.value = fresh;
+  // Simple FIFO eviction — this is a short-lived read cache, not a store.
+  if (cache.size >= MAX_CACHED_VISITORS) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(userId, fresh);
   return fresh;
 }
 
-/** Forces the next read to hit the database. */
-function invalidate(): void {
-  slot().value = null;
+/** Forces the next read for this visitor to hit the database. */
+function invalidate(userId: string): void {
+  slots().delete(userId);
 }
 
-export async function getProfile(): Promise<Profile> {
-  return (await load()).profile;
+export async function getProfile(userId: string): Promise<Profile> {
+  return (await load(userId)).profile;
 }
 
-export async function setProfileFromResume(text: string): Promise<Profile> {
+export async function setProfileFromResume(userId: string, text: string): Promise<Profile> {
   const profile: Profile = {
     skills: extractSkills(text),
     resumeChars: text.length,
     updatedAt: new Date().toISOString(),
   };
-  await persistProfile(profile);
+  await persistProfile(userId, profile);
   return profile;
 }
 
-export async function setProfileSkills(skills: string[]): Promise<Profile> {
-  const current = await getProfile();
+export async function setProfileSkills(userId: string, skills: string[]): Promise<Profile> {
+  const current = await getProfile(userId);
   const profile: Profile = {
     skills,
     resumeChars: current.resumeChars,
     updatedAt: new Date().toISOString(),
   };
-  await persistProfile(profile);
+  await persistProfile(userId, profile);
   return profile;
 }
 
-async function persistProfile(profile: Profile): Promise<void> {
+async function persistProfile(userId: string, profile: Profile): Promise<void> {
   try {
     await dbWrite().from('user_state').upsert(
       {
-        user_id: USER_ID,
+        user_id: userId,
         skills: profile.skills,
         resume_chars: profile.resumeChars,
         updated_at: profile.updatedAt,
@@ -118,31 +130,31 @@ async function persistProfile(profile: Profile): Promise<void> {
   } catch (err) {
     console.error('profile save failed:', err);
   }
-  invalidate();
+  invalidate(userId);
 }
 
-export async function markSeen(key: string): Promise<void> {
-  await mark(key, { seen: true, applied: false });
+export async function markSeen(userId: string, key: string): Promise<void> {
+  await mark(userId, key, { seen: true, applied: false });
 }
 
-export async function markApplied(key: string): Promise<void> {
+export async function markApplied(userId: string, key: string): Promise<void> {
   // Opening a posting implies having seen it.
-  await mark(key, { seen: true, applied: true });
+  await mark(userId, key, { seen: true, applied: true });
 }
 
-async function mark(key: string, flags: { seen: boolean; applied: boolean }): Promise<void> {
+async function mark(userId: string, key: string, flags: { seen: boolean; applied: boolean }): Promise<void> {
   try {
     await dbWrite().from('job_events').upsert(
-      { user_id: USER_ID, job_key: key, seen: flags.seen, applied: flags.applied, at: new Date().toISOString() },
+      { user_id: userId, job_key: key, seen: flags.seen, applied: flags.applied, at: new Date().toISOString() },
       { onConflict: 'user_id,job_key' },
     );
   } catch (err) {
     console.error('job event save failed:', err);
   }
-  invalidate();
+  invalidate(userId);
 }
 
-export async function getState(): Promise<{ seen: string[]; applied: string[] }> {
-  const s = await load();
+export async function getState(userId: string): Promise<{ seen: string[]; applied: string[] }> {
+  const s = await load(userId);
   return { seen: [...s.seen], applied: [...s.applied] };
 }

@@ -61,6 +61,41 @@ async function request(
   }
 }
 
+/**
+ * Applies the same deadline to reading the body as to getting the headers.
+ *
+ * `request()` clears its abort timer in a `finally` as soon as the Response is
+ * returned, which happens before anything reads the body. A vendor that sent
+ * headers and then stalled mid-body hung the crawl forever — ctx.timeoutMs never
+ * applied to the part that was actually stuck.
+ */
+async function withDeadline<T>(
+  work: Promise<T>,
+  provider: AtsProvider,
+  token: string,
+  ctx: FetchContext,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new AtsFetchError(
+            `${provider}/${token}: body read timed out after ${ctx.timeoutMs}ms`,
+            provider,
+            token,
+          ),
+        ),
+      ctx.timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function getJson<T>(
   url: string,
   provider: AtsProvider,
@@ -68,7 +103,7 @@ export async function getJson<T>(
   ctx: FetchContext,
 ): Promise<T> {
   const res = await request(url, provider, token, ctx);
-  return (await res.json()) as T;
+  return (await withDeadline(res.json(), provider, token, ctx)) as T;
 }
 
 export async function getText(
@@ -78,5 +113,5 @@ export async function getText(
   ctx: FetchContext,
 ): Promise<string> {
   const res = await request(url, provider, token, ctx);
-  return await res.text();
+  return await withDeadline(res.text(), provider, token, ctx);
 }

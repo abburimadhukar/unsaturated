@@ -41,7 +41,10 @@ const PAGE = 1000;
 function toFeedJob(r: JobRow, now: number): FeedJob {
   const postedMs = r.posted_at ? Date.parse(r.posted_at) : NaN;
   const ageDays = Number.isFinite(postedMs)
-    ? Math.round((now - postedMs) / 86_400_000)
+    // Floor, not round: rounding made "today" cover only the first 12 hours,
+    // called a 30-hour-old posting "yesterday", and let "posted within 24
+    // hours" admit anything up to 36 hours old.
+    ? Math.floor((now - postedMs) / 86_400_000)
     : null;
 
   return {

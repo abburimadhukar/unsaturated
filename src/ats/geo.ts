@@ -61,7 +61,7 @@ const COUNTRY_NAMES: [RegExp, string][] = [
   [/\bsouth africa\b/i, 'ZA'],
   [/\bkenya\b/i, 'KE'],
   [/\bnigeria\b/i, 'NG'],
-  [/\bmexico\b/i, 'MX'],
+  [/(?<!\bnew\s)\bmexico\b/i, 'MX'],
   [/\bbrazil\b/i, 'BR'],
   [/\bargentina\b/i, 'AR'],
   [/\bcolombia\b/i, 'CO'],
@@ -113,7 +113,14 @@ const CITY_COUNTRY: [RegExp, string][] = [
 function normalizeExplicit(raw: string): string | undefined {
   const t = raw.trim();
   if (!t) return undefined;
-  if (/^[A-Z]{2}$/.test(t)) return t;
+  // Validate against the ISO set rather than trusting any two capitals: "UK" is
+  // not an ISO code (GB is), and an ATS that puts a US state in its country
+  // field would otherwise yield Canada for "CA" and India for "IN".
+  const upper = t.toUpperCase();
+  if (/^[A-Z]{2}$/.test(t)) {
+    if (upper === 'UK') return 'GB';
+    if (COUNTRY_LABELS[upper]) return upper;
+  }
   for (const [pattern, code] of COUNTRY_NAMES) if (pattern.test(t)) return code;
   if (US_MARKERS.test(t)) return 'US';
   return undefined;
@@ -136,18 +143,26 @@ export function inferCountry(
   const t = locationRaw.trim();
   if (!t) return undefined;
 
+  // An explicit country NAME still wins first: "Washington, United Kingdom" is
+  // British despite the state name.
   for (const [pattern, code] of COUNTRY_NAMES) if (pattern.test(t)) return code;
-  for (const [pattern, code] of CITY_COUNTRY) if (pattern.test(t)) return code;
 
+  // Then explicit US signals, BEFORE the city table. Running cities first filed
+  // "Vienna, Virginia, United States" as Austria, "Vancouver, Washington" as
+  // Canada, and "London, KY" / "Paris, TX" / "Rome, GA" as their European
+  // namesakes — 46 corpus rows whose location literally said United States.
   if (US_MARKERS.test(t)) return 'US';
 
   // "Austin, TX" / "Bethesda, MD 20817" — a two-letter token that is a real
-  // state code, checked after every non-US signal has already been ruled out.
+  // state code.
   for (const part of t.split(/[,|\-–]/)) {
     const token = part.trim().split(/\s+/)[0];
     if (token && US_STATE_CODES.has(token.toUpperCase())) return 'US';
   }
   if (US_STATE_NAMES.test(t)) return 'US';
+
+  // Foreign city names last — only once nothing said United States.
+  for (const [pattern, code] of CITY_COUNTRY) if (pattern.test(t)) return code;
 
   return undefined;
 }
@@ -194,7 +209,10 @@ export function cleanLocation(raw: string | null | undefined): string | null {
     .trim();
 
   // Trailing ZIP / postcode adds nothing once the city is present.
-  s = s.replace(/\s*\d{5}(-\d{4})?$/, '').replace(/,\s*$/, '').trim();
+  // \d{5} alone turned "Bengaluru, Karnataka 560103" into "...Karnataka 5".
+  // Six digits first: \d{5} run first ate the last five of a 6-digit Indian PIN
+  // and left "Bengaluru, Karnataka 5".
+  s = s.replace(/\s*\d{6}$/, '').replace(/\s*\d{5}(-\d{4})?$/, '').replace(/,\s*$/, '').trim();
 
   // "Brooklyn Park,MN" -> "Brooklyn Park, MN"
   s = s.replace(/,(?=\S)/g, ', ');

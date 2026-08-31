@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FAMILY_LABELS, FAMILY_ORDER } from '../src/taxonomy/families.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 
@@ -34,7 +34,11 @@ interface Feed {
   total: number;
   inScope: number;
   matched: number;
-  unknownIncluded: { country: number; seniority: number; remote: number };
+  unknownIncluded: { country: number; seniority: number; remote: number; employmentType: number };
+  offset: number;
+  limit: number;
+  shown: number;
+  hasMore: boolean;
   maxAgeDays: number;
   refreshedAt: string;
   source?: string;
@@ -92,17 +96,29 @@ const DEFAULTS = {
   cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
 };
 
+/** Rows fetched per request. Matches the server default. */
+const PAGE_SIZE = 200;
+
 export default function Page() {
   const [data, setData] = useState<Feed | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [moreBusy, setMoreBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [resume, setResume] = useState('');
   const [showResume, setShowResume] = useState(false);
   const [filters, setFilters] = useState(DEFAULTS);
 
+  // Typing in the search box fired one request per keystroke with no ordering
+  // guard, so a response for "kube" could land after "kubernetes" and leave the
+  // list disagreeing with the box. Every request now carries a sequence number
+  // and late arrivals are discarded.
+  const reqSeq = useRef(0);
+
   const seen = useMemo(() => new Set(data?.state.seen ?? []), [data]);
 
-  const load = useCallback(async () => {
+  const paramsFor = useCallback((offset: number) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) {
       if (k === 'includeUnknown') continue;
@@ -111,12 +127,54 @@ export default function Page() {
     }
     // Sent only when turned off, since the server keeps unknowns by default.
     if (!filters.includeUnknown) p.set('includeUnknown', '0');
-    const res = await fetch(`/api/feed?${p}`);
-    setData((await res.json()) as Feed);
-    setLoading(false);
+    if (offset > 0) p.set('offset', String(offset));
+    return p;
   }, [filters]);
 
-  useEffect(() => { void load(); }, [load]);
+  const load = useCallback(async () => {
+    const seq = ++reqSeq.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/feed?${paramsFor(0)}`);
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? `request failed (${res.status})`);
+      }
+      const body = (await res.json()) as Feed;
+      if (seq !== reqSeq.current) return; // a newer request has already answered
+      setData(body);
+      setJobs(body.jobs);
+    } catch (err) {
+      if (seq !== reqSeq.current) return;
+      setError(err instanceof Error ? err.message : 'could not load jobs');
+    } finally {
+      if (seq === reqSeq.current) setLoading(false);
+    }
+  }, [paramsFor]);
+
+  /** Appends the next page. The list used to stop dead at 200 with no way on. */
+  const loadMore = useCallback(async () => {
+    if (!data?.hasMore || moreBusy) return;
+    setMoreBusy(true);
+    try {
+      const res = await fetch(`/api/feed?${paramsFor(jobs.length)}`);
+      if (!res.ok) throw new Error('could not load more');
+      const body = (await res.json()) as Feed;
+      setJobs((prev) => [...prev, ...body.jobs]);
+      setData(body);
+    } catch {
+      // Leave what is already on screen; the button stays available to retry.
+    } finally {
+      setMoreBusy(false);
+    }
+  }, [data, jobs.length, moreBusy, paramsFor]);
+
+  // Debounced so typing does not fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => { void load(); }, 250);
+    return () => clearTimeout(t);
+  }, [load]);
 
   async function saveResume() {
     setBusy(true);
@@ -150,10 +208,12 @@ export default function Page() {
         <h1 className="brand"><span className="dot" />Unsaturated</h1>
         {data && (
           <div className="hstats">
-            <span><b className="tnum">{data.inScope.toLocaleString()}</b> roles</span>
+            <span><b className="tnum">{data.inScope.toLocaleString()}</b> in corpus</span>
             <span><b className="tnum">{data.total.toLocaleString()}</b> scanned</span>
             <span>last {data.maxAgeDays} days</span>
             <span>updated {ago(data.refreshedAt)}</span>
+            {/* A frozen build snapshot used to be indistinguishable from live data. */}
+            {data.source === 'snapshot' && <span className="unk">from snapshot</span>}
           </div>
         )}
         <div className="grow" />
@@ -181,8 +241,9 @@ export default function Page() {
           <div className="panel" style={{ marginBottom: 14 }}>
             <h3>Resume</h3>
             <p className="note">
-              Paste your resume to get match percentages. Skills are extracted by keyword
-              <b> in this session only</b> — nothing is written to disk.
+              Paste your resume to get match percentages. Keywords are extracted and the
+              <b> skill list is saved to this browser</b> so it survives a reload — the resume
+              text itself is not kept, only its length.
             </p>
             <textarea
               value={resume} onChange={(e) => setResume(e.target.value)}
@@ -307,9 +368,12 @@ export default function Page() {
                 {filters.family && ` · ${FAMILY_LABELS[filters.family as never] ?? filters.family}`}
                 {(() => {
                   const u = data?.unknownIncluded;
-                  const n = (u?.country ?? 0) + (u?.seniority ?? 0) + (u?.remote ?? 0);
+                  const n = (u?.country ?? 0) + (u?.seniority ?? 0) + (u?.remote ?? 0) + (u?.employmentType ?? 0);
                   return n > 0 ? <span className="unk"> · includes {n} with unknown details</span> : null;
                 })()}
+                {data && jobs.length < data.matched && (
+                  <span className="unk"> · showing {jobs.length}</span>
+                )}
               </span>
               <div className="grow" />
               <div className="sorts">
@@ -321,9 +385,16 @@ export default function Page() {
               </div>
             </div>
 
-            {loading ? (
+            {error ? (
+              <div className="empty">
+                {error}
+                <div style={{ marginTop: 12 }}>
+                  <button onClick={() => { void load(); }}>Try again</button>
+                </div>
+              </div>
+            ) : loading ? (
               <>{[0, 1, 2, 3, 4].map((i) => <div className="skeleton" key={i} />)}</>
-            ) : !data || data.jobs.length === 0 ? (
+            ) : jobs.length === 0 ? (
               <div className="empty">
                 No roles match these filters.
                 <div style={{ marginTop: 12 }}>
@@ -331,7 +402,7 @@ export default function Page() {
                 </div>
               </div>
             ) : (
-              data.jobs.map((j) => {
+              jobs.map((j) => {
                 const pay = salaryLabel(j);
                 const fresh = j.ageDays !== null && j.ageDays <= 2;
                 return (
@@ -397,6 +468,16 @@ export default function Page() {
                   </article>
                 );
               })
+            )}
+
+            {/* Without this the list stopped at 200 rows with no way forward, so
+                everything posted more than a few days ago was unreachable. */}
+            {!loading && !error && data?.hasMore && (
+              <div className="more">
+                <button onClick={() => { void loadMore(); }} disabled={moreBusy}>
+                  {moreBusy ? 'Loading…' : `Load more · ${data.matched - jobs.length} left`}
+                </button>
+              </div>
             )}
           </section>
         </div>

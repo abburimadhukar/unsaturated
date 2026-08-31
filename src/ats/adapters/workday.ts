@@ -88,7 +88,13 @@ export const workdayAdapter: AtsAdapter = {
       }
 
       const postings = body.jobPostings ?? [];
-      total = body.total ?? postings.length;
+      // Workday reports `total` on the FIRST page only and sends 0 on every page
+      // after it. `??` does not treat 0 as absent, so re-reading it each page
+      // collapsed the loop bound to zero and every board stopped at exactly two
+      // pages: KeyBank returned 40 of 559 postings, Travelers 40 of 353. Workday
+      // is the largest single source in the corpus, so this was losing ~93% of
+      // it. The short-page break below is what actually ends the loop.
+      if (total === Infinity) total = body.total ?? postings.length;
       if (postings.length === 0) break;
 
       for (const p of postings) {
