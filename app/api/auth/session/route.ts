@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, isAllowed, auth } from '../../../../src/state/auth.js';
+import { SESSION_COOKIE, SEAT_LIMIT, auth, claimSeat } from '../../../../src/state/auth.js';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Exchanges the token from a clicked magic link for a session cookie.
+ * Exchanges the token from a clicked magic link for a session, claiming a seat.
  *
  * Supabase hands the browser its token in the URL fragment, which never reaches
- * the server. The page posts it here, the allow-list is checked once more, and
- * it is stored httpOnly so page scripts cannot read it.
+ * the server, so the page posts it here. This is the point where a seat is
+ * taken: the address has now been proved, which is why a typo at the sign-in
+ * box costs nothing.
  */
 export async function POST(request: Request) {
   let token: string;
@@ -22,13 +23,24 @@ export async function POST(request: Request) {
 
   const { data, error } = await auth().auth.getUser(token);
   if (error || !data.user?.email) {
-    return NextResponse.json({ error: 'that link is not valid' }, { status: 401 });
+    return NextResponse.json({ error: 'that link is not valid or has expired' }, { status: 401 });
   }
-  if (!isAllowed(data.user.email)) {
-    return NextResponse.json({ error: 'that account is not permitted' }, { status: 403 });
+  const user = { id: data.user.id, email: data.user.email };
+
+  const claim = await claimSeat(token, user);
+  if (claim === 'full') {
+    return NextResponse.json(
+      {
+        error: `This site has ${SEAT_LIMIT} accounts and all of them are taken. Ask whoever runs it to free one.`,
+      },
+      { status: 403 },
+    );
+  }
+  if (claim === 'error') {
+    return NextResponse.json({ error: 'could not complete sign-in, try again' }, { status: 500 });
   }
 
-  const res = NextResponse.json({ email: data.user.email });
+  const res = NextResponse.json({ email: user.email, claimed: claim === 'claimed' });
   res.cookies.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',

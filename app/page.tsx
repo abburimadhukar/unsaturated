@@ -190,6 +190,7 @@ export default function Page() {
   const [email, setEmail] = useState('');
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
+  const [seatsLeft, setSeatsLeft] = useState<number | null>(null);
 
   const loadMe = useCallback(async () => {
     try {
@@ -245,8 +246,9 @@ export default function Page() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      const body = (await res.json()) as { error?: string; message?: string };
+      const body = (await res.json()) as { error?: string; message?: string; seatsLeft?: number };
       setAuthMsg(res.ok ? (body.message ?? 'Check your email.') : (body.error ?? 'could not send the link'));
+      if (typeof body.seatsLeft === 'number') setSeatsLeft(body.seatsLeft);
     } catch {
       setAuthMsg('could not reach the server');
     } finally {
@@ -495,6 +497,13 @@ export default function Page() {
             Signed in, your resume and the jobs you have applied to follow you between
             devices instead of living in this browser. We email you a link — there is no
             password.
+          </p>
+          <p className="hint">
+            This site has four accounts, taken first come. Nothing is claimed until you
+            click the link, so a mistyped address costs nothing.
+            {seatsLeft !== null && (
+              <> {seatsLeft > 0 ? `${seatsLeft} of 4 still free.` : 'All four are taken.'}</>
+            )}
           </p>
           <div className="row">
             <input
