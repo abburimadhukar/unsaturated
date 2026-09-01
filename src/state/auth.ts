@@ -29,6 +29,19 @@ const PUBLISHABLE =
 export const SEAT_LIMIT = 4;
 export const SESSION_COOKIE = 'sb-token';
 
+/**
+ * The refresh token, kept so a session outlives its access token.
+ *
+ * Supabase access tokens expire after an hour. Storing only that meant a new
+ * magic link every hour — against a sender that allows about two emails an
+ * hour, which is unusable. The refresh token renews the session silently for
+ * weeks, so the email is needed once rather than hourly.
+ */
+export const REFRESH_COOKIE = 'sb-refresh';
+
+/** Thirty days. Long enough that signing in feels like it stuck. */
+export const REFRESH_MAX_AGE = 60 * 60 * 24 * 30;
+
 let anon: SupabaseClient | null = null;
 
 /** Unauthenticated client, for verifying tokens and counting free seats. */
@@ -107,32 +120,82 @@ export async function claimSeat(token: string, user: SignedInUser): Promise<Clai
   }
 }
 
-/**
- * Resolves a request to a signed-in user, or null.
- *
- * The seat is re-checked on every request rather than only at sign-in, so
- * releasing a seat locks that person out immediately instead of whenever their
- * token happens to expire.
- */
-export async function userFromRequest(request: Request): Promise<SignedInUser | null> {
-  const header = request.headers.get('authorization') ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : cookieToken(request);
-  if (!token) return null;
+export interface ResolvedSession {
+  user: SignedInUser;
+  /** Set when the access token was renewed and the cookies need rewriting. */
+  renewed?: { accessToken: string; refreshToken: string };
+}
 
+/**
+ * Resolves a request to a signed-in user, renewing the session if it has aged
+ * out.
+ *
+ * The seat is re-checked every time rather than only at sign-in, so releasing a
+ * seat locks that person out immediately instead of whenever their token
+ * happens to expire.
+ */
+export async function resolveSession(request: Request): Promise<ResolvedSession | null> {
+  const header = request.headers.get('authorization') ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : cookie(request, 'sb-token');
+
+  if (token) {
+    try {
+      const { data, error } = await auth().auth.getUser(token);
+      if (!error && data.user?.email) {
+        const user = { id: data.user.id, email: data.user.email };
+        if (await hasSeat(token, user.id)) return { user };
+        return null;
+      }
+    } catch {
+      // Fall through to the refresh attempt rather than signing them out.
+    }
+  }
+
+  // Access token missing or expired: renew it.
+  const refresh = cookie(request, 'sb-refresh');
+  if (!refresh) return null;
   try {
-    const { data, error } = await auth().auth.getUser(token);
-    if (error || !data.user?.email) return null;
+    const { data, error } = await auth().auth.refreshSession({ refresh_token: refresh });
+    const session = data.session;
+    if (error || !session?.access_token || !data.user?.email) return null;
     const user = { id: data.user.id, email: data.user.email };
-    if (!(await hasSeat(token, user.id))) return null;
-    return user;
+    if (!(await hasSeat(session.access_token, user.id))) return null;
+    return {
+      user,
+      renewed: {
+        accessToken: session.access_token,
+        // Supabase rotates refresh tokens, so the new one has to be stored or
+        // the next renewal fails.
+        refreshToken: session.refresh_token ?? refresh,
+      },
+    };
   } catch {
-    // An unreachable auth service must not take the feed down with it.
     return null;
   }
 }
 
-function cookieToken(request: Request): string | null {
+/** Convenience wrapper for callers that only need to know who is asking. */
+export async function userFromRequest(request: Request): Promise<SignedInUser | null> {
+  return (await resolveSession(request))?.user ?? null;
+}
+
+/**
+ * Reads one cookie by name.
+ *
+ * Split rather than matched. Building the pattern in a template literal put a
+ * `\s` in it, which JavaScript collapses to a bare "s" — the expression compiled
+ * to `;s*` and only matched a cookie sitting first in the header. Since every
+ * visitor also carries a `uid` cookie, the session cookie was never first, so
+ * signing in appeared to work and then immediately did not.
+ */
+function cookie(request: Request, name: string): string | null {
   const header = request.headers.get('cookie') ?? '';
-  const m = header.match(/(?:^|;\s*)sb-token=([^;]+)/);
-  return m?.[1] ? decodeURIComponent(m[1]) : null;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() !== name) continue;
+    const value = part.slice(eq + 1).trim();
+    return value ? decodeURIComponent(value) : null;
+  }
+  return null;
 }

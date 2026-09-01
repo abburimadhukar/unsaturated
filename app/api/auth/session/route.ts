@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
-import { SESSION_COOKIE, SEAT_LIMIT, auth, claimSeat } from '../../../../src/state/auth.js';
+import {
+  SESSION_COOKIE,
+  REFRESH_COOKIE,
+  REFRESH_MAX_AGE,
+  SEAT_LIMIT,
+  auth,
+  claimSeat,
+} from '../../../../src/state/auth.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +20,11 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   let token: string;
+  let refresh: string;
   try {
-    const body = (await request.json()) as { access_token?: string };
+    const body = (await request.json()) as { access_token?: string; refresh_token?: string };
     token = String(body.access_token ?? '');
+    refresh = String(body.refresh_token ?? '');
   } catch {
     return NextResponse.json({ error: 'no token' }, { status: 400 });
   }
@@ -41,13 +50,17 @@ export async function POST(request: Request) {
   }
 
   const res = NextResponse.json({ email: user.email, claimed: claim === 'claimed' });
-  res.cookies.set(SESSION_COOKIE, token, {
+  const opts = {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
-    // Matches Supabase's default access-token lifetime.
-    maxAge: 60 * 60,
-  });
+  };
+  // Matches Supabase's default access-token lifetime.
+  res.cookies.set(SESSION_COOKIE, token, { ...opts, maxAge: 60 * 60 });
+  // The refresh token is what makes the session outlive that hour. Without it a
+  // new magic link would be needed hourly, against a sender that allows about
+  // two emails an hour.
+  if (refresh) res.cookies.set(REFRESH_COOKIE, refresh, { ...opts, maxAge: REFRESH_MAX_AGE });
   return res;
 }

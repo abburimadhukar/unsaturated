@@ -50,6 +50,8 @@ export default function SignIn() {
 
     const params = new URLSearchParams(hash.slice(1));
     const token = params.get('access_token');
+    // Sent along so the session survives past the access token's one hour.
+    const refresh = params.get('refresh_token');
     window.history.replaceState(null, '', window.location.pathname);
     if (!token) return;
 
@@ -59,7 +61,7 @@ export default function SignIn() {
         const res = await fetch('/api/auth/session', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ access_token: token }),
+          body: JSON.stringify({ access_token: token, refresh_token: refresh }),
         });
         const body = (await res.json()) as { error?: string };
         if (!res.ok) {
