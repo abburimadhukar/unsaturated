@@ -34,7 +34,11 @@ export async function POST(request: Request) {
   const { error } = await auth().auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${origin}/`,
+      // /signin, not the root. The root is the gated feed and no longer reads
+      // the token — moving sign-in to its own page without moving this sent
+      // people to a page that ignored the link and bounced them back to the
+      // form, losing the fragment on the way.
+      emailRedirectTo: `${origin}/signin`,
       // Supabase creating the account is fine — holding an account is not the
       // same as holding a seat, and the seat is what grants access.
       shouldCreateUser: true,

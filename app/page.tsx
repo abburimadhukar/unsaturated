@@ -226,7 +226,15 @@ export default function Page() {
    */
   useEffect(() => {
     if (!meChecked || me?.user) return;
-    window.location.replace('/signin');
+    // Carry a magic-link fragment across rather than dropping it.
+    //
+    // Supabase falls back to the project's Site URL when a redirect target is
+    // not on its allow list, which lands a token here instead of on /signin.
+    // Redirecting bare would discard the fragment and show the sign-in form
+    // again, which looks exactly like the link not working.
+    const hash = window.location.hash;
+    const carry = hash.includes('access_token=') ? hash : '';
+    window.location.replace(`/signin${carry}`);
   }, [meChecked, me]);
 
   useEffect(() => { void loadMe(); }, [loadMe]);
