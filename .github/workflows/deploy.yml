@@ -6,19 +6,15 @@
 # does.
 name: deploy
 
+# MANUAL ONLY, deliberately.
+#
+# This used to run on every push to main, which meant pushing code to GitHub was
+# the same action as deploying to Netlify — there was no way to land work without
+# shipping it. Deploying is now an explicit decision: trigger this workflow from
+# the Actions tab, or `gh workflow run deploy.yml`.
+#
+# Restore the push trigger only if you want merges to ship automatically again.
 on:
-  push:
-    branches: [main]
-    paths:
-      # Only the things that change what the site serves. Board lists and
-      # discovery tooling affect the crawler, not the web app.
-      - 'app/**'
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'next.config.mjs'
-      - 'netlify.toml'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch: {}
 
 # Shares a group with crawl.yml. `netlify deploy --build` runs the snapshot

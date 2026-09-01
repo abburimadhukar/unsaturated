@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
-import { loadBoards, type CorpusBoard } from './boards.js';
+import { loadBoardsAsync, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
 
 /**
@@ -260,14 +260,37 @@ async function loadBoard(board: CorpusBoard, now: number) {
   return { jobs: out, health };
 }
 
-export async function refreshFeed(): Promise<Feed> {
+/**
+ * One slice of the board list, for running a crawl in parallel parts.
+ *
+ * At 1,437 boards a full crawl takes ~75 seconds. At 15,000 it is roughly 13
+ * minutes against a 20-minute workflow timeout, and beyond that it simply does
+ * not finish. Splitting the list across parallel jobs keeps each one short and
+ * scales without another redesign.
+ *
+ * Sliced round-robin by index rather than hashed, so every board is covered
+ * exactly once and the split is reproducible.
+ */
+export interface Shard {
+  index: number;
+  of: number;
+}
+
+function sliceForShard<T>(items: T[], shard?: Shard): T[] {
+  if (!shard || shard.of <= 1) return items;
+  return items.filter((_, i) => i % shard.of === shard.index);
+}
+
+export async function refreshFeed(shard?: Shard): Promise<Feed> {
   const c = cache();
   // Collapse concurrent refreshes so multiple tabs don't multiply upstream load.
-  if (c.inFlight) return c.inFlight;
+  // Whole-corpus refreshes only: a shard is a distinct job and must not be
+  // handed another shard's in-flight result.
+  if (!shard && c.inFlight) return c.inFlight;
 
-  c.inFlight = (async () => {
+  const run = (async () => {
     const now = Date.now();
-    const boards = loadBoards();
+    const boards = sliceForShard(await loadBoardsAsync(), shard);
 
     // Bounded pool — firing 200+ simultaneous requests at these vendors would be
     // abusive and would get the crawler rate-limited within a single refresh.
@@ -284,19 +307,30 @@ export async function refreshFeed(): Promise<Feed> {
     });
     await Promise.all(workers);
 
-    c.cached = {
+    const feed: Feed = {
       jobs: results.flatMap((r) => r.jobs).sort((a, b) => b.saturation - a.saturation),
       boards: results.map((r) => r.health),
       refreshedAt: new Date().toISOString(),
       source: 'live',
     };
-    // Stamp the cache we just filled. Without this getFeed's TTL check reads a
-    // cachedAt of 0, treats the fresh crawl as already expired, and re-crawls
-    // every board on the very next request.
-    c.cachedAt = Date.now();
-    return c.cached;
+
+    // A shard is a fraction of the corpus. Caching it would have the website
+    // serve a quarter of the jobs as if they were all of them.
+    if (!shard) {
+      c.cached = feed;
+      // Stamp the cache we just filled. Without this getFeed's TTL check reads a
+      // cachedAt of 0, treats the fresh crawl as already expired, and re-crawls
+      // every board on the very next request.
+      c.cachedAt = Date.now();
+    }
+    return feed;
   })();
 
+  // A shard holds only part of the corpus, so it must never become the cached
+  // feed the website serves.
+  if (shard) return run;
+
+  c.inFlight = run;
   try {
     return await c.inFlight;
   } finally {
@@ -458,18 +492,32 @@ export function canonicalLevel(raw: string | null | undefined): string | undefin
 export function queryFeed(feed: Feed, f: FeedQuery): FeedRow[] {
   const skills = f.skills ?? [];
 
-  let rows: FeedRow[] = feed.jobs.map((j) => {
-    const fit = scoreFit(skills, { matchedSkills: j.matchedSkills });
-    return {
-      ...j,
-      fit: fit.score,
-      fitKnown: fit.known,
-      fitBasis: fit.basis,
-      fitConfidence: fit.confidence,
-      fitHave: fit.have,
-      fitMissing: fit.missing,
-    };
-  });
+  // Scoring every job against an empty skill list is pure waste, and since the
+  // public feed no longer knows who is asking, that is now the common case —
+  // the browser does its own matching. Attach zeroed fit fields instead.
+  const EMPTY_FIT = {
+    fit: 0,
+    fitKnown: false,
+    fitBasis: 0,
+    fitConfidence: 0,
+    fitHave: [] as string[],
+    fitMissing: [] as string[],
+  };
+  let rows: FeedRow[] =
+    skills.length === 0
+      ? feed.jobs.map((j) => ({ ...j, ...EMPTY_FIT }))
+      : feed.jobs.map((j) => {
+          const fit = scoreFit(skills, { matchedSkills: j.matchedSkills });
+          return {
+            ...j,
+            fit: fit.score,
+            fitKnown: fit.known,
+            fitBasis: fit.basis,
+            fitConfidence: fit.confidence,
+            fitHave: fit.have,
+            fitMissing: fit.missing,
+          };
+        });
 
   if (f.cloudOnly !== false) rows = rows.filter((j) => j.inScope);
   // Unknown values are KEPT by default. A job we could not classify is not the

@@ -1,11 +1,11 @@
-# Hourly crawl + deploy.
+# Hourly crawl into Supabase.
 #
 # The crawl cannot run inside the website: Netlify functions cap at 30s and a
-# full crawl takes ~30s and climbing. So it runs here instead, where the job
-# limit is 6 hours, and the result is baked into the deploy.
+# full crawl is minutes. It runs here instead, writes straight to the database,
+# and the site reads that — so refreshing the jobs never involves a deploy.
 #
-# Once Supabase is wired this workflow stops deploying and simply writes to the
-# database — the site will then read fresh data without a rebuild.
+# This workflow deliberately does not deploy anything. Shipping code is a
+# separate, manual decision in deploy.yml.
 name: crawl
 
 on:
@@ -30,19 +30,28 @@ on:
         type: boolean
         default: false
 
-# A slow crawl must never overlap with the next one — nor with a deploy, which
-# runs its own full crawl to bake the snapshot. Sharing one group with deploy.yml
-# stops both sweeping all 1,437 boards at once: 16 simultaneous connections
-# presented to the same ATS vendors under a single user agent is exactly the
-# behaviour the crawler's concurrency limit exists to avoid.
-concurrency:
-  group: crawl-or-deploy
-  cancel-in-progress: false
-
 jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Sharded so the crawl stays short as the registry grows. Four parallel jobs
+    # each take a quarter of the boards by index, so every board is covered
+    # exactly once. Close-detection is already scoped to boards that returned
+    # data in the same run, so one shard cannot close another shard's postings.
+    #
+    # fail-fast off: one shard hitting a bad board must not cancel the other
+    # three and leave three quarters of the corpus unrefreshed.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    # Per shard, so the four run alongside each other but a slow shard is never
+    # overlapped by the next run's copy of itself. `matrix` is only in scope at
+    # job level — a workflow-level group referencing it silently resolves to
+    # empty and gives every run its own group, which is no protection at all.
+    concurrency:
+      group: crawl-shard-${{ matrix.shard }}
+      cancel-in-progress: false
     # Needed by the failure step below, which files/updates an issue.
     permissions:
       contents: read
@@ -59,8 +68,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          # Caching npm keeps each run near a minute, which matters against the
-          # 2,000 minute/month budget on a private repo.
           cache: npm
 
       - run: npm ci
@@ -75,20 +82,18 @@ jobs:
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
-        run: npm run crawl:db -- ${{ inputs.force && '--force' || '' }}
+        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of 4 ${{ inputs.force && '--force' || '' }}
 
-      # Fallback while the service-role key is missing: bake a snapshot and
-      # redeploy. Slower and costlier in Actions minutes, but it keeps the site
-      # fresh rather than letting it freeze.
-      - name: Crawl and redeploy (no Supabase key)
+      # No Supabase key means the crawl cannot store anything, and there is no
+      # deploy fallback: this workflow must never publish the site. Fail loudly
+      # so the issue below gets raised rather than reporting a green run that
+      # wrote nothing.
+      - name: Fail if the write key is missing
         if: env.HAS_SUPABASE == 'no'
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
-          CRAWLER_CONCURRENCY: '8'
-          CRAWLER_DELAY_MS: '120'
-        run: npx --yes netlify-cli@latest deploy --build --prod
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "The crawl has nowhere to write. Add the secret and re-run."
+          exit 1
 
       # Make failure visible. Until now the only signal was a red square in the
       # Actions tab that nobody checks — so the pipeline could stop entirely

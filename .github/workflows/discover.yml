@@ -1,0 +1,99 @@
+# Keeps the board registry current without anyone maintaining it by hand.
+#
+# The list used to grow only when someone ran a discovery command locally and
+# committed the result, so in practice it did not grow at all. This reads the
+# Common Crawl URL index — where ATS board tokens are simply the first path
+# segment of every archived board URL — verifies what it finds against the live
+# vendor APIs, and stores the ones that answer.
+#
+# Weekly, because Common Crawl publishes roughly monthly and verification is
+# deliberately slow. Writes to the database only; it never deploys.
+name: discover
+
+on:
+  schedule:
+    # Sunday, off the hour. Nothing depends on the exact minute.
+    - cron: '23 4 * * 0'
+  workflow_dispatch:
+    inputs:
+      crawl:
+        description: 'Common Crawl collection, e.g. CC-MAIN-2026-34 (blank = latest)'
+        type: string
+        default: ''
+      verify:
+        description: 'How many newly found boards to verify this run'
+        type: string
+        default: '600'
+
+concurrency:
+  group: discover
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    # Verification runs at ~1 request/second on purpose — Greenhouse drops
+    # bursts from datacenter IPs, and a dropped connection is not a dead board.
+    # 600 boards is therefore ~10 minutes of checking plus the harvest itself.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no'
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "Discovery has nowhere to store what it finds."
+          exit 1
+
+      - name: Harvest new boards from Common Crawl
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: |
+          npm run harvest:cc -- \
+            ${{ inputs.crawl && format('--crawl {0}', inputs.crawl) || '' }} \
+            --verify ${{ inputs.verify || '600' }}
+
+      # Re-checks a slice of what is already registered, so boards that have
+      # genuinely closed drop out instead of failing every crawl forever. A board
+      # is only retired after several consecutive failures.
+      - name: Re-verify a slice of the existing registry
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: npm run boards:verify -- --limit 600
+
+      - name: Raise an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          existing=$(gh issue list --label discovery-failure --state open \
+            --json number --jq '.[0].number // empty')
+          body="Board discovery failed: $RUN_URL
+
+          The registry was not updated. Existing boards keep crawling normally,
+          so this is not urgent, but the list will go stale if it keeps failing."
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title 'Board discovery is failing' --label discovery-failure --body "$body"
+          fi

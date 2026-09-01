@@ -26,6 +26,28 @@ const FALLBACK: CorpusBoard[] = [
 const DEFAULT_MAX_JOBS = 300;
 
 /**
+ * The board list, preferring the database.
+ *
+ * The registry moved into Supabase because a JSON file cannot hold 15,000+
+ * boards usefully — see corpus/board-store.ts. The file remains the fallback so
+ * a clean checkout, a local run with no credentials, and a database outage all
+ * still crawl something rather than nothing.
+ */
+export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
+  try {
+    const { readActiveBoards } = await import('./board-store.js');
+    const fromDb = await readActiveBoards();
+    if (fromDb && fromDb.length > 0) {
+      const withCaps = fromDb.map((b) => ({ ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS }));
+      return withCaps;
+    }
+  } catch (err) {
+    console.error('board registry unavailable, using the file:', err);
+  }
+  return loadBoards();
+}
+
+/**
  * Loads boards found by `npm run discover`. Falling back to fixtures keeps a
  * clean checkout working, but the real corpus is whatever discovery produced.
  */

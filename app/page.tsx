@@ -24,10 +24,36 @@ interface Job {
   family: string | null;
   ai: boolean;
   matchedSkills: string[];
-  fit: number;
-  fitKnown: boolean;
-  fitBasis: number;
-  fitHave: string[];
+}
+
+/**
+ * Resume match, computed in the browser.
+ *
+ * This used to arrive precomputed on every job, which made the feed response
+ * unique per visitor and impossible to cache. The inputs are a list of skills
+ * and a list of skills, so doing it here costs nothing and lets the 50-job
+ * payload be shared by everyone.
+ */
+interface Fit {
+  score: number;
+  known: boolean;
+  basis: number;
+  have: number;
+}
+
+function fitFor(job: Job, skills: string[]): Fit {
+  const required = job.matchedSkills ?? [];
+  if (required.length === 0 || skills.length === 0) {
+    return { score: 0, known: false, basis: required.length, have: 0 };
+  }
+  const owned = new Set(skills.map((x) => x.toLowerCase()));
+  const have = required.filter((x) => owned.has(x.toLowerCase())).length;
+  return { score: have / required.length, known: true, basis: required.length, have };
+}
+
+interface Me {
+  profile: { skills: string[]; resumeChars: number; updatedAt: string | null };
+  state: { seen: string[]; applied: string[] };
 }
 
 interface Feed {
@@ -49,8 +75,6 @@ interface Feed {
     remote: Record<string, number>;
     country: Record<string, number>;
   };
-  profile: { skills: string[] };
-  state: { seen: string[]; applied: string[] };
   jobs: Job[];
 }
 
@@ -97,7 +121,7 @@ const DEFAULTS = {
 };
 
 /** Rows fetched per request. Matches the server default. */
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 export default function Page() {
   const [data, setData] = useState<Feed | null>(null);
@@ -112,6 +136,19 @@ export default function Page() {
   // Collapsed by default on a phone; the CSS hides the toggle on desktop, where
   // the panels are always shown.
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Fetched separately from the feed so the feed itself stays cacheable.
+  const [me, setMe] = useState<Me | null>(null);
+
+  const loadMe = useCallback(async () => {
+    try {
+      const res = await fetch('/api/me');
+      if (res.ok) setMe((await res.json()) as Me);
+    } catch {
+      // The feed renders fine without a profile; matching simply stays off.
+    }
+  }, []);
+
+  useEffect(() => { void loadMe(); }, [loadMe]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -127,12 +164,18 @@ export default function Page() {
   // and late arrivals are discarded.
   const reqSeq = useRef(0);
 
-  const seen = useMemo(() => new Set(data?.state.seen ?? []), [data]);
+  const seen = useMemo(() => new Set(me?.state.seen ?? []), [me]);
 
   const paramsFor = useCallback((offset: number) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) {
       if (k === 'includeUnknown') continue;
+      // Visitor-dependent controls never reach the server. Sending them would
+      // both 400 (the feed has no 'fit' sort any more) and split the CDN cache
+      // into a separate entry per visitor, which is the thing this split exists
+      // to prevent.
+      if (k === 'hideSeen' || k === 'minFit') continue;
+      if (k === 'sort' && v === 'fit') continue;
       if (v === '' || v === false) continue;
       p.set(k, v === true ? '1' : String(v));
     }
@@ -194,7 +237,7 @@ export default function Page() {
       body: JSON.stringify({ resume }),
     });
     setShowResume(false);
-    await load();
+    await loadMe();
     setBusy(false);
   }
 
@@ -203,15 +246,48 @@ export default function Page() {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ key: job.key, action: 'applied' }),
     }).catch(() => {});
-    void load();
+    void loadMe();
   }
 
   const set = (k: string, v: string | boolean) => setFilters((f) => ({ ...f, [k]: v }));
   const toggle = (k: 'remote' | 'family', v: string) =>
     setFilters((f) => ({ ...f, [k]: f[k] === v ? '' : v }));
 
-  const skills = data?.profile.skills ?? [];
+  const skills = me?.profile.skills ?? [];
   const facets = data?.facets;
+
+  /**
+   * Filters and ordering that depend on the visitor.
+   *
+   * These used to run on the server, which is what made every feed response
+   * unique and uncacheable. They apply to the rows already loaded — so hiding
+   * seen jobs shortens the current page rather than pulling replacements, which
+   * is the honest behaviour anyway.
+   */
+  const visible = useMemo(() => {
+    let rows = jobs;
+    if (filters.hideSeen) rows = rows.filter((j) => !seen.has(j.key));
+    const floor = filters.minFit === '' ? null : Number(filters.minFit);
+    if (floor !== null && Number.isFinite(floor) && skills.length > 0) {
+      // Jobs we cannot score are never dropped by a match threshold.
+      rows = rows.filter((j) => {
+        const f = fitFor(j, skills);
+        return !f.known || f.score >= floor;
+      });
+    }
+    if (filters.sort === 'fit' && skills.length > 0) {
+      rows = [...rows].sort((a, b) => {
+        const fa = fitFor(a, skills);
+        const fb = fitFor(b, skills);
+        // Discounted by how many skills the posting actually named, so 100%
+        // against one skill does not outrank 100% against ten.
+        const wa = fa.known ? fa.score * Math.min(1, fa.basis / 5) : -1;
+        const wb = fb.known ? fb.score * Math.min(1, fb.basis / 5) : -1;
+        return wb - wa;
+      });
+    }
+    return rows;
+  }, [jobs, filters.hideSeen, filters.minFit, filters.sort, seen, skills]);
 
   return (
     <>
@@ -392,7 +468,7 @@ export default function Page() {
                   return n > 0 ? <span className="unk"> · includes {n} with unknown details</span> : null;
                 })()}
                 {data && jobs.length < data.matched && (
-                  <span className="unk"> · showing {jobs.length}</span>
+                  <span className="unk"> · showing {visible.length}</span>
                 )}
               </span>
               <div className="grow" />
@@ -422,7 +498,7 @@ export default function Page() {
                 </div>
               </div>
             ) : (
-              jobs.map((j) => {
+              visible.map((j) => {
                 const pay = salaryLabel(j);
                 const fresh = j.ageDays !== null && j.ageDays <= 2;
                 return (
@@ -458,11 +534,14 @@ export default function Page() {
                         </span>
                         {j.employmentType && <span className="chip">{j.employmentType}</span>}
                         {pay && <span className="chip pay">{pay}</span>}
-                        {skills.length > 0 && j.fitKnown && (
-                          <span className="chip match">
-                            {Math.round(j.fit * 100)}% match · {j.fitHave.length}/{j.fitBasis}
-                          </span>
-                        )}
+                        {(() => {
+                          const f = fitFor(j, skills);
+                          return f.known ? (
+                            <span className="chip match">
+                              {Math.round(f.score * 100)}% match · {f.have}/{f.basis}
+                            </span>
+                          ) : null;
+                        })()}
                         {(j.components.ghostRisk ?? 0) >= 0.4 && (
                           <span className="chip ghost">possible ghost job</span>
                         )}

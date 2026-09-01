@@ -50,7 +50,12 @@ create index if not exists jobs_family_idx on public.jobs (family) where closed_
 create index if not exists jobs_country_idx on public.jobs (country) where closed_at is null;
 
 -- ---------------------------------------------------------------------------
--- boards — vestigial. The crawler reads discovered-boards.json, not this table.
+-- boards — the crawler's registry of what to read.
+--
+-- This table sat empty while the list lived in discovered-boards.json. That
+-- worked at 1,437 boards and does not at 15,000: several megabytes of git-tracked
+-- JSON, an unreviewable diff on every discovery run. The file is now the offline
+-- fallback and this is the source of truth.
 -- ---------------------------------------------------------------------------
 create table if not exists public.boards (
   id                   uuid primary key default gen_random_uuid(),
@@ -63,8 +68,25 @@ create table if not exists public.boards (
   last_error           text,
   consecutive_failures integer not null default 0,
   created_at           timestamptz not null default now(),
+  -- Where the token came from: 'opendata', 'commoncrawl', 'careers', 'hn',
+  -- 'slug', 'manual'. Makes it possible to judge which channel is worth running.
+  source               text not null default 'manual',
+  -- Employer's own domain, recovered free from a board's own payload.
+  domain               text,
+  job_count            integer not null default 0,
+  verified_at          timestamptz,
+  last_ok_at           timestamptz,
   unique (provider, token)
 );
+
+create index if not exists boards_active_idx on public.boards (provider, token) where active;
+
+-- Applying these to an existing database:
+--   alter table public.boards add column if not exists source text not null default 'manual';
+--   alter table public.boards add column if not exists domain text;
+--   alter table public.boards add column if not exists job_count integer not null default 0;
+--   alter table public.boards add column if not exists verified_at timestamptz;
+--   alter table public.boards add column if not exists last_ok_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 -- crawl_runs — one row per completed crawl. readFeed's freshness check reads
@@ -128,6 +150,8 @@ drop policy if exists "jobs are publicly readable" on public.jobs;
 create policy "jobs are publicly readable" on public.jobs
   for select to anon, authenticated using (true);
 
+-- The site reads the registry to know what to crawl; only the crawler, holding
+-- the secret key, ever writes it.
 drop policy if exists "boards are publicly readable" on public.boards;
 create policy "boards are publicly readable" on public.boards
   for select to anon, authenticated using (true);

@@ -7,6 +7,11 @@
  * ~4 minutes for a crawl-and-deploy.
  */
 import { refreshFeed } from '../corpus/live.js';
+
+function argOf(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
 import { writeFeed } from '../corpus/db-feed.js';
 import { db } from '../db/supabase.js';
 
@@ -47,7 +52,19 @@ async function main(): Promise<void> {
   if (await recentlyCrawled()) return;
   console.log('Crawling all boards…');
 
-  const feed = await refreshFeed();
+  // --shard N --of M crawls one slice, so several jobs can run in parallel.
+  // Each writes only the boards it crawled, and close-detection is already
+  // scoped to boards that returned data this run, so a shard cannot close
+  // another shard's postings.
+  const shardIdx = Number.parseInt(argOf('shard') ?? '', 10);
+  const shardOf = Number.parseInt(argOf('of') ?? '', 10);
+  const shard =
+    Number.isFinite(shardIdx) && Number.isFinite(shardOf) && shardOf > 1
+      ? { index: shardIdx, of: shardOf }
+      : undefined;
+  if (shard) console.log(`shard ${shard.index + 1} of ${shard.of}`);
+
+  const feed = await refreshFeed(shard);
   const ok = feed.boards.filter((b) => !b.error).length;
   const roles = feed.jobs.filter((j) => j.inScope).length;
   console.log(

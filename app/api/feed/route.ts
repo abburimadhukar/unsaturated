@@ -7,20 +7,37 @@ import {
   type FeedQuery,
   type SortKey,
 } from '../../../src/corpus/live.js';
-import { getProfile, getState } from '../../../src/state/store.js';
-import { attachVisitor, visitorFrom } from '../../../src/state/identity.js';
 
+/**
+ * The public job feed. Deliberately identical for every visitor.
+ *
+ * This used to embed the caller's resume skills and seen/applied marks, which
+ * made every response unique and therefore uncacheable — 161 KB fetched from a
+ * serverless function on every page load, filter change and bot hit. Resume
+ * matching now happens in the browser against /api/me, so this response can sit
+ * on the CDN and most requests never reach the origin at all.
+ */
 export const dynamic = 'force-dynamic';
 
-const SORTS: SortKey[] = ['newest', 'salary', 'fit'];
+// 'fit' is deliberately absent: it depends on the caller's resume, which this
+// endpoint no longer sees. The browser sorts by match itself.
+const SORTS: SortKey[] = ['newest', 'salary'];
 const FAMILIES = ['cloud', 'software', 'data', 'hris'];
 
-/** Rows per page. The client asks for more by raising `offset`. */
-const PAGE_SIZE = 200;
-const MAX_PAGE_SIZE = 500;
+// 50, not 200: the first screen is what people actually read, and 200 rows was
+// 161 KB before anyone scrolled. The client raises `offset` for more.
+const PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
+
+/**
+ * How long the CDN may serve a response without asking again.
+ *
+ * The crawler writes hourly, so a minute of staleness costs nothing and turns
+ * repeat visits, filter changes and crawler traffic into edge hits.
+ */
+const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
 
 export async function GET(request: Request) {
-  const visitor = visitorFrom(request);
   const p = new URL(request.url).searchParams;
 
   // Invalid input used to be dropped silently, so a malformed number returned a
@@ -61,12 +78,8 @@ export async function GET(request: Request) {
   const limit = num('limit', { min: 1, max: MAX_PAGE_SIZE }) ?? PAGE_SIZE;
 
   let feed;
-  let profile;
-  let state;
   try {
     feed = await getFeed();
-    profile = await getProfile(visitor.id);
-    state = await getState(visitor.id);
   } catch (err) {
     // Without this the route threw Next's default HTML error page, which the
     // client then failed to parse as JSON and hung on forever.
@@ -77,9 +90,6 @@ export async function GET(request: Request) {
   const query: FeedQuery = {
     cloudOnly: p.get('cloudOnly') !== '0',
     hideGhosts: p.get('hideGhosts') === '1',
-    hideSeen: p.get('hideSeen') === '1',
-    seenKeys: new Set(state.seen),
-    skills: profile.skills,
     sort: sortRaw && SORTS.includes(sortRaw as SortKey) ? (sortRaw as SortKey) : 'newest',
   };
 
@@ -87,10 +97,8 @@ export async function GET(request: Request) {
     const v = str(key);
     if (v) query[key] = v;
   }
-  const minFit = num('minFit', { min: 0, max: 1 });
   const within = num('postedWithinDays', { min: 1, max: MAX_AGE_DAYS });
   const minSalary = num('minSalary', { min: 0, max: 10_000_000 });
-  if (minFit !== undefined) query.minFit = minFit;
   if (within !== undefined) query.postedWithinDays = within;
   if (minSalary !== undefined) query.minSalary = minSalary;
   if (p.get('hasSalary') === '1') query.hasSalary = true;
@@ -151,9 +159,8 @@ export async function GET(request: Request) {
     source: feed.source ?? 'live',
     boards: feed.boards,
     facets,
-    profile,
-    state,
     jobs: page,
   });
-  return attachVisitor(res, visitor);
+  res.headers.set('cache-control', CACHE_HEADER);
+  return res;
 }
