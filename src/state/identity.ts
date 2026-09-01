@@ -33,16 +33,26 @@ export interface Visitor {
  * list follow them to another device or survive clearing cookies. Everyone else
  * keeps the anonymous cookie, so the site works with no sign-in at all.
  */
-export async function subjectFor(request: Request): Promise<Visitor> {
+export interface Subject {
+  visitor: Visitor;
+  /**
+   * The resolved session, when signed in. Routes must hand this to
+   * attachSession so a renewed token is stored — Supabase rotates refresh
+   * tokens, and dropping the replacement signs the person out.
+   */
+  session: import('./auth.js').ResolvedSession | null;
+}
+
+export async function subjectFor(request: Request): Promise<Subject> {
   try {
-    const { userFromRequest } = await import('./auth.js');
-    const user = await userFromRequest(request);
-    if (user) return { id: `u:${user.id}`, isNew: false };
+    const { resolveSession } = await import('./auth.js');
+    const session = await resolveSession(request);
+    if (session) return { visitor: { id: `u:${session.user.id}`, isNew: false }, session };
   } catch {
     // Auth unavailable: fall through to the anonymous cookie rather than
     // failing the request.
   }
-  return visitorFrom(request);
+  return { visitor: visitorFrom(request), session: null };
 }
 
 /**

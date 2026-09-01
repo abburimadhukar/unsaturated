@@ -174,6 +174,38 @@ export async function resolveSession(request: Request): Promise<ResolvedSession 
   }
 }
 
+/**
+ * Writes a renewed session back to the browser.
+ *
+ * Every route that resolves a session must call this, not just the one that
+ * reads the profile. Supabase ROTATES the refresh token each time it is used,
+ * so a route that renews without storing the replacement silently consumes the
+ * stored one — the next request then finds a token Supabase has already
+ * retired, and the person is signed out mid-session. That is precisely the
+ * "signed out an hour later" behaviour this is meant to prevent.
+ *
+ * Typed loosely on the response so it works with any NextResponse without
+ * dragging next/server into this module.
+ */
+export function attachSession<T extends { cookies: { set: (name: string, value: string, opts: Record<string, unknown>) => unknown } }>(
+  res: T,
+  session: ResolvedSession | null,
+): T {
+  if (!session?.renewed) return res;
+  const opts = {
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+  };
+  res.cookies.set(SESSION_COOKIE, session.renewed.accessToken, { ...opts, maxAge: 60 * 60 });
+  res.cookies.set(REFRESH_COOKIE, session.renewed.refreshToken, {
+    ...opts,
+    maxAge: REFRESH_MAX_AGE,
+  });
+  return res;
+}
+
 /** Convenience wrapper for callers that only need to know who is asking. */
 export async function userFromRequest(request: Request): Promise<SignedInUser | null> {
   return (await resolveSession(request))?.user ?? null;

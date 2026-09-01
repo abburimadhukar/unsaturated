@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
 import { getState, markApplied, markSeen } from '../../../src/state/store.js';
 import { attachVisitor, subjectFor } from '../../../src/state/identity.js';
+import { attachSession } from '../../../src/state/auth.js';
 
 export const dynamic = 'force-dynamic';
 
-/** Which postings this visitor has seen or opened. Scoped to their own cookie. */
+/** Which postings this visitor has seen or opened. Scoped to their own account. */
 export async function GET(request: Request) {
-  const visitor = await subjectFor(request);
-  return attachVisitor(NextResponse.json(await getState(visitor.id)), visitor);
+  const { visitor, session } = await subjectFor(request);
+  const res = NextResponse.json(await getState(visitor.id));
+  // attachSession as well as attachVisitor: Supabase rotates refresh tokens, so
+  // a route that renews one without storing the replacement signs the person out
+  // on their next request.
+  return attachSession(attachVisitor(res, visitor), session);
 }
 
 export async function POST(request: Request) {
-  const visitor = await subjectFor(request);
+  const { visitor, session } = await subjectFor(request);
 
   let body: { key?: string; action?: string };
   try {
@@ -27,7 +32,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'a valid job key is required' }, { status: 400 });
   }
 
-  // As in the profile route: a write that did not happen must not answer ok.
+  // A write that did not happen must not answer ok. supabase-js returns errors
+  // rather than throwing them, so this used to report success either way.
   try {
     if (body.action === 'applied') await markApplied(visitor.id, key);
     else await markSeen(visitor.id, key);
@@ -36,8 +42,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'could not record that — try again' }, { status: 503 });
   }
 
-  return attachVisitor(
-    NextResponse.json({ ok: true, ...(await getState(visitor.id)) }),
-    visitor,
-  );
+  const res = NextResponse.json({ ok: true, ...(await getState(visitor.id)) });
+  return attachSession(attachVisitor(res, visitor), session);
 }
