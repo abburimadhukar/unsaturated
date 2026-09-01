@@ -26,25 +26,36 @@ const FALLBACK: CorpusBoard[] = [
 const DEFAULT_MAX_JOBS = 300;
 
 /**
- * The board list, preferring the database.
+ * The board list: the file and the database, merged.
  *
- * The registry moved into Supabase because a JSON file cannot hold 15,000+
- * boards usefully — see corpus/board-store.ts. The file remains the fallback so
- * a clean checkout, a local run with no credentials, and a database outage all
- * still crawl something rather than nothing.
+ * Merged rather than "database, or else the file", because that version had a
+ * trap. readActiveBoards returns rows whenever the table is non-empty, so a
+ * partially seeded registry — say 300 rows imported during a test — would have
+ * replaced the 1,437 boards in the file rather than adding to them, and coverage
+ * would silently shrink to a fifth.
+ *
+ * Merging makes seeding additive and interruptible: import any number of rows,
+ * at any time, and the crawl only ever gains boards. The database wins on
+ * conflict, since it carries verification state the file does not.
  */
 export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
+  const fromFile = loadBoards();
+
+  let fromDb: CorpusBoard[] | null = null;
   try {
     const { readActiveBoards } = await import('./board-store.js');
-    const fromDb = await readActiveBoards();
-    if (fromDb && fromDb.length > 0) {
-      const withCaps = fromDb.map((b) => ({ ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS }));
-      return withCaps;
-    }
+    fromDb = await readActiveBoards();
   } catch (err) {
-    console.error('board registry unavailable, using the file:', err);
+    console.error('board registry unavailable, using the file alone:', err);
   }
-  return loadBoards();
+  if (!fromDb || fromDb.length === 0) return fromFile;
+
+  const merged = new Map<string, CorpusBoard>();
+  for (const b of fromFile) merged.set(`${b.provider}:${b.token}`, b);
+  for (const b of fromDb) {
+    merged.set(`${b.provider}:${b.token}`, { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });
+  }
+  return [...merged.values()];
 }
 
 /**
