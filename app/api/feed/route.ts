@@ -74,6 +74,16 @@ export async function GET(request: Request) {
     bad.push(`family must be one of ${FAMILIES.join(', ')}`);
   }
 
+  // Parameters that moved to the browser when the feed became public and
+  // cacheable. Silently ignoring them would hand back an unfiltered result set
+  // that looks like a successful query — the same quiet-failure the rest of this
+  // route was fixed to avoid.
+  for (const moved of ['minFit', 'hideSeen'] as const) {
+    if (p.get(moved) !== null) {
+      bad.push(`${moved} is applied in the browser and is not accepted here`);
+    }
+  }
+
   const offset = num('offset', { min: 0, max: 100_000 }) ?? 0;
   const limit = num('limit', { min: 1, max: MAX_PAGE_SIZE }) ?? PAGE_SIZE;
 
@@ -162,5 +172,13 @@ export async function GET(request: Request) {
     jobs: page,
   });
   res.headers.set('cache-control', CACHE_HEADER);
+  // Vary the CDN cache on the whole query string.
+  //
+  // Netlify defaults to varying only on Next.js's own internal parameters
+  // (__nextDataReq, _rsc), so without this every filter combination collapsed
+  // onto ONE cache entry: a request for HRIS roles in Germany was answered with
+  // whatever cloud-in-the-US had stored first. Making the feed cacheable is what
+  // introduced this — an uncached endpoint never had the problem.
+  res.headers.set('netlify-vary', 'query');
   return res;
 }
