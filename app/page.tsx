@@ -193,6 +193,17 @@ export default function Page() {
   const [seatsLeft, setSeatsLeft] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  /**
+   * Both panels open at the top of the document, above the sticky header and
+   * family nav. Clicking their button while scrolled down opened them off
+   * screen, so the button looked broken — nothing visibly happened. Bring the
+   * top of the page into view whenever one opens.
+   */
+  useEffect(() => {
+    if (!showSignIn && !showResume) return;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [showSignIn, showResume]);
+
   const loadMe = useCallback(async () => {
     try {
       const res = await fetch('/api/me');

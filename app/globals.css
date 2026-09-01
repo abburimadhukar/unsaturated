@@ -356,6 +356,10 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
   max-width: 1240px;
   margin: 14px auto 0;
   width: calc(100% - 44px);
+  /* Above the sticky family nav (z-index 25) and header (30). Without this the
+     nav's translucent background paints over the panel wherever they overlap. */
+  position: relative;
+  z-index: 40;
 }
 .signin h3 { margin: 0 0 6px; }
 .hint { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: 0; max-width: 62ch; }
