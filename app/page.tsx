@@ -186,91 +186,55 @@ export default function Page() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Fetched separately from the feed so the feed itself stays cacheable.
   const [me, setMe] = useState<Me | null>(null);
-  const [showSignIn, setShowSignIn] = useState(false);
-  const [email, setEmail] = useState('');
-  const [authMsg, setAuthMsg] = useState<string | null>(null);
-  const [authBusy, setAuthBusy] = useState(false);
-  const [seatsLeft, setSeatsLeft] = useState<number | null>(null);
+  // Separate from `me` so a signed-out visitor is distinguishable from one
+  // whose check has not finished — otherwise the feed flashes up before the
+  // redirect, which looks like a broken page.
+  const [meChecked, setMeChecked] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   /**
-   * Both panels open at the top of the document, above the sticky header and
-   * family nav. Clicking their button while scrolled down opened them off
-   * screen, so the button looked broken — nothing visibly happened. Bring the
-   * top of the page into view whenever one opens.
+   * The resume panel opens at the top of the document, above the sticky header
+   * and family nav. Opening it while scrolled down put it off screen, so the
+   * button looked broken. Bring the top of the page into view when it opens.
    */
   useEffect(() => {
-    if (!showSignIn && !showResume) return;
+    if (!showResume) return;
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [showSignIn, showResume]);
+  }, [showResume]);
 
   const loadMe = useCallback(async () => {
     try {
       const res = await fetch('/api/me');
       if (res.ok) setMe((await res.json()) as Me);
     } catch {
-      // The feed renders fine without a profile; matching simply stays off.
+      // Network trouble: leave the gate closed rather than guessing, but do not
+      // redirect either — a blip should not throw someone out of the app.
+    } finally {
+      setMeChecked(true);
     }
   }, []);
 
-  useEffect(() => { void loadMe(); }, [loadMe]);
-
   /**
-   * Completes a magic-link sign-in.
+   * Send signed-out visitors to /signin.
    *
-   * Supabase returns the token in the URL fragment, which browsers never send to
-   * the server — so the page has to hand it over itself, then strip it from the
-   * address bar so it is not left in history or copied into a shared link.
+   * Deliberately a page-level gate, not an API one. /api/feed is public and
+   * cached at the CDN, which is what stopped the feed costing a function
+   * invocation per request; making it per-user would undo that, and job
+   * postings are public information in any case. What sign-in protects is a
+   * person's own resume and applied list, and those endpoints are already
+   * scoped to the caller.
    */
   useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash.includes('access_token=')) return;
-    const token = new URLSearchParams(hash.slice(1)).get('access_token');
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (!token) return;
-    void (async () => {
-      try {
-        const res = await fetch('/api/auth/session', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ access_token: token }),
-        });
-        const body = (await res.json()) as { error?: string; email?: string };
-        if (!res.ok) {
-          setAuthMsg(body.error ?? 'that link did not work');
-          setShowSignIn(true);
-          return;
-        }
-        await loadMe();
-      } catch {
-        setAuthMsg('could not complete sign-in');
-        setShowSignIn(true);
-      }
-    })();
-  }, [loadMe]);
+    if (!meChecked || me?.user) return;
+    window.location.replace('/signin');
+  }, [meChecked, me]);
 
-  async function sendLink() {
-    setAuthBusy(true);
-    setAuthMsg(null);
-    try {
-      const res = await fetch('/api/auth/signin', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const body = (await res.json()) as { error?: string; message?: string; seatsLeft?: number };
-      setAuthMsg(res.ok ? (body.message ?? 'Check your email.') : (body.error ?? 'could not send the link'));
-      if (typeof body.seatsLeft === 'number') setSeatsLeft(body.seatsLeft);
-    } catch {
-      setAuthMsg('could not reach the server');
-    } finally {
-      setAuthBusy(false);
-    }
-  }
+  useEffect(() => { void loadMe(); }, [loadMe]);
+
 
   async function signOut() {
     await fetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
-    await loadMe();
+    window.location.replace('/signin');
   }
 
   const activeFilterCount = useMemo(
@@ -488,6 +452,11 @@ export default function Page() {
     return rows;
   }, [jobs, filters.hideSeen, filters.minFit, filters.sort, seen, skills]);
 
+  // Nothing of the feed renders until we know who is asking.
+  if (!meChecked || !me?.user) {
+    return <div className="authgate">Loading…</div>;
+  }
+
   return (
     <>
       <header>
@@ -506,46 +475,12 @@ export default function Page() {
         <button onClick={() => setShowResume((s) => !s)}>
           {skills.length ? `Skills · ${skills.length}` : 'Add resume'}
         </button>
-        {me?.user ? (
+        {me?.user && (
           <button onClick={() => void signOut()} title={me.user.email}>
             {me.user.email.split('@')[0]} · sign out
           </button>
-        ) : (
-          <button onClick={() => setShowSignIn((v) => !v)}>Sign in</button>
         )}
       </header>
-
-      {showSignIn && !me?.user && (
-        <div className="panel signin">
-          <h3>Sign in</h3>
-          <p className="hint">
-            Signed in, your resume and the jobs you have applied to follow you between
-            devices instead of living in this browser. We email you a link — there is no
-            password.
-          </p>
-          <p className="hint">
-            This site has four accounts, taken first come. Nothing is claimed until you
-            click the link, so a mistyped address costs nothing.
-            {seatsLeft !== null && (
-              <> {seatsLeft > 0 ? `${seatsLeft} of 4 still free.` : 'All four are taken.'}</>
-            )}
-          </p>
-          <div className="row">
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              autoComplete="email"
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && email) void sendLink(); }}
-            />
-            <button className="primary" onClick={() => void sendLink()} disabled={authBusy || !email}>
-              {authBusy ? 'Sending…' : 'Email me a link'}
-            </button>
-          </div>
-          {authMsg && <p className="hint">{authMsg}</p>}
-        </div>
-      )}
 
       {/* Families are the primary navigation now that ranking is by recency. */}
       <nav className="families">
