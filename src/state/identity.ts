@@ -27,7 +27,26 @@ export interface Visitor {
 }
 
 /**
- * Reads the visitor id off the request, or mints one.
+ * The id state is stored under.
+ *
+ * A signed-in user is keyed to their account, so their resume and applied-to
+ * list follow them to another device or survive clearing cookies. Everyone else
+ * keeps the anonymous cookie, so the site works with no sign-in at all.
+ */
+export async function subjectFor(request: Request): Promise<Visitor> {
+  try {
+    const { userFromRequest } = await import('./auth.js');
+    const user = await userFromRequest(request);
+    if (user) return { id: `u:${user.id}`, isNew: false };
+  } catch {
+    // Auth unavailable: fall through to the anonymous cookie rather than
+    // failing the request.
+  }
+  return visitorFrom(request);
+}
+
+/**
+ * Reads the anonymous visitor id off the request, or mints one.
  *
  * Parsed from the raw header rather than next/headers so this works unchanged in
  * route handlers, middleware and tests.

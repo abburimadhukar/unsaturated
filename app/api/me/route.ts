@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getProfile, getState } from '../../../src/state/store.js';
-import { attachVisitor, visitorFrom } from '../../../src/state/identity.js';
+import { attachVisitor, subjectFor } from '../../../src/state/identity.js';
+import { userFromRequest } from '../../../src/state/auth.js';
 
 /**
  * Everything about the current visitor, and nothing about the job corpus.
@@ -12,7 +13,8 @@ import { attachVisitor, visitorFrom } from '../../../src/state/identity.js';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const visitor = visitorFrom(request);
+  const visitor = await subjectFor(request);
+  const user = await userFromRequest(request);
 
   let profile;
   let state;
@@ -27,7 +29,12 @@ export async function GET(request: Request) {
     state = { seen: [], applied: [] };
   }
 
-  const res = NextResponse.json({ profile, state });
+  const res = NextResponse.json({
+    profile,
+    state,
+    // Null when signed out; the UI shows a sign-in prompt rather than an email.
+    user: user ? { email: user.email } : null,
+  });
   res.headers.set('cache-control', 'private, no-store');
   return attachVisitor(res, visitor);
 }

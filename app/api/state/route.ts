@@ -1,17 +1,17 @@
 import { NextResponse } from 'next/server';
 import { getState, markApplied, markSeen } from '../../../src/state/store.js';
-import { attachVisitor, visitorFrom } from '../../../src/state/identity.js';
+import { attachVisitor, subjectFor } from '../../../src/state/identity.js';
 
 export const dynamic = 'force-dynamic';
 
 /** Which postings this visitor has seen or opened. Scoped to their own cookie. */
 export async function GET(request: Request) {
-  const visitor = visitorFrom(request);
+  const visitor = await subjectFor(request);
   return attachVisitor(NextResponse.json(await getState(visitor.id)), visitor);
 }
 
 export async function POST(request: Request) {
-  const visitor = visitorFrom(request);
+  const visitor = await subjectFor(request);
 
   let body: { key?: string; action?: string };
   try {

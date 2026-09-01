@@ -131,7 +131,39 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
   .sidebar.collapsed .panel { display: none; }
 }
 
-.sidebar { position: sticky; top: 78px; display: flex; flex-direction: column; gap: 8px; }
+/* Sticky with no height cap meant the sidebar could not be scrolled at all:
+   once its panels were taller than the viewport, everything past the fold was
+   unreachable — the element is pinned, so the page scrolling behind it never
+   moves it. Capping the height and giving it its own overflow is what makes the
+   lower filters reachable. */
+.sidebar {
+  position: sticky;
+  top: 78px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 92px);
+  overflow-y: auto;
+  /* Room for the scrollbar so it never sits on top of the controls. */
+  padding-right: 4px;
+  /* Thin, unobtrusive scrollbar — the sidebar is chrome, not content. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-soft) transparent;
+  overscroll-behavior: contain;
+}
+.sidebar::-webkit-scrollbar { width: 8px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--line-soft);
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--line); }
+
+@media (max-width: 940px) {
+  /* Static on a phone, so it must not cap its own height or it becomes a
+     nested scroll area inside the page scroll. */
+  .sidebar { max-height: none; overflow-y: visible; }
+}
 
 .panel {
   background: var(--surface);
@@ -301,3 +333,31 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
 /* "Load more" — the feed pages 200 at a time. */
 .more { display: flex; justify-content: center; padding: 22px 0 8px; }
 .more button { padding: 10px 20px; }
+
+/* Applied state.
+   Opening a posting has always recorded it, but the only signal was a slight
+   dimming that read as an ordinary visited link. A card you have acted on
+   should say so. */
+.job.applied {
+  /* Explicit green, not var(--accent): the accent is the site's orange, and an
+     applied card highlighted in it reads as "featured" rather than "done". */
+  border-left: 2px solid var(--hot);
+}
+.chip.appliedchip {
+  background: rgba(74, 222, 128, .13);
+  border-color: rgba(74, 222, 128, .32);
+  color: var(--hot);
+  font-weight: 600;
+}
+
+/* Sign-in panel. Sits under the header, above the layout, so it never competes
+   with the job list for attention — signing in is optional. */
+.signin {
+  max-width: 1240px;
+  margin: 14px auto 0;
+  width: calc(100% - 44px);
+}
+.signin h3 { margin: 0 0 6px; }
+.hint { color: var(--text-dim); font-size: 13px; line-height: 1.5; margin: 0; max-width: 62ch; }
+.signin .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.signin .row input { flex: 1 1 240px; min-width: 0; }

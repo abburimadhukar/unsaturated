@@ -54,6 +54,8 @@ function fitFor(job: Job, skills: string[]): Fit {
 interface Me {
   profile: { skills: string[]; resumeChars: number; updatedAt: string | null };
   state: { seen: string[]; applied: string[] };
+  /** Null when signed out. Signed-in state follows the account, not the browser. */
+  user: { email: string } | null;
 }
 
 interface Feed {
@@ -123,6 +125,52 @@ const DEFAULTS = {
 /** Rows fetched per request. Matches the server default. */
 const PAGE_SIZE = 50;
 
+/**
+ * Ceiling on a restored view. The API caps a page at 200, and restoring more
+ * than that would mean several requests before the first paint — slower than
+ * the scroll position is worth.
+ */
+const MAX_RESTORE = 200;
+
+/**
+ * Filters live in the URL, and how far you had scrolled lives in sessionStorage.
+ *
+ * Without this, coming back to the tab dropped you at the top of an unfiltered
+ * first page: filters reset to defaults, the 50-row page reset to one page, and
+ * the scroll position was gone. Anyone browsing more than a screen of jobs lost
+ * their place every time.
+ */
+function filtersFromUrl(): typeof DEFAULTS {
+  if (typeof window === 'undefined') return DEFAULTS;
+  const p = new URLSearchParams(window.location.search);
+  const out = { ...DEFAULTS } as Record<string, string | boolean>;
+  for (const [k, v] of Object.entries(DEFAULTS)) {
+    const raw = p.get(k);
+    if (raw === null) continue;
+    out[k] = typeof v === 'boolean' ? raw === '1' : raw;
+  }
+  return out as typeof DEFAULTS;
+}
+
+const SCROLL_KEY = 'unsaturated.scroll';
+
+interface Restorable {
+  /** How many pages had been loaded, so "load more" survives the return trip. */
+  pages: number;
+  scrollY: number;
+  search: string;
+}
+
+function readRestorable(): Restorable | null {
+  try {
+    const raw = sessionStorage.getItem(SCROLL_KEY);
+    return raw ? (JSON.parse(raw) as Restorable) : null;
+  } catch {
+    // Private browsing and blocked site data both throw here.
+    return null;
+  }
+}
+
 export default function Page() {
   const [data, setData] = useState<Feed | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -132,12 +180,16 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [resume, setResume] = useState('');
   const [showResume, setShowResume] = useState(false);
-  const [filters, setFilters] = useState(DEFAULTS);
+  const [filters, setFilters] = useState(filtersFromUrl);
   // Collapsed by default on a phone; the CSS hides the toggle on desktop, where
   // the panels are always shown.
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Fetched separately from the feed so the feed itself stays cacheable.
   const [me, setMe] = useState<Me | null>(null);
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [email, setEmail] = useState('');
+  const [authMsg, setAuthMsg] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
 
   const loadMe = useCallback(async () => {
     try {
@@ -149,6 +201,63 @@ export default function Page() {
   }, []);
 
   useEffect(() => { void loadMe(); }, [loadMe]);
+
+  /**
+   * Completes a magic-link sign-in.
+   *
+   * Supabase returns the token in the URL fragment, which browsers never send to
+   * the server — so the page has to hand it over itself, then strip it from the
+   * address bar so it is not left in history or copied into a shared link.
+   */
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.includes('access_token=')) return;
+    const token = new URLSearchParams(hash.slice(1)).get('access_token');
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (!token) return;
+    void (async () => {
+      try {
+        const res = await fetch('/api/auth/session', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ access_token: token }),
+        });
+        const body = (await res.json()) as { error?: string; email?: string };
+        if (!res.ok) {
+          setAuthMsg(body.error ?? 'that link did not work');
+          setShowSignIn(true);
+          return;
+        }
+        await loadMe();
+      } catch {
+        setAuthMsg('could not complete sign-in');
+        setShowSignIn(true);
+      }
+    })();
+  }, [loadMe]);
+
+  async function sendLink() {
+    setAuthBusy(true);
+    setAuthMsg(null);
+    try {
+      const res = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const body = (await res.json()) as { error?: string; message?: string };
+      setAuthMsg(res.ok ? (body.message ?? 'Check your email.') : (body.error ?? 'could not send the link'));
+    } catch {
+      setAuthMsg('could not reach the server');
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function signOut() {
+    await fetch('/api/auth/signout', { method: 'POST' }).catch(() => {});
+    await loadMe();
+  }
 
   const activeFilterCount = useMemo(
     () =>
@@ -165,6 +274,7 @@ export default function Page() {
   const reqSeq = useRef(0);
 
   const seen = useMemo(() => new Set(me?.state.seen ?? []), [me]);
+  const applied = useMemo(() => new Set(me?.state.applied ?? []), [me]);
 
   const paramsFor = useCallback((offset: number) => {
     const p = new URLSearchParams();
@@ -185,12 +295,30 @@ export default function Page() {
     return p;
   }, [filters]);
 
+  const restoring = useRef(true);
+
   const load = useCallback(async () => {
     const seq = ++reqSeq.current;
     setLoading(true);
     setError(null);
+
+    // On the first load after coming back, ask for every page that was open
+    // rather than just the first, or "load more" is silently undone.
+    let want = PAGE_SIZE;
+    let restoreTo = 0;
+    if (restoring.current) {
+      restoring.current = false;
+      const saved = readRestorable();
+      if (saved && saved.search === window.location.search && saved.pages > 1) {
+        want = Math.min(saved.pages * PAGE_SIZE, MAX_RESTORE);
+        restoreTo = saved.scrollY;
+      } else if (saved && saved.search === window.location.search) {
+        restoreTo = saved.scrollY;
+      }
+    }
+
     try {
-      const res = await fetch(`/api/feed?${paramsFor(0)}`);
+      const res = await fetch(`/api/feed?${paramsFor(0)}&limit=${want}`);
       if (!res.ok) {
         const detail = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(detail?.error ?? `request failed (${res.status})`);
@@ -199,6 +327,12 @@ export default function Page() {
       if (seq !== reqSeq.current) return; // a newer request has already answered
       setData(body);
       setJobs(body.jobs);
+      if (restoreTo > 0) {
+        // After paint, or the page is still short and the scroll goes nowhere.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => window.scrollTo({ top: restoreTo })),
+        );
+      }
     } catch (err) {
       if (seq !== reqSeq.current) return;
       setError(err instanceof Error ? err.message : 'could not load jobs');
@@ -229,6 +363,44 @@ export default function Page() {
     const t = setTimeout(() => { void load(); }, 250);
     return () => clearTimeout(t);
   }, [load]);
+
+  // Keep the address bar in step with the controls. replaceState rather than
+  // pushState: every filter change becoming a history entry would make the back
+  // button walk through them one at a time instead of leaving the site.
+  useEffect(() => {
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) {
+      if (v === (DEFAULTS as Record<string, unknown>)[k]) continue;
+      p.set(k, v === true ? '1' : v === false ? '0' : String(v));
+    }
+    const qs = p.toString();
+    window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }, [filters]);
+
+  // Record the position before the tab is hidden or unloaded, so returning from
+  // a job posting lands where it left off.
+  useEffect(() => {
+    const remember = () => {
+      try {
+        sessionStorage.setItem(
+          SCROLL_KEY,
+          JSON.stringify({
+            pages: Math.max(1, Math.ceil(jobs.length / PAGE_SIZE)),
+            scrollY: window.scrollY,
+            search: window.location.search,
+          }),
+        );
+      } catch {
+        // Blocked site data — the feed still works, the position is just lost.
+      }
+    };
+    window.addEventListener('pagehide', remember);
+    document.addEventListener('visibilitychange', remember);
+    return () => {
+      window.removeEventListener('pagehide', remember);
+      document.removeEventListener('visibilitychange', remember);
+    };
+  }, [jobs.length]);
 
   async function saveResume() {
     setBusy(true);
@@ -307,7 +479,39 @@ export default function Page() {
         <button onClick={() => setShowResume((s) => !s)}>
           {skills.length ? `Skills · ${skills.length}` : 'Add resume'}
         </button>
+        {me?.user ? (
+          <button onClick={() => void signOut()} title={me.user.email}>
+            {me.user.email.split('@')[0]} · sign out
+          </button>
+        ) : (
+          <button onClick={() => setShowSignIn((v) => !v)}>Sign in</button>
+        )}
       </header>
+
+      {showSignIn && !me?.user && (
+        <div className="panel signin">
+          <h3>Sign in</h3>
+          <p className="hint">
+            Signed in, your resume and the jobs you have applied to follow you between
+            devices instead of living in this browser. We email you a link — there is no
+            password.
+          </p>
+          <div className="row">
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              autoComplete="email"
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && email) void sendLink(); }}
+            />
+            <button className="primary" onClick={() => void sendLink()} disabled={authBusy || !email}>
+              {authBusy ? 'Sending…' : 'Email me a link'}
+            </button>
+          </div>
+          {authMsg && <p className="hint">{authMsg}</p>}
+        </div>
+      )}
 
       {/* Families are the primary navigation now that ranking is by recency. */}
       <nav className="families">
@@ -502,7 +706,10 @@ export default function Page() {
                 const pay = salaryLabel(j);
                 const fresh = j.ageDays !== null && j.ageDays <= 2;
                 return (
-                  <article className={`job ${seen.has(j.key) ? 'seen' : ''}`} key={j.key}>
+                  <article
+                    className={`job ${seen.has(j.key) ? 'seen' : ''}${applied.has(j.key) ? ' applied' : ''}`}
+                    key={j.key}
+                  >
                     <div className="body">
                       <div className="jobhead">
                         <div className="title">
@@ -534,6 +741,7 @@ export default function Page() {
                         </span>
                         {j.employmentType && <span className="chip">{j.employmentType}</span>}
                         {pay && <span className="chip pay">{pay}</span>}
+                        {applied.has(j.key) && <span className="chip appliedchip">applied</span>}
                         {(() => {
                           const f = fitFor(j, skills);
                           return f.known ? (

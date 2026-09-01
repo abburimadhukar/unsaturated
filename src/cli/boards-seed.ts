@@ -1,6 +1,7 @@
 /**
  * Seeds the board registry from published open datasets.
  *
+ *   npm run boards:seed -- --provider workday  one provider only
  *   npm run boards:seed -- --dry-run          report what would be added
  *   npm run boards:seed -- --sample 200       verify a sample, then report
  *   npm run boards:seed -- --out boards.json  write to a file instead of the DB
@@ -44,7 +45,15 @@ async function main(): Promise<void> {
   // Anything already crawling is known good; re-verifying it wastes an hour of
   // rate-limited requests and risks demoting a live board on a transport blip.
   const known = new Set((await loadBoardsAsync()).map(keyOf));
-  const fresh = boards.filter((b) => !known.has(keyOf(b)));
+  // Sliced by provider rather than by count, so a parallel seed gives each
+  // vendor exactly one request per second. Splitting by count instead would
+  // point every worker at every vendor at once, which is how Greenhouse starts
+  // dropping connections and live boards get recorded as dead.
+  const only = arg('provider');
+  const fresh = boards
+    .filter((b) => !known.has(keyOf(b)))
+    .filter((b) => !only || b.provider === only);
+  if (only) console.log(`provider filter: ${only}`);
   console.log(`${known.size} already in the registry · ${fresh.length} new\n`);
 
   if (fresh.length === 0) {

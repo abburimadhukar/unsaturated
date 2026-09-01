@@ -1,0 +1,92 @@
+# One-off bulk load of the board registry from published open datasets.
+#
+# Run this by hand, once. Afterwards discover.yml keeps the registry current and
+# this workflow is not needed again.
+#
+# Split by PROVIDER, not by count. Verification runs at roughly one request per
+# second because Greenhouse drops bursts from datacenter IPs — and a dropped
+# connection is not a 404, so a rushed verifier records live boards as dead.
+# Slicing by provider gives each vendor exactly one request per second no matter
+# how many jobs run in parallel; slicing by count would point all four at every
+# vendor at once, which is the thing being avoided.
+#
+# It also keeps every job inside GitHub's 6-hour ceiling. At ~1 req/s the
+# largest slice (Workday, ~12,700 tokens) is about 3.5 hours.
+name: seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report what would be added without writing'
+        type: boolean
+        default: false
+      sample:
+        description: 'Verify only N boards per provider (0 = all)'
+        type: string
+        default: '0'
+      delay:
+        description: 'Milliseconds between requests. Below ~700 Greenhouse starts refusing.'
+        type: string
+        default: '1000'
+
+concurrency:
+  group: seed
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      # One vendor per job. fail-fast off so a bad slice does not cancel the
+      # other three and waste hours of completed verification.
+      fail-fast: false
+      matrix:
+        provider: [greenhouse, workday, ashby, lever]
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no' && !inputs.dry_run
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "There is nowhere to store the verified boards."
+          exit 1
+
+      - name: Seed ${{ matrix.provider }}
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: |
+          npm run boards:seed -- \
+            --provider ${{ matrix.provider }} \
+            --delay ${{ inputs.delay || '1000' }} \
+            ${{ inputs.sample != '0' && format('--sample {0}', inputs.sample) || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Raise an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title 'Board seeding failed (${{ matrix.provider }})' \
+            --label discovery-failure \
+            --body "Seeding ${{ matrix.provider }} failed: $RUN_URL
+
+          Boards already stored are kept — the run is resumable, because anything
+          verified is skipped on the next attempt."
