@@ -27,8 +27,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'a valid job key is required' }, { status: 400 });
   }
 
-  if (body.action === 'applied') await markApplied(visitor.id, key);
-  else await markSeen(visitor.id, key);
+  // As in the profile route: a write that did not happen must not answer ok.
+  try {
+    if (body.action === 'applied') await markApplied(visitor.id, key);
+    else await markSeen(visitor.id, key);
+  } catch (err) {
+    console.error('job event write failed:', err);
+    return NextResponse.json({ error: 'could not record that — try again' }, { status: 503 });
+  }
 
   return attachVisitor(
     NextResponse.json({ ok: true, ...(await getState(visitor.id)) }),

@@ -116,19 +116,30 @@ export async function setProfileSkills(userId: string, skills: string[]): Promis
   return profile;
 }
 
+/**
+ * Saves the profile, or throws.
+ *
+ * This used to wrap the call in try/catch and carry on — but supabase-js does
+ * not throw on a database error, it RETURNS one, so the catch never ran and the
+ * error was not even logged. A save blocked by row level security reported
+ * success to the caller and persisted nothing, which is precisely how a
+ * misconfigured key went unnoticed: the UI said saved, the row never changed.
+ *
+ * The error is destructured and thrown, so the route can answer honestly.
+ */
 async function persistProfile(userId: string, profile: Profile): Promise<void> {
-  try {
-    await dbWrite().from('user_state').upsert(
-      {
-        user_id: userId,
-        skills: profile.skills,
-        resume_chars: profile.resumeChars,
-        updated_at: profile.updatedAt,
-      },
-      { onConflict: 'user_id' },
-    );
-  } catch (err) {
-    console.error('profile save failed:', err);
+  const { error } = await dbWrite().from('user_state').upsert(
+    {
+      user_id: userId,
+      skills: profile.skills,
+      resume_chars: profile.resumeChars,
+      updated_at: profile.updatedAt,
+    },
+    { onConflict: 'user_id' },
+  );
+  if (error) {
+    console.error('profile save failed:', error.message);
+    throw new Error(`could not save profile: ${error.message}`);
   }
   invalidate(userId);
 }
@@ -142,14 +153,15 @@ export async function markApplied(userId: string, key: string): Promise<void> {
   await mark(userId, key, { seen: true, applied: true });
 }
 
+/** Records seen/applied, or throws. See persistProfile for why it must throw. */
 async function mark(userId: string, key: string, flags: { seen: boolean; applied: boolean }): Promise<void> {
-  try {
-    await dbWrite().from('job_events').upsert(
-      { user_id: userId, job_key: key, seen: flags.seen, applied: flags.applied, at: new Date().toISOString() },
-      { onConflict: 'user_id,job_key' },
-    );
-  } catch (err) {
-    console.error('job event save failed:', err);
+  const { error } = await dbWrite().from('job_events').upsert(
+    { user_id: userId, job_key: key, seen: flags.seen, applied: flags.applied, at: new Date().toISOString() },
+    { onConflict: 'user_id,job_key' },
+  );
+  if (error) {
+    console.error('job event save failed:', error.message);
+    throw new Error(`could not record that job: ${error.message}`);
   }
   invalidate(userId);
 }

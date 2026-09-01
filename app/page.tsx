@@ -191,6 +191,7 @@ export default function Page() {
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [seatsLeft, setSeatsLeft] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadMe = useCallback(async () => {
     try {
@@ -406,13 +407,26 @@ export default function Page() {
 
   async function saveResume() {
     setBusy(true);
-    await fetch('/api/profile', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ resume }),
-    });
-    setShowResume(false);
-    await loadMe();
-    setBusy(false);
+    setSaveError(null);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ resume }),
+      });
+      // The response used to be discarded, so a save that failed on the server
+      // closed the panel and looked exactly like one that worked.
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setSaveError(body?.error ?? 'could not save your resume');
+        return;
+      }
+      setShowResume(false);
+      await loadMe();
+    } catch {
+      setSaveError('could not reach the server');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function open(job: Job) {
@@ -550,6 +564,7 @@ export default function Page() {
               placeholder="Paste resume text…"
             />
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+              {saveError && <p className="hint">{saveError}</p>}
               <button className="primary" onClick={() => void saveResume()} disabled={busy}>
                 Extract skills
               </button>

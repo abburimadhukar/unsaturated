@@ -25,18 +25,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'body must be JSON' }, { status: 400 });
   }
 
-  if (typeof body.resume === 'string' && body.resume.trim()) {
-    // Cap the stored text: only the extracted skills are kept, so an
-    // unbounded paste is pure cost.
-    const resume = body.resume.slice(0, 50_000);
-    return attachVisitor(
-      NextResponse.json(await setProfileFromResume(visitor.id, resume)),
-      visitor,
-    );
-  }
-  if (Array.isArray(body.skills)) {
-    const skills = body.skills.slice(0, 200).map(String);
-    return attachVisitor(NextResponse.json(await setProfileSkills(visitor.id, skills)), visitor);
+  // A failed save must not answer 200. It used to: the database error was
+  // returned rather than thrown, nothing checked it, and the caller was told the
+  // resume had been stored when nothing had been written.
+  try {
+    if (typeof body.resume === 'string' && body.resume.trim()) {
+      // Cap the stored text: only the extracted skills are kept, so an
+      // unbounded paste is pure cost.
+      const resume = body.resume.slice(0, 50_000);
+      return attachVisitor(
+        NextResponse.json(await setProfileFromResume(visitor.id, resume)),
+        visitor,
+      );
+    }
+    if (Array.isArray(body.skills)) {
+      const skills = body.skills.slice(0, 200).map(String);
+      return attachVisitor(NextResponse.json(await setProfileSkills(visitor.id, skills)), visitor);
+    }
+  } catch (err) {
+    console.error('profile write failed:', err);
+    return NextResponse.json({ error: 'could not save your resume — try again' }, { status: 503 });
   }
   return NextResponse.json({ error: 'send resume text or a skills array' }, { status: 400 });
 }
