@@ -10,6 +10,20 @@ import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
+import {
+  MAX_AGE_DAYS,
+  type Feed,
+  type FeedJob,
+  type BoardHealth,
+  type FeedQuery,
+  type SortKey,
+} from './types.js';
+
+// Re-exported so the crawler, the CLIs and the snapshot writer keep importing
+// these from live.ts exactly as before. Only the web app takes them from
+// ./types.js, which carries no Node dependencies.
+export { MAX_AGE_DAYS };
+export type { Feed, FeedJob, BoardHealth, FeedQuery, SortKey };
 
 /**
  * Live corpus for the app.
@@ -19,69 +33,9 @@ import { loadSnapshot } from './snapshot.js';
  * this keeps the app runnable on a clean checkout with no database.
  */
 
-/** Postings older than this are dropped at ingest — three weeks. */
-export const MAX_AGE_DAYS = 21;
 
-export interface FeedJob {
-  key: string;
-  title: string;
-  company: string;
-  provider: AtsProvider;
-  location: string | null;
-  country: string | null;
-  remoteType: string | null;
-  seniority: string | null;
-  employmentType: string | null;
-  department: string | null;
-  salaryMin: number | null;
-  salaryMax: number | null;
-  salaryCurrency: string | null;
-  postedAt: string | null;
-  ageDays: number | null;
-  applyUrl: string | null;
 
-  saturation: number;
-  components: Record<string, number>;
-  reasons: string[];
 
-  inScope: boolean;
-  family: Family | null;
-  /** AI/ML role, whatever its family. */
-  ai: boolean;
-  matchedSkills: string[];
-  skillScore: number;
-}
-
-export interface BoardHealth {
-  company: string;
-  provider: AtsProvider;
-  /**
-   * The board's own token. Company names are not unique — 13 of them run two
-   * boards each — so closing stale jobs has to key on provider+token or a
-   * healthy board authorises closing a failing sibling's postings.
-   */
-  token?: string;
-  jobs: number;
-  kept: number;
-  /** Descriptions fetched by the backfill pass. */
-  described?: number;
-  ms: number;
-  error?: string;
-}
-
-export interface Feed {
-  jobs: FeedJob[];
-  boards: BoardHealth[];
-  refreshedAt: string;
-  /** 'snapshot' = baked at build time; 'live' = crawled in this process. */
-  source?: 'snapshot' | 'live';
-  /**
-   * Total jobs seen by the crawl, including non-cloud ones. The snapshot keeps
-   * only in-scope roles (418 of 9,822 — a 20x size cut), so this preserves the
-   * honest "scanned" figure the header reports.
-   */
-  scanned?: number;
-}
 
 /**
  * Cache lives on globalThis for the same reason the user store does: Next gives
@@ -378,37 +332,13 @@ export async function getFeed(): Promise<Feed> {
   // crawling twelve thousand boards inside a serverless function would hang
   // until it was killed. Failing fast lets the route answer 503 with something
   // truthful instead of timing out.
-  if (process.env.NETLIFY || process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === 'production') {
     throw new Error('no corpus available: database unreachable and no snapshot present');
   }
   return refreshFeed();
 }
 
-export type SortKey = 'newest' | 'salary' | 'fit';
 
-export interface FeedQuery {
-  cloudOnly?: boolean;
-  remote?: string;
-  seniority?: string;
-  family?: string;
-  provider?: string;
-  country?: string;
-  minSaturation?: number;
-  minFit?: number;
-  postedWithinDays?: number;
-  employmentType?: string;
-  hasSalary?: boolean;
-  minSalary?: number;
-  ai?: boolean;
-  /** Keep rows whose filtered field is unknown rather than dropping them. */
-  includeUnknown?: boolean;
-  hideGhosts?: boolean;
-  hideSeen?: boolean;
-  seenKeys?: Set<string>;
-  q?: string;
-  skills?: string[];
-  sort?: SortKey;
-}
 
 export interface Facets {
   family: Record<string, number>;

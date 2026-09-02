@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
 import { queryFeedFromDb, facetsFromDb, type Facets } from '../../../src/corpus/db-query.js';
-import {
-  getFeed,
-  queryFeed,
-  facetsFor,
-  MAX_AGE_DAYS,
-  type FeedQuery,
-  type SortKey,
-} from '../../../src/corpus/live.js';
+// From ./types.js, not ./live.js. live.ts reads the board list and the build
+// snapshot off disk, so importing even a constant from it pulled `node:fs` into
+// the bundle — wasteful on a Node host and fatal on Workers, which have no
+// filesystem.
+import { MAX_AGE_DAYS, type FeedQuery, type SortKey } from '../../../src/corpus/types.js';
 
 /**
  * The public job feed. Deliberately identical for every visitor.
@@ -160,84 +157,20 @@ export async function GET(request: Request) {
       jobs: fromDb.jobs,
     });
     res.headers.set('cache-control', CACHE_HEADER);
-    res.headers.set('netlify-vary', 'query');
     return res;
   }
 
 
-  // Fallback: load the whole corpus and filter in memory. Only reached when the
-  // database path is unavailable, which is also when the build snapshot is the
-  // best source we have.
-  let feed;
-  try {
-    feed = await getFeed();
-  } catch (err) {
-    // Without this the route threw Next's default HTML error page, which the
-    // client then failed to parse as JSON and hung on forever.
-    console.error('feed load failed:', err);
-    return NextResponse.json({ error: 'feed temporarily unavailable' }, { status: 503 });
-  }
-
-  let rows;
-  let facets;
-  try {
-    rows = queryFeed(feed, query);
-
-    // Facets describe the CURRENT result set, minus the one dimension each
-    // facet offers. Computing them on the cloud-scoped set instead meant every
-    // number beside every filter was the count you would get after clearing all
-    // the other filters — "United States (1629)" next to 603 actual rows.
-    const facetBase = (drop: keyof FeedQuery) => {
-      const q: FeedQuery = { ...query };
-      delete q[drop];
-      return queryFeed(feed, q);
-    };
-    facets = {
-      ...facetsFor(facetBase('family')),
-      country: facetsFor(facetBase('country')).country,
-      remote: facetsFor(facetBase('remote')).remote,
-      provider: facetsFor(facetBase('provider')).provider,
-    };
-  } catch (err) {
-    console.error('feed query failed:', err);
-    return NextResponse.json({ error: 'query failed' }, { status: 500 });
-  }
-
-  // How many of the returned rows only survived because unknowns are kept.
-  // Surfacing this stops a filter from quietly changing what "matched" means.
-  const unknownIncluded = {
-    country: query.country ? rows.filter((r) => !r.country).length : 0,
-    seniority: query.seniority ? rows.filter((r) => !r.seniority).length : 0,
-    remote: query.remote ? rows.filter((r) => !r.remoteType).length : 0,
-    employmentType: query.employmentType ? rows.filter((r) => !r.employmentType).length : 0,
-  };
-
-  const page = rows.slice(offset, offset + limit);
-
-  const res = NextResponse.json({
-    total: feed.scanned ?? feed.jobs.length,
-    inScope: feed.jobs.filter((j) => j.inScope).length,
-    matched: rows.length,
-    unknownIncluded,
-    offset,
-    limit,
-    shown: page.length,
-    hasMore: offset + page.length < rows.length,
-    maxAgeDays: MAX_AGE_DAYS,
-    refreshedAt: feed.refreshedAt,
-    source: feed.source ?? 'live',
-    boards: feed.boards,
-    facets,
-    jobs: page,
-  });
-  res.headers.set('cache-control', CACHE_HEADER);
-  // Vary the CDN cache on the whole query string.
+  // No fallback here, deliberately.
   //
-  // Netlify defaults to varying only on Next.js's own internal parameters
-  // (__nextDataReq, _rsc), so without this every filter combination collapsed
-  // onto ONE cache entry: a request for HRIS roles in Germany was answered with
-  // whatever cloud-in-the-US had stored first. Making the feed cacheable is what
-  // introduced this — an uncached endpoint never had the problem.
-  res.headers.set('netlify-vary', 'query');
-  return res;
+  // The in-memory path loaded every open job and filtered in JavaScript. On
+  // Workers there is no filesystem for the build snapshot to live on, and
+  // filtering 16,754 rows would blow through the 10 ms CPU budget a request
+  // gets. If the database cannot answer, saying so is the honest response —
+  // far better than hanging until the runtime kills the request.
+  console.error('feed unavailable: the database did not answer');
+  return NextResponse.json(
+    { error: 'job data is temporarily unavailable' },
+    { status: 503 },
+  );
 }
