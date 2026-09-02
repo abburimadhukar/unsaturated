@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "tsx src/cli/snapshot.ts && next build",
+    "build": "next build",
     "start": "next start",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "discover": "tsx src/cli/discover.ts",
@@ -23,7 +23,8 @@
     "detect": "tsx src/cli/detect-careers.ts",
     "boards:seed": "tsx src/cli/boards-seed.ts",
     "boards:verify": "tsx src/cli/boards-verify.ts",
-    "harvest:cc": "tsx src/cli/harvest-cc.ts"
+    "harvest:cc": "tsx src/cli/harvest-cc.ts",
+    "build:snapshot": "tsx src/cli/snapshot.ts && next build"
   },
   "dependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",

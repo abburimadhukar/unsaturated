@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { queryFeedFromDb, facetsFromDb, type Facets } from '../../../src/corpus/db-query.js';
 import {
   getFeed,
   queryFeed,
@@ -36,6 +37,24 @@ const MAX_PAGE_SIZE = 200;
  * repeat visits, filter changes and crawler traffic into edge hits.
  */
 const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
+
+/**
+ * How many of the returned rows only survived because unknowns are kept.
+ * Surfacing this stops a filter quietly changing what "matched" means.
+ */
+function unknownsIn(jobs: { country: string | null; seniority: string | null; remoteType: string | null; employmentType: string | null }[], q: { country?: string; seniority?: string; remote?: string; employmentType?: string }) {
+  return {
+    country: q.country ? jobs.filter((r) => !r.country).length : 0,
+    seniority: q.seniority ? jobs.filter((r) => !r.seniority).length : 0,
+    remote: q.remote ? jobs.filter((r) => !r.remoteType).length : 0,
+    employmentType: q.employmentType ? jobs.filter((r) => !r.employmentType).length : 0,
+  };
+}
+
+/** Corpus size, summed from the provider facet rather than a second query. */
+function scannedFromFacets(f: Facets): number {
+  return Object.values(f.provider).reduce((a, b) => a + b, 0);
+}
 
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
@@ -86,17 +105,6 @@ export async function GET(request: Request) {
 
   const offset = num('offset', { min: 0, max: 100_000 }) ?? 0;
   const limit = num('limit', { min: 1, max: MAX_PAGE_SIZE }) ?? PAGE_SIZE;
-
-  let feed;
-  try {
-    feed = await getFeed();
-  } catch (err) {
-    // Without this the route threw Next's default HTML error page, which the
-    // client then failed to parse as JSON and hung on forever.
-    console.error('feed load failed:', err);
-    return NextResponse.json({ error: 'feed temporarily unavailable' }, { status: 503 });
-  }
-
   const query: FeedQuery = {
     cloudOnly: p.get('cloudOnly') !== '0',
     hideGhosts: p.get('hideGhosts') === '1',
@@ -117,6 +125,57 @@ export async function GET(request: Request) {
 
   if (bad.length > 0) {
     return NextResponse.json({ error: 'invalid query', details: bad }, { status: 400 });
+  }
+
+
+  // Ask the database to filter, sort and page.
+  //
+  // The in-memory path below loads every open job — 16,754 rows, ~13.7 MB of
+  // JSON — to render 50 of them, which at Supabase's 5 GB monthly egress is
+  // about 365 cache misses before the allowance is gone. This asks for the page
+  // instead, roughly 37 KB, and keeps the old path as the fallback so a database
+  // outage still serves the build snapshot.
+  const fromDb = await queryFeedFromDb(query, offset, limit);
+  if (fromDb) {
+    const facets = (await facetsFromDb(query)) ?? {
+      family: {}, country: {}, remote: {}, provider: {}, seniority: {},
+      inScope: 0, refreshedAt: null, scanned: 0,
+    };
+    const res = NextResponse.json({
+      total: facets.scanned || scannedFromFacets(facets),
+      inScope: facets.inScope,
+      matched: fromDb.total,
+      unknownIncluded: unknownsIn(fromDb.jobs, query),
+      offset,
+      limit,
+      shown: fromDb.jobs.length,
+      hasMore: offset + fromDb.jobs.length < fromDb.total,
+      maxAgeDays: MAX_AGE_DAYS,
+      // The last crawl, not this request. Stamping now() made the header read
+      // "updated just now" however old the corpus actually was.
+      refreshedAt: facets.refreshedAt ?? new Date().toISOString(),
+      source: 'live',
+      boards: [],
+      facets,
+      jobs: fromDb.jobs,
+    });
+    res.headers.set('cache-control', CACHE_HEADER);
+    res.headers.set('netlify-vary', 'query');
+    return res;
+  }
+
+
+  // Fallback: load the whole corpus and filter in memory. Only reached when the
+  // database path is unavailable, which is also when the build snapshot is the
+  // best source we have.
+  let feed;
+  try {
+    feed = await getFeed();
+  } catch (err) {
+    // Without this the route threw Next's default HTML error page, which the
+    // client then failed to parse as JSON and hung on forever.
+    console.error('feed load failed:', err);
+    return NextResponse.json({ error: 'feed temporarily unavailable' }, { status: 503 });
   }
 
   let rows;

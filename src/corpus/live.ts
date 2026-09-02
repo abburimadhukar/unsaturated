@@ -371,6 +371,16 @@ export async function getFeed(): Promise<Feed> {
   }
 
   // Local development with neither database nor snapshot: crawl live.
+  //
+  // Never in production. The build no longer bakes a snapshot — at 11,991 boards
+  // that crawl ran past twenty minutes and made every deploy unusable — so a
+  // deployed instance reaching this point has nothing to fall back to, and
+  // crawling twelve thousand boards inside a serverless function would hang
+  // until it was killed. Failing fast lets the route answer 503 with something
+  // truthful instead of timing out.
+  if (process.env.NETLIFY || process.env.NODE_ENV === 'production') {
+    throw new Error('no corpus available: database unreachable and no snapshot present');
+  }
   return refreshFeed();
 }
 

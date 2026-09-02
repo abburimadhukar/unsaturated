@@ -11,7 +11,7 @@ import { MAX_AGE_DAYS, type Feed, type FeedJob } from './live.js';
  * database is a storage swap, not a rewrite.
  */
 
-interface JobRow {
+export interface JobRow {
   key: string;
   provider: string;
   board_token: string;
@@ -41,7 +41,7 @@ const PAGE = 1000;
 /** Closed jobs older than this are deleted outright. */
 const PURGE_AFTER_DAYS = 45;
 
-function toFeedJob(r: JobRow, now: number): FeedJob {
+export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
   const postedMs = r.posted_at ? Date.parse(r.posted_at) : NaN;
   const ageDays = Number.isFinite(postedMs)
     // Floor, not round: rounding made "today" cover only the first 12 hours,
