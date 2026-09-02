@@ -33,7 +33,7 @@ on:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     # Sharded so the crawl stays short as the registry grows. Four parallel jobs
     # each take a quarter of the boards by index, so every board is covered
     # exactly once. Close-detection is already scoped to boards that returned
@@ -43,13 +43,15 @@ jobs:
     # three and leave three quarters of the corpus unrefreshed.
     strategy:
       fail-fast: false
-      # ONE shard while the registry is small. Four shards at 1,481 boards would
-      # present 32 simultaneous connections to the same vendors instead of 8, for
-      # no gain — the whole crawl already finishes in ~75 seconds. Widen this to
-      # [0, 1, 2, 3] once seeding has pushed the board count into the thousands,
-      # and change --of to match.
+      # Four shards, because seeding pushed the registry from 1,481 boards to
+      # 11,991 and a single process stopped finishing: three consecutive runs
+      # were killed at the timeout having done the work and written nothing.
+      # Each shard now takes ~3,000 boards, a few minutes each.
+      #
+      # One shard was right at 1,481 — four would have been 32 simultaneous
+      # connections to the same vendors for no gain.
       matrix:
-        shard: [0]
+        shard: [0, 1, 2, 3]
     # Per shard, so the four run alongside each other but a slow shard is never
     # overlapped by the next run's copy of itself. `matrix` is only in scope at
     # job level — a workflow-level group referencing it silently resolves to
@@ -87,7 +89,7 @@ jobs:
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
-        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of 1 ${{ inputs.force && '--force' || '' }}
+        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of 4 ${{ inputs.force && '--force' || '' }}
 
       # No Supabase key means the crawl cannot store anything, and there is no
       # deploy fallback: this workflow must never publish the site. Fail loudly
@@ -105,8 +107,12 @@ jobs:
       # while the site kept serving plausible-looking data under a recent
       # timestamp. One open issue is kept and reused rather than filing a new
       # one per failure.
+      # cancelled() as well as failure(): GitHub reports a job killed by the
+      # timeout as CANCELLED, not failed. Three crawls in a row hit the timeout
+      # and raised nothing, which is exactly the silent-pipeline problem this
+      # step exists to prevent.
       - name: Raise an issue on failure
-        if: failure()
+        if: failure() || cancelled()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
