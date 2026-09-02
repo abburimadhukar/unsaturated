@@ -1,0 +1,58 @@
+# Deploy the site to Cloudflare Workers.
+#
+# Runs only from the `cloudflare` branch, and only when triggered by hand. While
+# both hosts exist this must never fire on its own — main deploys to Netlify and
+# this deploys the branch, and the two are compared side by side before anything
+# is switched over.
+#
+# The crawler is untouched by any of this. It runs in crawl.yml, writes to
+# Supabase, and does not care which host serves the website.
+name: deploy-cloudflare
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Always the Cloudflare branch, whichever branch the run was started
+          # from — a deploy of main here would ship a build still wired to
+          # Netlify's adapter.
+          ref: cloudflare
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `opennextjs-cloudflare build` runs `next build` first, then repackages
+      # the output for Workers. The build no longer crawls, so this is fast.
+      - name: Build and deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run cf:deploy
+
+      # Worker secrets are runtime bindings, not build-time environment
+      # variables: passing SUPABASE_SECRET_KEY to the build would compile it into
+      # nothing useful and the deployed Worker would fall back to the publishable
+      # key, which no longer has write permission. It has to be uploaded to the
+      # Worker itself, which requires the Worker to exist — hence after deploy.
+      #
+      # Reads work without it; only saving a resume or marking a job applied
+      # needs it.
+      - name: Upload the Supabase write key to the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: printf '%s' "$SUPABASE_SECRET_KEY" | npx wrangler secret put SUPABASE_SECRET_KEY
