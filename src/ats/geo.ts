@@ -16,7 +16,22 @@ const US_STATE_CODES = new Set([
 const US_STATE_NAMES =
   /\b(alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|wisconsin|wyoming)\b/i;
 
-const US_MARKERS = /\b(united states|usa|u\.s\.a?\.?|us based|remote,?\s*us)\b/i;
+// "Remote, US" matched but "US Remote", "US - Remote" and "Remote Nationwide"
+// did not, so 121 plainly-American postings were filed as unknown.
+const US_MARKERS =
+  /\b(united states|usa|u\.s\.a?\.?|us based|(remote|nationwide)[\s,\-–]*(us|usa)|(us|usa)[\s,\-–]*(remote|nationwide)|nationwide remote|remote nationwide)\b/i;
+
+/**
+ * US cities that appear without a state or country.
+ *
+ * Several providers publish a bare city — "San Francisco", "Boston", "Austin" —
+ * and every one of those was landing in the unknown bucket, the single biggest
+ * group of undecoded locations. Only names that are unambiguously American are
+ * listed: no "Vancouver" (Canada), "London" (England), "Birmingham" (England),
+ * "Paris" or "Toronto", all of which are genuinely ambiguous without a state.
+ */
+const US_CITIES =
+  /\b(san francisco|new york city|nyc\b|los angeles|chicago|houston|philadelphia|phoenix|san antonio|san diego|san jose|austin|jacksonville|fort worth|columbus|charlotte|indianapolis|seattle|denver|washington,? d\.?c\.?|boston|nashville|detroit|oklahoma city|portland|las vegas|memphis|louisville|baltimore|milwaukee|albuquerque|tucson|fresno|sacramento|mesa|kansas city|atlanta|omaha|colorado springs|raleigh|virginia beach|long beach|oakland|minneapolis|tulsa|arlington|tampa|new orleans|santa clara|sunnyvale|mountain view|palo alto|menlo park|redmond|bellevue|cupertino|pittsburgh|cincinnati|st\.? louis|salt lake city|boulder|ann arbor|madison|durham|chapel hill|scottsdale|plano|irvine|santa monica|brooklyn|manhattan|queens|bronx)\b/i;
 
 /** Country name → ISO code. Ordered checks run before US detection. */
 const COUNTRY_NAMES: [RegExp, string][] = [
@@ -67,6 +82,54 @@ const COUNTRY_NAMES: [RegExp, string][] = [
   [/\bcolombia\b/i, 'CO'],
   [/\bchile\b/i, 'CL'],
   [/\bcosta rica\b/i, 'CR'],
+
+  // Countries the corpus actually contains but this list never named, so their
+  // jobs were filed "unknown" while the location text said the country outright
+  // — "Vilnius, Lithuania" being the clearest case. Capital cities are included
+  // because several providers give the city alone.
+  [/\b(lithuania|vilnius|kaunas)\b/i, 'LT'],
+  [/\b(latvia|riga)\b/i, 'LV'],
+  [/\b(estonia|tallinn|tartu)\b/i, 'EE'],
+  [/\b(ukraine|kyiv|kiev|lviv|kharkiv|odesa|odessa)\b/i, 'UA'],
+  [/\b(slovakia|bratislava|kosice)\b/i, 'SK'],
+  [/\b(slovenia|ljubljana)\b/i, 'SI'],
+  [/\b(bulgaria|sofia|plovdiv|varna)\b/i, 'BG'],
+  [/\b(greece|athens|thessaloniki)\b/i, 'GR'],
+  [/\b(serbia|belgrade|novi sad)\b/i, 'RS'],
+  [/\b(croatia|zagreb|split)\b/i, 'HR'],
+  [/\b(bosnia|sarajevo)\b/i, 'BA'],
+  [/\b(north macedonia|skopje)\b/i, 'MK'],
+  [/\b(albania|tirana)\b/i, 'AL'],
+  [/\bmoldova\b/i, 'MD'],
+  [/\b(cyprus|nicosia|limassol)\b/i, 'CY'],
+  [/\bmalta\b/i, 'MT'],
+  [/\b(iceland|reykjavik)\b/i, 'IS'],
+  [/\bluxembourg\b/i, 'LU'],
+  [/\b(turkey|t[uü]rkiye|istanbul|ankara|izmir)\b/i, 'TR'],
+  [/\b(peru|lima)\b/i, 'PE'],
+  [/\b(uruguay|montevideo)\b/i, 'UY'],
+  [/\bparaguay\b/i, 'PY'],
+  [/\bbolivia\b/i, 'BO'],
+  [/\b(ecuador|quito|guayaquil)\b/i, 'EC'],
+  [/\bvenezuela\b/i, 'VE'],
+  [/\bpanam[aá]\b/i, 'PA'],
+  [/\bguatemala\b/i, 'GT'],
+  [/\bhonduras\b/i, 'HN'],
+  [/\b(dominican republic|santo domingo)\b/i, 'DO'],
+  [/\b(morocco|casablanca|rabat)\b/i, 'MA'],
+  [/\b(tunisia|tunis)\b/i, 'TN'],
+  [/\bghana\b/i, 'GH'],
+  [/\buganda\b/i, 'UG'],
+  [/\b(jordan|amman)\b/i, 'JO'],
+  [/\b(qatar|doha)\b/i, 'QA'],
+  [/\bkuwait\b/i, 'KW'],
+  [/\bbahrain\b/i, 'BH'],
+  [/\boman\b/i, 'OM'],
+  [/\b(pakistan|karachi|lahore|islamabad)\b/i, 'PK'],
+  [/\b(bangladesh|dhaka)\b/i, 'BD'],
+  [/\bsri lanka\b/i, 'LK'],
+  [/\bnepal\b/i, 'NP'],
+  [/\b(cambodia|phnom penh)\b/i, 'KH'],
 ];
 
 /**
@@ -75,7 +138,10 @@ const COUNTRY_NAMES: [RegExp, string][] = [
  * actually pollute a US feed, so they are worth naming explicitly.
  */
 const CITY_COUNTRY: [RegExp, string][] = [
-  [/\b(bengaluru|bangalore|hyderabad|pune|chennai|noida|gurgaon|gurugram|mumbai|new delhi|kolkata|ahmedabad|coimbatore)\b/i, 'IN'],
+  // Widened because "Trivandrum, IN" was read as Indiana: the collision guard
+  // below only works when the city is recognised, so a missing city name is not
+  // a cosmetic gap — it changes the country.
+  [/\b(bengaluru|bangalore|hyderabad|pune|chennai|noida|gurgaon|gurugram|mumbai|new delhi|delhi|kolkata|ahmedabad|coimbatore|trivandrum|thiruvananthapuram|kochi|cochin|indore|jaipur|nagpur|vadodara|bhubaneswar|mysore|mysuru|chandigarh|trichy|tiruchirappalli|visakhapatnam|vizag|lucknow|kanpur|surat|bhopal|vijayawada|madurai|thane|navi mumbai|whitefield)\b/i, 'IN'],
   [/\b(manila|makati|cebu|taguig|quezon city)\b/i, 'PH'],
   [/\b(kuala lumpur|penang|cyberjaya)\b/i, 'MY'],
   [/\b(london|manchester|edinburgh|glasgow|bristol|leeds|birmingham)\b/i, 'GB'],
@@ -155,14 +221,31 @@ export function inferCountry(
 
   // "Austin, TX" / "Bethesda, MD 20817" — a two-letter token that is a real
   // state code.
-  for (const part of t.split(/[,|\-–]/)) {
+  //
+  // Except when that token is also the country code of a foreign city named in
+  // the same string. "Pune, IN" and "Bangalore, IN" were being read as Indiana
+  // and filed as United States — the mirror image of the Vienna, Virginia bug,
+  // and just as wrong. Several state codes collide with country codes: IN, DE,
+  // CA, MD, PA, LA, MO, MT, NE, SC, SD, TN, ID, AL, AR.
+  const cityCountry = CITY_COUNTRY.find(([pattern]) => pattern.test(t))?.[1];
+  for (const part of t.split(/[,|;\-–]/)) {
     const token = part.trim().split(/\s+/)[0];
-    if (token && US_STATE_CODES.has(token.toUpperCase())) return 'US';
+    if (!token) continue;
+    const upper = token.toUpperCase();
+    if (!US_STATE_CODES.has(upper)) continue;
+    // The city agrees with the code: it is the country, not the state.
+    if (cityCountry && cityCountry === upper) return cityCountry;
+    return 'US';
   }
   if (US_STATE_NAMES.test(t)) return 'US';
 
-  // Foreign city names last — only once nothing said United States.
+  // Foreign city names next — only once nothing said United States.
   for (const [pattern, code] of CITY_COUNTRY) if (pattern.test(t)) return code;
+
+  // Bare US cities last of all, so a foreign namesake is never overruled: the
+  // CITY_COUNTRY table above already claimed the ambiguous ones, and this list
+  // deliberately excludes names shared with another country.
+  if (US_CITIES.test(t)) return 'US';
 
   return undefined;
 }
@@ -178,6 +261,18 @@ export const COUNTRY_LABELS: Record<string, string> = {
   TH: 'Thailand', ID: 'Indonesia', IL: 'Israel', AE: 'UAE', SA: 'Saudi Arabia',
   EG: 'Egypt', ZA: 'South Africa', KE: 'Kenya', NG: 'Nigeria', MX: 'Mexico',
   BR: 'Brazil', AR: 'Argentina', CO: 'Colombia', CL: 'Chile', CR: 'Costa Rica',
+  // Added alongside the country patterns above. Without a label the dropdown
+  // shows a bare code, which reads like a bug rather than a country.
+  LT: 'Lithuania', LV: 'Latvia', EE: 'Estonia', UA: 'Ukraine', SK: 'Slovakia',
+  SI: 'Slovenia', BG: 'Bulgaria', GR: 'Greece', RS: 'Serbia', HR: 'Croatia',
+  BA: 'Bosnia and Herzegovina', MK: 'North Macedonia', AL: 'Albania',
+  MD: 'Moldova', CY: 'Cyprus', MT: 'Malta', IS: 'Iceland', LU: 'Luxembourg',
+  TR: 'Turkey', PE: 'Peru', UY: 'Uruguay', PY: 'Paraguay', BO: 'Bolivia',
+  EC: 'Ecuador', VE: 'Venezuela', PA: 'Panama', GT: 'Guatemala', HN: 'Honduras',
+  DO: 'Dominican Republic', MA: 'Morocco', TN: 'Tunisia', GH: 'Ghana',
+  UG: 'Uganda', JO: 'Jordan', QA: 'Qatar', KW: 'Kuwait', BH: 'Bahrain',
+  OM: 'Oman', PK: 'Pakistan', BD: 'Bangladesh', LK: 'Sri Lanka', NP: 'Nepal',
+  KH: 'Cambodia',
 };
 
 /**
