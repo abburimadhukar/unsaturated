@@ -41,7 +41,9 @@ const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
  */
 function unknownsIn(jobs: { country: string | null; seniority: string | null; remoteType: string | null; employmentType: string | null }[], q: { country?: string; seniority?: string; remote?: string; employmentType?: string }) {
   return {
-    country: q.country ? jobs.filter((r) => !r.country).length : 0,
+    // Always zero: country is an exact filter with its own "location unclear"
+    // option, so choosing a country never quietly folds in undecoded rows.
+    country: 0,
     seniority: q.seniority ? jobs.filter((r) => !r.seniority).length : 0,
     remote: q.remote ? jobs.filter((r) => !r.remoteType).length : 0,
     employmentType: q.employmentType ? jobs.filter((r) => !r.employmentType).length : 0,
@@ -136,7 +138,7 @@ export async function GET(request: Request) {
   if (fromDb) {
     const facets = (await facetsFromDb(query)) ?? {
       family: {}, country: {}, remote: {}, provider: {}, seniority: {},
-      inScope: 0, refreshedAt: null, scanned: 0,
+      countryUnknown: 0, inScope: 0, refreshedAt: null, scanned: 0,
     };
     const res = NextResponse.json({
       total: facets.scanned || scannedFromFacets(facets),

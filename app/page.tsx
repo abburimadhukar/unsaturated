@@ -76,6 +76,7 @@ interface Feed {
     provider: Record<string, number>;
     remote: Record<string, number>;
     country: Record<string, number>;
+    countryUnknown?: number;
   };
   jobs: Job[];
 }
@@ -558,6 +559,15 @@ export default function Page() {
                         {(COUNTRY_LABELS as Record<string, string>)[c] ?? c} ({n})
                       </option>
                     ))}
+                  {/* Its own option rather than being folded into every country.
+                      Picking "United States" used to return 3,204 jobs whose
+                      country we could not read, so the count was wrong and the
+                      label was a lie. */}
+                  {(facets?.countryUnknown ?? 0) > 0 && (
+                    <option value="__unknown__">
+                      Location unclear ({facets?.countryUnknown})
+                    </option>
+                  )}
                 </select>
               </div>
               <div className="field">

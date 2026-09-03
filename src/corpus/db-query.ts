@@ -27,6 +27,8 @@ export interface Facets {
   remote: Record<string, number>;
   provider: Record<string, number>;
   seniority: Record<string, number>;
+  /** Jobs whose country could not be decoded — its own dropdown option. */
+  countryUnknown: number;
   inScope: number;
   /** When the corpus was last written, not when this request was served. */
   refreshedAt: string | null;
