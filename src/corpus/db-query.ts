@@ -91,12 +91,34 @@ export async function queryFeedFromDb(
   }
 }
 
+/**
+ * Sidebar counts for the current query.
+ *
+ * The whole filter set goes through, because a facet has to reflect every other
+ * active filter. Passing only scope and ghosts — as this did — left every count
+ * computed over the entire corpus: selecting HRIS, all 336 of them, still
+ * offered "United States (6,243)", and choosing a country left the family tabs
+ * unchanged. Each facet still excludes its own dimension, which is what lets you
+ * switch between options rather than seeing every unselected one as zero.
+ */
 export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
   try {
     const { data, error } = await db().rpc('feed_facets', {
       p_cutoff: cutoffIso(),
       p_in_scope: f.cloudOnly !== false,
       p_hide_ghosts: f.hideGhosts === true,
+      p_family: orNull(f.family),
+      p_country: orNull(f.country),
+      p_remote: orNull(f.remote),
+      p_seniority: orNull(f.seniority),
+      p_employment: orNull(f.employmentType),
+      p_provider: orNull(f.provider),
+      p_q: orNull(f.q),
+      p_has_salary: f.hasSalary === true,
+      p_min_salary: f.minSalary ?? null,
+      p_within_days: f.postedWithinDays ?? null,
+      p_ai: f.ai === true,
+      p_keep_unknown: f.includeUnknown !== false,
     });
     if (error) {
       console.error('feed_facets failed:', error.message);
