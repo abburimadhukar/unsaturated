@@ -1,6 +1,7 @@
 import { db, dbWrite } from '../db/supabase.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { Family } from '../taxonomy/families.js';
+import type { Specialization } from '../taxonomy/specializations.js';
 import { MAX_AGE_DAYS, type Feed, type FeedJob } from './live.js';
 
 /**
@@ -29,6 +30,9 @@ export interface JobRow {
   posted_at: string | null;
   apply_url: string | null;
   family: string | null;
+  specialization: string | null;
+  specialization_reason?: string | null;
+  classification_version?: string | null;
   ai: boolean;
   matched_skills: string[] | null;
   skill_score: number | null;
@@ -76,6 +80,11 @@ export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
     saturation: 0,
     inScope: r.family !== null,
     family: (r.family as Family | null) ?? null,
+    // Null is a value here, not a gap: the family is known and the kind of job
+    // is not. The UI says so rather than picking one.
+    specialization: (r.specialization as Specialization | null) ?? null,
+    specializationReason: r.specialization_reason ?? null,
+    classificationVersion: r.classification_version ?? null,
     ai: r.ai ?? false,
     matchedSkills: r.matched_skills ?? [],
     skillScore: r.skill_score ?? 0,
@@ -114,7 +123,8 @@ export async function readFeed(): Promise<Feed | null> {
       .from('jobs')
       .select(
         'key,provider,board_token,company,title,location,country,remote_type,seniority,' +
-          'employment_type,department,salary_min,salary_max,salary_currency,posted_at,apply_url,family,ai,' +
+          'employment_type,department,salary_min,salary_max,salary_currency,posted_at,apply_url,family,' +
+          'specialization,specialization_reason,classification_version,ai,' +
           'matched_skills,skill_score,ghost_risk',
       )
       .is('closed_at', null)
@@ -200,6 +210,9 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
     posted_at: j.postedAt,
     apply_url: j.applyUrl,
     family: j.family,
+    specialization: j.specialization,
+    specialization_reason: j.specializationReason ?? null,
+    classification_version: j.classificationVersion ?? null,
     ai: j.ai,
     matched_skills: j.matchedSkills,
     skill_score: j.skillScore,

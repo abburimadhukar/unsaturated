@@ -29,6 +29,13 @@ export interface Facets {
   seniority: Record<string, number>;
   /** python / other / unknown — which stack the role is built on. */
   stack: Record<string, number>;
+  /**
+   * Counts per specialization for the family currently selected, keyed by the
+   * normalised value, plus '__unknown__' for rows whose specialization is NULL.
+   * With no family selected these span every family, which is why the UI only
+   * shows the list once a family is chosen.
+   */
+  specialization: Record<string, number>;
   /** Jobs whose country could not be decoded — its own dropdown option. */
   countryUnknown: number;
   inScope: number;
@@ -74,6 +81,7 @@ export async function queryFeedFromDb(
       p_offset: offset,
       p_limit: limit,
       p_stack: orNull(f.stack),
+      p_specialization: orNull(f.specialization),
     });
 
     if (error) {
@@ -123,6 +131,7 @@ export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
       p_ai: f.ai === true,
       p_keep_unknown: f.includeUnknown !== false,
       p_stack: orNull(f.stack),
+      p_specialization: orNull(f.specialization),
     });
     if (error) {
       console.error('feed_facets failed:', error.message);

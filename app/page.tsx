@@ -2,6 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FAMILY_LABELS, FAMILY_ORDER } from '../src/taxonomy/families.js';
+import {
+  SPECIALIZATION_LABELS,
+  UNKNOWN_SPECIALIZATION,
+  UNKNOWN_SPECIALIZATION_LABEL,
+} from '../src/taxonomy/specializations.js';
+import {
+  FILTER_DEFAULTS as DEFAULTS,
+  parseFilters,
+  serializeFilters,
+  specializationsFor,
+  applyFilterChange,
+  toggleFilter,
+} from '../src/ui/filter-state.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 
 interface Job {
@@ -22,6 +35,7 @@ interface Job {
   applyUrl: string | null;
   components: Record<string, number>;
   family: string | null;
+  specialization: string | null;
   ai: boolean;
   matchedSkills: string[];
 }
@@ -78,6 +92,7 @@ interface Feed {
     country: Record<string, number>;
     countryUnknown?: number;
     stack?: Record<string, number>;
+    specialization?: Record<string, number>;
   };
   jobs: Job[];
 }
@@ -118,12 +133,6 @@ function agoLabel(days: number | null): string {
   return `${days}d ago`;
 }
 
-const DEFAULTS = {
-  q: '', family: '', country: 'US', remote: '', seniority: '',
-  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true, employmentType: '', stack: '',
-  cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
-};
-
 /** Rows fetched per request. Matches the server default. */
 const PAGE_SIZE = 50;
 
@@ -144,14 +153,10 @@ const MAX_RESTORE = 200;
  */
 function filtersFromUrl(): typeof DEFAULTS {
   if (typeof window === 'undefined') return DEFAULTS;
-  const p = new URLSearchParams(window.location.search);
-  const out = { ...DEFAULTS } as Record<string, string | boolean>;
-  for (const [k, v] of Object.entries(DEFAULTS)) {
-    const raw = p.get(k);
-    if (raw === null) continue;
-    out[k] = typeof v === 'boolean' ? raw === '1' : raw;
-  }
-  return out as typeof DEFAULTS;
+  // parseFilters also drops a specialization that does not belong to the family
+  // in the same URL, so a hand-edited or stale link opens on a valid view
+  // instead of an empty one.
+  return parseFilters(window.location.search);
 }
 
 const SCROLL_KEY = 'unsaturated.scroll';
@@ -356,12 +361,7 @@ export default function Page() {
   // pushState: every filter change becoming a history entry would make the back
   // button walk through them one at a time instead of leaving the site.
   useEffect(() => {
-    const p = new URLSearchParams();
-    for (const [k, v] of Object.entries(filters)) {
-      if (v === (DEFAULTS as Record<string, unknown>)[k]) continue;
-      p.set(k, v === true ? '1' : v === false ? '0' : String(v));
-    }
-    const qs = p.toString();
+    const qs = serializeFilters(filters);
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }, [filters]);
 
@@ -422,9 +422,12 @@ export default function Page() {
     void loadMe();
   }
 
-  const set = (k: string, v: string | boolean) => setFilters((f) => ({ ...f, [k]: v }));
-  const toggle = (k: 'remote' | 'family', v: string) =>
-    setFilters((f) => ({ ...f, [k]: f[k] === v ? '' : v }));
+  // Both go through the shared helpers so that changing the family clears a
+  // specialization belonging to the old one — otherwise moving from Software to
+  // Data with "Frontend" selected asks for a combination that cannot exist.
+  const set = (k: string, v: string | boolean) =>
+    setFilters((f) => applyFilterChange(f, k as keyof typeof DEFAULTS, v));
+  const toggle = (k: 'remote' | 'family', v: string) => setFilters((f) => toggleFilter(f, k, v));
 
   const skills = me?.profile.skills ?? [];
   const facets = data?.facets;
@@ -549,6 +552,42 @@ export default function Page() {
                   value={filters.q} onChange={(e) => set('q', e.target.value)}
                 />
               </div>
+              {/* Only once a family is chosen. One flat list of every family's
+                  specializations would offer Workday next to Frontend and let
+                  you pick a pair that cannot exist; the options are meaningless
+                  without their parent. */}
+              {filters.family !== '' && (
+                <div className="field">
+                  <label>
+                    Specialization
+                    <span className="sublabel">
+                      {' '}in {FAMILY_LABELS[filters.family as never] ?? filters.family}
+                    </span>
+                  </label>
+                  <select
+                    value={filters.specialization}
+                    onChange={(e) => set('specialization', e.target.value)}
+                  >
+                    <option value="">All specializations</option>
+                    {specializationsFor(filters.family).map((sp) => (
+                      <option key={sp} value={sp}>
+                        {SPECIALIZATION_LABELS[sp]}
+                        {facets?.specialization?.[sp] ? ` (${facets.specialization[sp]})` : ''}
+                      </option>
+                    ))}
+                    {/* Last, and its own option rather than being folded into
+                        the others: these are jobs whose family is known and
+                        whose kind is not, and pretending otherwise would make
+                        every count above it wrong. */}
+                    <option value={UNKNOWN_SPECIALIZATION}>
+                      {UNKNOWN_SPECIALIZATION_LABEL}
+                      {facets?.specialization?.[UNKNOWN_SPECIALIZATION]
+                        ? ` (${facets.specialization[UNKNOWN_SPECIALIZATION]})`
+                        : ''}
+                    </option>
+                  </select>
+                </div>
+              )}
               <div className="field">
                 <label>Stack</label>
                 <select value={filters.stack} onChange={(e) => set('stack', e.target.value)}>
@@ -676,6 +715,11 @@ export default function Page() {
               <span className="count">
                 <b className="tnum">{data?.matched ?? 0}</b> roles
                 {filters.family && ` · ${FAMILY_LABELS[filters.family as never] ?? filters.family}`}
+                {filters.specialization &&
+                  ` · ${filters.specialization === UNKNOWN_SPECIALIZATION
+                    ? UNKNOWN_SPECIALIZATION_LABEL
+                    : ((SPECIALIZATION_LABELS as Record<string, string>)[filters.specialization]
+                        ?? filters.specialization)}`}
                 {(() => {
                   const u = data?.unknownIncluded;
                   const n = (u?.country ?? 0) + (u?.seniority ?? 0) + (u?.remote ?? 0) + (u?.employmentType ?? 0);
@@ -740,6 +784,18 @@ export default function Page() {
                         {j.family && (
                           <span className="chip fam">
                             {(FAMILY_LABELS as Record<string, string>)[j.family] ?? j.family}
+                          </span>
+                        )}
+                        {/* Shown on every classified card either way. Saying
+                            "unknown" is the point: a blank chip would read as
+                            though the role had been placed, and the whole
+                            filter depends on that distinction being visible. */}
+                        {j.family && (
+                          <span className={`chip spec${j.specialization ? '' : ' unknown'}`}>
+                            {j.specialization
+                              ? ((SPECIALIZATION_LABELS as Record<string, string>)[j.specialization]
+                                  ?? j.specialization)
+                              : 'Specialization unknown'}
                           </span>
                         )}
                         {j.ai && <span className="chip ai">AI / ML</span>}

@@ -330,6 +330,14 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
 .unk { color: var(--text-faint); font-style: italic; }
 .chip.unknown { color: var(--text-faint); font-style: italic; border-style: dashed; }
 
+/* Specialization sits one level under the family chip, so it is deliberately
+   quieter than .chip.fam — related, not competing with it. */
+.chip.spec { background: var(--surface-2); border-color: transparent; color: var(--text-dim); }
+.chip.spec.unknown { background: none; border-color: var(--line); }
+
+/* Names the family the specialization list belongs to, without shouting it. */
+.sublabel { color: var(--text-faint); font-weight: 400; text-transform: none; }
+
 /* "Load more" — the feed pages 200 at a time. */
 .more { display: flex; justify-content: center; padding: 22px 0 8px; }
 .more button { padding: 10px 20px; }

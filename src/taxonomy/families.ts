@@ -122,17 +122,38 @@ const HRIS_SKILLS: SkillTerm[] = [
 // Title signals
 // ---------------------------------------------------------------------------
 
+// `mlops` deliberately absent, though it once lived here: MLOps is a
+// specialization of the DATA family (see specializations.ts), and leaving the
+// token in this list meant every "MLOps Engineer" was filed as cloud — cloud is
+// checked before software but after data, so the title never reached the family
+// that owns the specialization. `ml platform` and `ai infrastructure` stay:
+// those are platform-engineering roles that happen to serve ML.
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|mlops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
 
 const SOFTWARE_TITLES =
   /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|ux engineer|growth engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
 
 const DATA_TITLES =
-  /\b(data engineer|data analyst|analytics engineer|data scientist|data architect|database engineer|database administrator|\bdba\b|etl developer|data platform|data warehouse|big data|business intelligence|\bbi\b (developer|analyst|engineer)|reporting analyst|machine learning engineer|ml engineer|machine learning scientist|research scientist|quantitative analyst|decision scientist|data quality)\b/i;
+  /\b(data engineer|data analyst|analytics engineer|data scientist|data architect|database engineer|database administrator|\bdba\b|etl developer|data platform|data warehouse|big data|business intelligence|\bbi\b (developer|analyst|engineer)|reporting analyst|machine learning engineer|ml engineer|machine learning scientist|research scientist|quantitative analyst|decision scientist|data quality|mlops|ml ops)\b/i;
 
-const HRIS_TITLES =
-  /\b(hris|hcm|hrms|human resources? (information|systems)|hr systems|hr technology|people systems|people technology|workday (consultant|analyst|specialist|administrator|functional|integration)|successfactors (consultant|analyst)|payroll (analyst|systems|configuration)|benefits (analyst|systems)|compensation analyst|hr data analyst|hr operations analyst|total rewards analyst)\b/i;
+/**
+ * The vendor clause is what makes "PeopleSoft Developer" and "UKG Analyst"
+ * findable at all.
+ *
+ * HRIS is never inferred from a skill fingerprint — pass 2 skips it — so a title
+ * this list does not recognise has no other route into the family. Only Workday
+ * and SuccessFactors were named before, which left every PeopleSoft, UKG,
+ * Kronos, Dayforce and Taleo role unclassified and therefore invisible.
+ * HRIS_EXCLUSIONS still removes the engineers who merely work AT those vendors.
+ */
+const HRIS_VENDOR_ROLE =
+  '(workday|successfactors|peoplesoft|oracle hcm|taleo|ukg|ultipro|kronos|dayforce|ceridian) (consultant|analyst|specialist|administrator|developer|engineer|architect|functional|technical|integration|configuration|reporting|lead)';
+
+const HRIS_TITLES = new RegExp(
+  `\\b(hris|hcm|hrms|human resources? (information|systems)|hr systems|hr technology|people systems|people technology|${HRIS_VENDOR_ROLE}|payroll (analyst|systems|configuration)|benefits (analyst|systems)|compensation analyst|hr data analyst|hr operations analyst|total rewards analyst)\\b`,
+  'i',
+);
 
 /**
  * AI/ML detection - a tag, never a family.

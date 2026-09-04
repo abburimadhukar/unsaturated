@@ -32,6 +32,16 @@ create table if not exists public.jobs (
   posted_at       timestamptz,
   apply_url       text,
   family          text,
+  -- Second level of the taxonomy, under family. NULL means "the family is known
+  -- and the kind of job is not" — never the string 'unknown', which would sort,
+  -- group and index like a real answer. Queried with the '__unknown__' token,
+  -- the same way country already handles undecoded locations.
+  specialization  text,
+  -- Which revision of the specialization rules wrote the two fields around it.
+  -- The backfill skips rows already at the current version, which is what makes
+  -- it restartable.
+  classification_version text,
+  specialization_reason  text,
   ai              boolean not null default false,
   matched_skills  text[]  not null default '{}',
   skill_score     integer not null default 0,
@@ -48,6 +58,17 @@ create index if not exists jobs_open_posted_idx
   on public.jobs (posted_at desc nulls last) where closed_at is null;
 create index if not exists jobs_family_idx on public.jobs (family) where closed_at is null;
 create index if not exists jobs_country_idx on public.jobs (country) where closed_at is null;
+-- Every feed query is (open) + family + specialization, so this matches the
+-- workload exactly and stays small: closed rows are the majority within weeks
+-- and are never queried.
+create index if not exists jobs_family_specialization_idx
+  on public.jobs (family, specialization) where closed_at is null;
+create index if not exists jobs_classification_version_idx
+  on public.jobs (classification_version) where closed_at is null;
+
+-- Applying the specialization columns, the constraint and the rebuilt
+-- feed_page / feed_facets to an existing database:
+--   src/db/migrations/2026-09-04-specialization.sql
 
 -- ---------------------------------------------------------------------------
 -- boards — the crawler's registry of what to read.

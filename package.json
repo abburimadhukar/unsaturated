@@ -28,7 +28,9 @@
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "block": "tsx src/cli/block.ts"
+    "block": "tsx src/cli/block.ts",
+    "backfill:spec": "tsx src/cli/backfill-spec.ts",
+    "test": "node --import tsx --test tests/specializations.test.ts tests/filter-state.test.ts tests/feed-route.test.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",

@@ -1,5 +1,6 @@
 import type { AtsProvider } from '../ats/types.js';
 import type { Family } from '../taxonomy/families.js';
+import type { Specialization } from '../taxonomy/specializations.js';
 
 /**
  * Shapes and constants the web app needs, with no Node dependencies.
@@ -39,6 +40,15 @@ export interface FeedJob {
 
   inScope: boolean;
   family: Family | null;
+  /**
+   * The role's specialization within its family — null when the family is known
+   * but the kind of job is not. Never guessed: see specializations.ts.
+   */
+  specialization: Specialization | null;
+  /** Why the classifier decided that. Carried for debugging, not displayed. */
+  specializationReason?: string | null;
+  /** Which revision of the specialization rules produced the two fields above. */
+  classificationVersion?: string | null;
   /** AI/ML role, whatever its family. */
   ai: boolean;
   matchedSkills: string[];
@@ -99,6 +109,12 @@ export interface FeedQuery {
   skills?: string[];
   /** 'python' | 'other' | 'unknown' — which stack a role is built on. */
   stack?: string;
+  /**
+   * A normalised specialization, or '__unknown__' for rows whose family is known
+   * and whose specialization is not. Exact, like `country`: an explicit option,
+   * never folded into the others by `includeUnknown`.
+   */
+  specialization?: string;
   sort?: SortKey;
   minSaturation?: number;
 }

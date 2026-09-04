@@ -5,6 +5,12 @@ import { queryFeedFromDb, facetsFromDb, type Facets } from '../../../src/corpus/
 // the bundle — wasteful on a Node host and fatal on Workers, which have no
 // filesystem.
 import { MAX_AGE_DAYS, type FeedQuery, type SortKey } from '../../../src/corpus/types.js';
+import {
+  ALL_SPECIALIZATIONS,
+  FAMILY_OF_SPECIALIZATION,
+  UNKNOWN_SPECIALIZATION,
+  isSpecialization,
+} from '../../../src/taxonomy/specializations.js';
 
 /**
  * The public job feed. Deliberately identical for every visitor.
@@ -100,6 +106,22 @@ export async function GET(request: Request) {
     bad.push(`stack must be one of ${STACKS.join(', ')}`);
   }
 
+  // Specialization is checked twice: that the value exists at all, and that it
+  // belongs to the family asked for alongside it. Without the second check
+  // `?family=software&specialization=devops_sre` is a perfectly well-formed
+  // query that can only ever return zero rows — a filter combination that looks
+  // like "no jobs match" when it is really a mistake. Answering 400 says which.
+  const specRaw = str('specialization');
+  if (specRaw && specRaw !== UNKNOWN_SPECIALIZATION) {
+    if (!isSpecialization(specRaw)) {
+      bad.push(`specialization must be ${UNKNOWN_SPECIALIZATION} or one of ${ALL_SPECIALIZATIONS.join(', ')}`);
+    } else if (familyRaw && FAMILY_OF_SPECIALIZATION[specRaw] !== familyRaw) {
+      bad.push(
+        `specialization ${specRaw} belongs to family ${FAMILY_OF_SPECIALIZATION[specRaw]}, not ${familyRaw}`,
+      );
+    }
+  }
+
   // Parameters that moved to the browser when the feed became public and
   // cacheable. Silently ignoring them would hand back an unfiltered result set
   // that looks like a successful query — the same quiet-failure the rest of this
@@ -118,7 +140,7 @@ export async function GET(request: Request) {
     sort: sortRaw && SORTS.includes(sortRaw as SortKey) ? (sortRaw as SortKey) : 'newest',
   };
 
-  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType', 'stack'] as const) {
+  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType', 'stack', 'specialization'] as const) {
     const v = str(key);
     if (v) query[key] = v;
   }
@@ -146,7 +168,8 @@ export async function GET(request: Request) {
   if (fromDb) {
     const facets = (await facetsFromDb(query)) ?? {
       family: {}, country: {}, remote: {}, provider: {}, seniority: {},
-      stack: {}, countryUnknown: 0, inScope: 0, refreshedAt: null, scanned: 0,
+      stack: {}, specialization: {}, countryUnknown: 0, inScope: 0,
+      refreshedAt: null, scanned: 0,
     };
     const res = NextResponse.json({
       total: facets.scanned || scannedFromFacets(facets),

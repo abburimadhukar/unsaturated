@@ -129,6 +129,36 @@ HRIS is the exception: its titles are authoritative and never overridden,
 because those roles are defined by the product someone administers rather than
 by a tech stack, so they carry no tool fingerprint at all.
 
+### Then: what kind of job is it?
+
+A family holds thousands of postings, so each one is split again into a
+**specialization**. A specialization belongs to exactly one family — a software
+job can never come out as DevOps/SRE — and is only decided after the family is.
+
+| Family | Specializations |
+|---|---|
+| **Cloud & Infrastructure** | DevOps/SRE · Platform Engineering · Cloud Infrastructure · Networking · Cloud Security · Systems/Storage · FinOps · General Cloud |
+| **Software Engineering** | Frontend · Backend · Full-stack · Mobile · QA/Test Automation · Application/Integration · Embedded/Systems · General Software |
+| **Data** | Data Engineering · Analytics/BI · Data Science · ML Engineering · MLOps · Database Administration · General Data |
+| **HRIS** | Workday · SuccessFactors · Oracle HCM/PeopleSoft · UKG/Kronos · Payroll/Benefits · General HRIS |
+
+**The title decides; the description only breaks a tie.** A title is a deliberate
+statement about the job. A description is a wish list that mentions React in a
+backend posting. So description terms are read only when the title is generic —
+and then only when one specialization shows at least two distinct terms and two
+more than the runner-up. Below that bar, nothing is written.
+
+**"Unknown specialization" is a real answer, stored as NULL.** About a fifth of
+postings carry no description at all, and plenty of titles are just "Engineer
+II". Guessing would make every count on the site a small lie — the same mistake
+the country filter used to make by folding undecoded locations into every
+country. Unknown jobs stay visible; they only disappear if you filter them out.
+
+The distinction between *general* and *unknown* is worth stating: "Software
+Engineer" genuinely **is** general software work, so it gets `general_software`.
+"Marketing Analyst" reached the data family on its SQL and never said what kind
+of data job it is, so it gets NULL.
+
 ---
 
 ## Step 4 — Filling in the blanks
@@ -195,6 +225,52 @@ Crawling:
 npm run crawl:db        # crawl everything, write to the database
 npm run snapshot        # crawl and bake a local fallback file
 ```
+
+Tests:
+
+```bash
+npm test                # classification, filter state, feed API
+```
+
+The API tests that assert what Postgres returns skip, loudly, until the
+specialization migration is applied — a skipped test that says why is worth more
+than one that passes by not looking.
+
+### Database migrations
+
+Applied by hand, never by the application. `src/db/schema.sql` describes the
+schema as it actually exists; `src/db/migrations/` holds the change sets.
+
+To apply `src/db/migrations/2026-09-04-specialization.sql`:
+
+1. Supabase dashboard → **SQL Editor** → **New query**.
+2. Paste the whole file and **Run**. It is safe to re-run: every step is
+   `if not exists`, and the two feed functions are dropped by signature before
+   being recreated — a bare `create or replace` would leave the old overload
+   behind and make every RPC call ambiguous.
+3. Confirm the columns landed:
+
+   ```sql
+   select column_name from information_schema.columns
+   where table_name = 'jobs'
+     and column_name in ('specialization','classification_version','specialization_reason');
+   ```
+
+4. Backfill the jobs already in the table:
+
+   ```bash
+   npm run backfill:spec -- --dry-run    # see the split before writing
+   npm run backfill:spec                 # write it
+   ```
+
+   Restartable: rows already stamped with the current rules version are skipped,
+   so interrupting it and running it again resumes rather than starting over. It
+   never writes `crawl_runs` and never touches `last_seen_at`, so it cannot mark
+   a stale corpus fresh.
+
+   It classifies from the **title only** — descriptions are fetched during a
+   crawl and never stored, so there is nothing here to read. Generic titles are
+   left NULL and the next crawl, which does have the description, improves them.
 
 ---
 

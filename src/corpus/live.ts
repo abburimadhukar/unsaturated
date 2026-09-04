@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
+import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
 import {
@@ -152,6 +153,20 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // its skills to both the fingerprint and the fit match.
       const cls: RoleClassification = classifyRole(job);
 
+      // Specialization is decided here, once per crawl, and never in the API or
+      // in React. It is a pure function of the title and the description, and
+      // the description is the expensive part — it exists in this process only
+      // because the backfill pass above fetched it, and is not stored. Deciding
+      // it at request time would mean either re-fetching every posting or
+      // classifying from the title alone on every page load.
+      //
+      // Only ever called for a job that already has a family: no family means no
+      // specialization, so a nontechnical posting mentioning Kubernetes is
+      // filtered out one level up rather than rescued here.
+      const spec = cls.family
+        ? classifySpecialization(cls.family, job.title, job.descriptionText)
+        : null;
+
       // Only Lever publishes a structured salary, so for everyone else the pay
       // has to be read out of the description. Never overwrite a figure the
       // employer stated in a real field.
@@ -196,6 +211,9 @@ async function loadBoard(board: CorpusBoard, now: number) {
         inScope: cls.family !== null,
         ai: cls.ai,
         family: cls.family,
+        specialization: spec?.specialization ?? null,
+        specializationReason: spec?.reason ?? null,
+        classificationVersion: spec?.version ?? null,
         // Every skill the posting named, not only the winning family's. Storing
         // just the family fingerprint meant a job filed as `software` discarded
         // the AWS and Terraform it also listed, so a cloud candidate scored 0%
