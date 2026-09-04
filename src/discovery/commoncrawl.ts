@@ -64,6 +64,20 @@ const PATTERNS: Pattern[] = [
     match: 'apply.workable.com/*',
     extract: /apply\.workable\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/,
   },
+  // Personio puts the company in the SUBDOMAIN rather than the path, so the
+  // token comes from the host — the same shape as Workday, and unlike every
+  // other pattern here. Two TLDs because German customers are on .de and the
+  // rest on .com; both resolve to the same XML endpoint.
+  {
+    provider: 'personio',
+    match: '*.jobs.personio.de/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.jobs\.personio\.de/i,
+  },
+  {
+    provider: 'personio',
+    match: '*.jobs.personio.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.jobs\.personio\.com/i,
+  },
 ];
 
 /** Path segments that are routing, not a company. */

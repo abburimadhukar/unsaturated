@@ -36,22 +36,37 @@ async function main(): Promise<void> {
   const top = Number.parseInt(arg('top') ?? '40', 10);
   const reason = arg('reason');
 
-  const { data, error } = await client
-    .from('exclusions')
-    .select('reason,title,n,sample_company,last_seen_at')
-    .order('n', { ascending: false })
-    .limit(20_000);
-
-  if (error) {
-    console.error(`could not read exclusions: ${error.message}`);
-    console.error('If the table does not exist, apply src/db/migrations/2026-09-04-exclusions.sql.');
-    process.exitCode = 1;
-    return;
-  }
-
-  const rows = (data ?? []) as {
+  // Paged. PostgREST caps a single select at 1000 rows whatever `limit` says,
+  // so asking for 20,000 quietly returned 1,000 and every total printed below
+  // was a fraction of the truth — it reported 57,891 discards against an actual
+  // 232,366. The same cap is already handled in db-feed.ts; this forgot it.
+  type Row = {
     reason: string; title: string; n: number; sample_company: string | null; last_seen_at: string;
-  }[];
+  };
+  const PAGE = 1000;
+  const rows: Row[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from('exclusions')
+      .select('reason,title,n,sample_company,last_seen_at')
+      .order('n', { ascending: false })
+      // Ordering by count alone is not a total order — thousands of titles share
+      // a count — and Postgres gives no stable order within a tie, so paging
+      // could repeat or skip rows at a page boundary.
+      .order('reason', { ascending: true })
+      .order('title', { ascending: true })
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      console.error(`could not read exclusions: ${error.message}`);
+      console.error('If the table does not exist, apply src/db/migrations/2026-09-04-exclusions.sql.');
+      process.exitCode = 1;
+      return;
+    }
+    const batch = (data ?? []) as Row[];
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+  }
 
   if (rows.length === 0) {
     console.log('Nothing recorded yet. The tally is written at the end of each crawl.');

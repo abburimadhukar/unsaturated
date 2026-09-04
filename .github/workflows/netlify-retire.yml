@@ -1,0 +1,73 @@
+# Retires the old Netlify site.
+#
+# Hosting moved to Cloudflare Workers, the Netlify deploy workflow was deleted,
+# and that version is preserved as the netlify-final tag. What was left behind is
+# a public URL still answering 200 with a frozen copy of the corpus — the worst
+# kind of stale, because it looks like a working site.
+#
+# Deleting a site cannot be undone, so this asks for the site's own name back
+# before it will act. Run it once with anything else to see what is there.
+name: netlify-retire
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type the site's exact name to delete it. Anything else only reports."
+        type: string
+        default: ''
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Look at the site before touching it
+        id: look
+        env:
+          TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$SITE_ID" ]; then
+            echo "NETLIFY_AUTH_TOKEN or NETLIFY_SITE_ID is not set; nothing to do."
+            exit 1
+          fi
+          site=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+            "https://api.netlify.com/api/v1/sites/$SITE_ID")
+          name=$(echo "$site" | jq -r '.name // empty')
+          url=$(echo "$site" | jq -r '.ssl_url // .url // empty')
+          if [ -z "$name" ]; then
+            echo "No site found for that id. It may already be gone."
+            echo "$site" | head -c 400
+            exit 1
+          fi
+          echo "name=$name"     >> "$GITHUB_OUTPUT"
+          echo "Site : $name"
+          echo "URL  : $url"
+          echo "Id   : $SITE_ID"
+          echo "Published: $(echo "$site" | jq -r '.published_deploy.published_at // "unknown"')"
+
+      - name: Delete, only if the name was typed back
+        env:
+          TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          NAME: ${{ steps.look.outputs.name }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "$NAME" ]; then
+            echo "Not deleting. Re-run with confirm = $NAME to go ahead."
+            exit 0
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://api.netlify.com/api/v1/sites/$SITE_ID")
+          echo "DELETE returned $code"
+          # Netlify answers 204 on success and 404 if it was already gone; both
+          # leave nothing serving, which is the point.
+          case "$code" in
+            204|200|404) echo "$NAME is retired." ;;
+            *) echo "Unexpected response; the site may still exist."; exit 1 ;;
+          esac

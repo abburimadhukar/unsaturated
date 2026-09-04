@@ -35,7 +35,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [greenhouse, workday, ashby, lever]
+        # smartrecruiters and workable were already being READ from the index —
+        # their patterns have always been in commoncrawl.ts — and then discarded,
+        # because --provider filters the harvest and neither was ever named here.
+        # personio is new: its company lives in the subdomain rather than the
+        # path, so it needed its own pattern.
+        #
+        # These five have working, proven adapters and 310 boards between them
+        # from the original file. Scaling them is the cheapest corpus growth
+        # available while Common Crawl has nothing left for greenhouse, workday,
+        # ashby and lever.
+        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio]
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run
