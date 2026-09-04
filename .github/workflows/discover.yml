@@ -26,12 +26,23 @@ on:
         default: '600'
 
 concurrency:
-  group: discover
+  # Per vendor: the shards run alongside each other, but a slow shard is never
+  # overlapped by the next run's copy of itself. One shared group would serialise
+  # them and throw the parallelism away.
+  group: discover-${{ matrix.provider }}
   cancel-in-progress: false
 
 jobs:
   discover:
     runs-on: ubuntu-latest
+    # One vendor per job, so four run in parallel while each ATS still sees
+    # exactly one request per second. Splitting by count instead would point
+    # every runner at every vendor at once, which is what makes Greenhouse drop
+    # connections and live boards get recorded as dead.
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [greenhouse, workday, ashby, lever]
     # Verification runs at ~1 request/second on purpose — Greenhouse drops
     # bursts from datacenter IPs, and a dropped connection is not a dead board.
     # 600 boards is therefore ~10 minutes of checking plus the harvest itself.
@@ -67,13 +78,20 @@ jobs:
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
         run: |
           npm run harvest:cc -- \
+            --provider ${{ matrix.provider }} \
             ${{ inputs.crawl && format('--crawl {0}', inputs.crawl) || '' }} \
             --verify ${{ inputs.verify || '600' }}
 
-      # Re-checks a slice of what is already registered, so boards that have
-      # genuinely closed drop out instead of failing every crawl forever. A board
-      # is only retired after several consecutive failures.
-      - name: Re-verify a slice of the existing registry
+      # Re-checks registered boards so genuinely closed ones drop out instead of
+      # failing every crawl forever. A board is retired only after several
+      # consecutive failures.
+      #
+      # One shard only: all four would re-check the same boards. It now takes the
+      # least recently confirmed ones, so the window rotates through the whole
+      # registry — it used to take a fixed alphabetical slice, re-checking the
+      # same first 600 every week and never reaching the other 11,612.
+      - name: Re-verify the least recently confirmed boards
+        if: matrix.provider == 'greenhouse'
         env:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

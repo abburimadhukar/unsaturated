@@ -10,7 +10,6 @@
  * failures, since one failure is far more often a rate limit than a closure.
  */
 import { config } from '../config.js';
-import { loadBoardsAsync } from '../corpus/boards.js';
 import { verifyBoards } from '../discovery/verify.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
@@ -24,8 +23,14 @@ async function main(): Promise<void> {
   const limit = Number.parseInt(arg('limit') ?? '500', 10);
   const delayMs = Number.parseInt(arg('delay') ?? '1000', 10);
 
-  const all = await loadBoardsAsync();
-  const batch = all.slice(0, limit).map(
+  // Least recently confirmed working first, so the window rotates through the
+  // whole registry. Taking the head of the crawl list — sorted by provider then
+  // token — re-checked the same 600 alphabetically-first boards every week and
+  // never reached the other 11,612, so no Greenhouse, Lever or Workday board was
+  // ever re-verified and the pass reported "0 retired" while looking healthy.
+  const { readStalestBoards } = await import('../corpus/board-store.js');
+  const stale = await readStalestBoards(limit);
+  const batch = stale.map(
     (b): OpenBoard => ({
       provider: b.provider,
       token: b.token,
@@ -34,7 +39,11 @@ async function main(): Promise<void> {
     }),
   );
 
-  console.log(`${all.length} registered · checking ${batch.length} at ${delayMs}ms apart\n`);
+  if (batch.length === 0) {
+    console.log('No boards to re-verify.');
+    return;
+  }
+  console.log(`checking the ${batch.length} least recently verified, ${delayMs}ms apart\n`);
 
   const results = await verifyBoards(batch, {
     userAgent: config.userAgent,

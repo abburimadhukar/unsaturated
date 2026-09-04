@@ -1,6 +1,7 @@
 /**
  * Harvests new board tokens from Common Crawl, verifies them, and stores them.
  *
+ *   npm run harvest:cc -- --provider workday  one vendor only
  *   npm run harvest:cc -- --dry-run           report only
  *   npm run harvest:cc -- --crawl CC-MAIN-…   a specific crawl
  *   npm run harvest:cc -- --verify 400        verify at most N of the new ones
@@ -42,7 +43,15 @@ async function main(): Promise<void> {
   console.log(`\n${used}: ${urls.toLocaleString()} indexed urls -> ${boards.length} distinct boards`);
 
   const known = new Set((await loadBoardsAsync()).map(keyOf));
-  const fresh = boards.filter((b) => !known.has(keyOf(b)));
+  // Sliced by vendor rather than by count, so several runs in parallel still
+  // give each ATS exactly one request per second. Splitting by count instead
+  // would point every runner at every vendor at once, which is how Greenhouse
+  // starts dropping connections and live boards get recorded as dead.
+  const only = arg('provider');
+  const fresh = boards
+    .filter((b) => !known.has(keyOf(b)))
+    .filter((b) => !only || b.provider === only);
+  if (only) console.log(`provider filter: ${only}`);
   console.log(`${known.size} already registered · ${fresh.length} not seen before\n`);
 
   if (fresh.length === 0) {

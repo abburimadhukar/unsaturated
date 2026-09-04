@@ -76,6 +76,44 @@ export async function readActiveBoards(): Promise<CorpusBoard[] | null> {
   }
 }
 
+/**
+ * The boards least recently confirmed working, oldest first.
+ *
+ * The re-verification pass used to take the first N of the crawl list, which is
+ * sorted by provider then token — so it re-checked the same alphabetical head
+ * every week and never reached the other 11,612. It got as far as "ashby:ez…"
+ * and stopped, meaning no Greenhouse, Lever or Workday board was ever
+ * re-verified, and a dead one there would fail on every crawl forever while the
+ * pass reported "0 retired" and looked healthy.
+ *
+ * Ordering by last_ok_at with nulls first makes the window rotate: each run picks
+ * up where the last left off and works round the whole registry.
+ */
+export async function readStalestBoards(limit: number): Promise<CorpusBoard[]> {
+  try {
+    const { data, error } = await db()
+      .from('boards')
+      .select('provider,token,company,extra')
+      .eq('active', true)
+      .order('last_ok_at', { ascending: true, nullsFirst: true })
+      .order('token', { ascending: true })
+      .limit(limit);
+    if (error) {
+      console.error('stale board read failed:', error.message);
+      return [];
+    }
+    return (data as BoardRow[]).map((r) => ({
+      provider: r.provider as AtsProvider,
+      token: r.token,
+      company: r.company,
+      ...(r.extra && Object.keys(r.extra).length > 0 ? { extra: r.extra } : {}),
+    }));
+  } catch (err) {
+    console.error('stale board read unavailable:', err);
+    return [];
+  }
+}
+
 /** Adds or refreshes boards. Only ever called by CLIs holding the secret key. */
 export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
   if (boards.length === 0) return 0;
