@@ -1,0 +1,69 @@
+# Classifies the specialization of jobs already in the database.
+#
+# The crawl classifies as it writes, but a posting is only re-read when its board
+# is next crawled, so a row that never changes is never rewritten. Without this
+# the corpus fills in over days and the facet counts climb the whole time for no
+# visible reason.
+#
+# Manual only. This is not a thing that needs to happen on a schedule — it is
+# what you run once after a migration, or after bumping the rules version.
+name: backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Stop after N rows (blank = until there is nothing left)'
+        type: string
+        default: ''
+      dryRun:
+        description: 'Report the split without writing anything'
+        type: boolean
+        default: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # Never two at once: both would read the same unprocessed rows and write the
+    # same answers twice. Not harmful, just wasted minutes.
+    concurrency:
+      group: backfill
+      cancel-in-progress: false
+    # ~15k rows in batches of 1000, grouped into a few dozen UPDATEs. Minutes,
+    # not tens of minutes — the ceiling is here to catch a hang, not to bound
+    # normal work.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Without the write key the client silently falls back to the publishable
+      # one, RLS refuses every UPDATE, and the run reports success having changed
+      # nothing. Fail here instead.
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no'
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "Every write would be refused by RLS and the run would look fine."
+          exit 1
+
+      - name: Backfill specializations
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          npm run backfill:spec -- \
+            ${{ inputs.dryRun && '--dry-run' || '' }} \
+            ${{ inputs.limit && format('--limit {0}', inputs.limit) || '' }}
