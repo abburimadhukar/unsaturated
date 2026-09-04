@@ -77,6 +77,7 @@ interface Feed {
     remote: Record<string, number>;
     country: Record<string, number>;
     countryUnknown?: number;
+    stack?: Record<string, number>;
   };
   jobs: Job[];
 }
@@ -119,7 +120,7 @@ function agoLabel(days: number | null): string {
 
 const DEFAULTS = {
   q: '', family: '', country: 'US', remote: '', seniority: '',
-  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true, employmentType: '',
+  postedWithinDays: '', minFit: '', ai: false, includeUnknown: true, employmentType: '', stack: '',
   cloudOnly: true, hideGhosts: true, hideSeen: false, sort: 'newest',
 };
 
@@ -547,6 +548,27 @@ export default function Page() {
                   type="text" placeholder="Search title, company, city"
                   value={filters.q} onChange={(e) => set('q', e.target.value)}
                 />
+              </div>
+              <div className="field">
+                <label>Stack</label>
+                <select value={filters.stack} onChange={(e) => set('stack', e.target.value)}>
+                  <option value="">Any stack</option>
+                  {/* A property, not a family: a full-stack role is genuinely
+                      both Python and JavaScript, so ties go to Python — someone
+                      filtering for Python work wants to see a job that uses it.
+                      "Not stated" is its own option because a fifth of roles
+                      publish no description, and folding those into either side
+                      would make that side's count a lie. */}
+                  <option value="python">
+                    Python &amp; AI/ML{facets?.stack?.python ? ` (${facets.stack.python})` : ''}
+                  </option>
+                  <option value="other">
+                    Other stacks{facets?.stack?.other ? ` (${facets.stack.other})` : ''}
+                  </option>
+                  <option value="unknown">
+                    Stack not stated{facets?.stack?.unknown ? ` (${facets.stack.unknown})` : ''}
+                  </option>
+                </select>
               </div>
               <div className="field">
                 <label>Country</label>

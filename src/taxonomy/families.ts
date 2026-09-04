@@ -71,18 +71,21 @@ const CLOUD_SKILLS: SkillTerm[] = [
 
 const SOFTWARE_SKILLS: SkillTerm[] = [
   { pattern: /\bpython\b/i, canonical: 'Python', weight: 3 },
-  { pattern: /\b(django|flask|fastapi|pyramid|celery)\b/i, canonical: 'Python Web', weight: 4 },
+  { pattern: /\b(django|flask|fastapi|pyramid|celery|drf|django rest)\b/i, canonical: 'Python Web', weight: 4 },
+  // Python tooling that is strong evidence of a Python role and was invisible:
+  // pytest scored only as generic "Testing", and the rest not at all.
+  { pattern: /\b(pytest|asyncio|sqlalchemy|pydantic|poetry|boto3|streamlit|pyspark|tox|uvicorn|gunicorn)\b/i, canonical: 'Python Tooling', weight: 3 },
   { pattern: /\b(typescript|javascript|node\.?js|nodejs)\b/i, canonical: 'JS/TS', weight: 3 },
   { pattern: /\b(react|next\.?js|vue|angular|svelte)\b/i, canonical: 'Frontend FW', weight: 3 },
   { pattern: /\b(java|spring boot|spring)\b/i, canonical: 'Java', weight: 2 },
   // The old trailing \b sat after "#", a non-word character, so it demanded a
   // word character right after it and "c#" could never match at all.
-  { pattern: /(\bgolang\b|\.net\b|c#|\bruby on rails\b|\brails\b|\bphp\b|\blaravel\b)/i, canonical: 'Other Backend', weight: 2 },
+  { pattern: /(\bgolang\b|\.net\b|c#|\bruby on rails\b|\brails\b|\bphp\b|\blaravel\b|\bkotlin\b|\bscala\b|\brust\b|\belixir\b)/i, canonical: 'Other Backend', weight: 2 },
   { pattern: /\b(rest api|restful|graphql|grpc|microservices?)\b/i, canonical: 'APIs', weight: 2 },
   { pattern: /\b(postgres(ql)?|mysql|mongodb|redis|dynamodb)\b/i, canonical: 'Databases', weight: 2 },
   { pattern: /\b(html|css|tailwind|sass)\b/i, canonical: 'Web UI', weight: 1 },
   { pattern: /\b(unit test|pytest|jest|tdd|test[- ]driven)\b/i, canonical: 'Testing', weight: 1 },
-  { pattern: /\b(langchain|llamaindex|openai api|anthropic|rag\b|vector (db|database)|prompt engineering)\b/i, canonical: 'LLM Tooling', weight: 3 },
+  { pattern: /\b(langchain|langgraph|llamaindex|crewai|openai|anthropic|rag\b|vector (db|database)|prompt engineering|fine[- ]tun(e|ing)|genai|\bllm\b)\b/i, canonical: 'LLM Tooling', weight: 3 },
 ];
 
 const DATA_SKILLS: SkillTerm[] = [
@@ -415,6 +418,55 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     }
   }
   return best;
+}
+
+/**
+ * Which stack a software role is built on.
+ *
+ * A property of a job, not a fifth family. Families are a taxonomy — a role is
+ * one of them — but stack is not exclusive: 1,290 of the software roles mention
+ * Python AND JavaScript, because a full-stack job genuinely spans both. Forcing
+ * those into buckets would mean inventing a rule that is wrong for half of them,
+ * so this is a filter you apply rather than a category a job belongs to.
+ *
+ * Ties go to Python deliberately. Someone filtering for Python work wants to see
+ * a full-stack role that uses it; sorting it into "other" would hide exactly the
+ * jobs they are looking for.
+ *
+ * 'unknown' is its own value rather than a default, because 18% of software
+ * roles publish no description at all and there is nothing to read. Folding them
+ * into either side would make that side's count a lie — the same mistake the
+ * country filter made by mixing undecoded locations into every country.
+ */
+export type Stack = 'python' | 'other' | 'unknown';
+
+/** Skills that mark a role as Python-centred, AI/ML included. */
+const PYTHON_STACK = new Set([
+  'Python',
+  'Python Web',
+  'Python Tooling',
+  'Python Data',
+  'LLM Tooling',
+  'ML Frameworks',
+  'MLOps',
+]);
+
+/** Skills that mark a role as built on something else. */
+const OTHER_STACK = new Set([
+  'JS/TS',
+  'Frontend FW',
+  'Java',
+  'Other Backend',
+  'Web UI',
+]);
+
+export function stackOf(matchedSkills: string[]): Stack {
+  if (matchedSkills.length === 0) return 'unknown';
+  if (matchedSkills.some((s) => PYTHON_STACK.has(s))) return 'python';
+  if (matchedSkills.some((s) => OTHER_STACK.has(s))) return 'other';
+  // Skills, but none that identify a stack — APIs and Databases alone say
+  // nothing about the language. Honest to call that unknown.
+  return 'unknown';
 }
 
 /** Extracts skills across every family — used to parse a resume. */

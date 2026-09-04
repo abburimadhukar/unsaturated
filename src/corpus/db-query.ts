@@ -27,6 +27,8 @@ export interface Facets {
   remote: Record<string, number>;
   provider: Record<string, number>;
   seniority: Record<string, number>;
+  /** python / other / unknown — which stack the role is built on. */
+  stack: Record<string, number>;
   /** Jobs whose country could not be decoded — its own dropdown option. */
   countryUnknown: number;
   inScope: number;
@@ -71,6 +73,7 @@ export async function queryFeedFromDb(
       p_sort: f.sort ?? 'newest',
       p_offset: offset,
       p_limit: limit,
+      p_stack: orNull(f.stack),
     });
 
     if (error) {
@@ -119,6 +122,7 @@ export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
       p_within_days: f.postedWithinDays ?? null,
       p_ai: f.ai === true,
       p_keep_unknown: f.includeUnknown !== false,
+      p_stack: orNull(f.stack),
     });
     if (error) {
       console.error('feed_facets failed:', error.message);

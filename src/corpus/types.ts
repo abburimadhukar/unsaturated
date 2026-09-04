@@ -97,6 +97,8 @@ export interface FeedQuery {
   /** Keep rows whose value is unknown. True unless explicitly disabled. */
   includeUnknown?: boolean;
   skills?: string[];
+  /** 'python' | 'other' | 'unknown' — which stack a role is built on. */
+  stack?: string;
   sort?: SortKey;
   minSaturation?: number;
 }

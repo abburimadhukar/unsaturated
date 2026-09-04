@@ -21,6 +21,10 @@ export const dynamic = 'force-dynamic';
 // endpoint no longer sees. The browser sorts by match itself.
 const SORTS: SortKey[] = ['newest', 'salary'];
 const FAMILIES = ['cloud', 'software', 'data', 'hris'];
+// Which stack a role is built on. Deliberately not a family: a full-stack job is
+// genuinely both Python and JavaScript, so this is a property you filter on
+// rather than a category the job belongs to.
+const STACKS = ['python', 'other', 'unknown'];
 
 // 50, not 200: the first screen is what people actually read, and 200 rows was
 // 161 KB before anyone scrolled. The client raises `offset` for more.
@@ -91,6 +95,10 @@ export async function GET(request: Request) {
   if (familyRaw && !FAMILIES.includes(familyRaw)) {
     bad.push(`family must be one of ${FAMILIES.join(', ')}`);
   }
+  const stackRaw = str('stack');
+  if (stackRaw && !STACKS.includes(stackRaw)) {
+    bad.push(`stack must be one of ${STACKS.join(', ')}`);
+  }
 
   // Parameters that moved to the browser when the feed became public and
   // cacheable. Silently ignoring them would hand back an unfiltered result set
@@ -110,7 +118,7 @@ export async function GET(request: Request) {
     sort: sortRaw && SORTS.includes(sortRaw as SortKey) ? (sortRaw as SortKey) : 'newest',
   };
 
-  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType'] as const) {
+  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType', 'stack'] as const) {
     const v = str(key);
     if (v) query[key] = v;
   }
@@ -138,7 +146,7 @@ export async function GET(request: Request) {
   if (fromDb) {
     const facets = (await facetsFromDb(query)) ?? {
       family: {}, country: {}, remote: {}, provider: {}, seniority: {},
-      countryUnknown: 0, inScope: 0, refreshedAt: null, scanned: 0,
+      stack: {}, countryUnknown: 0, inScope: 0, refreshedAt: null, scanned: 0,
     };
     const res = NextResponse.json({
       total: facets.scanned || scannedFromFacets(facets),
