@@ -25,13 +25,6 @@ on:
         type: string
         default: '600'
 
-concurrency:
-  # Per vendor: the shards run alongside each other, but a slow shard is never
-  # overlapped by the next run's copy of itself. One shared group would serialise
-  # them and throw the parallelism away.
-  group: discover-${{ matrix.provider }}
-  cancel-in-progress: false
-
 jobs:
   discover:
     runs-on: ubuntu-latest
@@ -43,6 +36,14 @@ jobs:
       fail-fast: false
       matrix:
         provider: [greenhouse, workday, ashby, lever]
+    # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
+    # concurrency — GitHub refuses to parse the file at all. The same mistake was
+    # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run
+    # alongside each other while a slow shard is never overlapped by the next
+    # run's copy of itself.
+    concurrency:
+      group: discover-${{ matrix.provider }}
+      cancel-in-progress: false
     # Verification runs at ~1 request/second on purpose — Greenhouse drops
     # bursts from datacenter IPs, and a dropped connection is not a dead board.
     # 600 boards is therefore ~10 minutes of checking plus the harvest itself.
