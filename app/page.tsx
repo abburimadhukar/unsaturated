@@ -76,7 +76,7 @@ interface Feed {
   total: number;
   inScope: number;
   matched: number;
-  unknownIncluded: { country: number; seniority: number; remote: number; employmentType: number };
+  unknownIncluded: { country: number; seniority: number; remote: number; employmentType: number; postedWithin?: number };
   offset: number;
   limit: number;
   shown: number;
@@ -723,7 +723,20 @@ export default function Page() {
                 {(() => {
                   const u = data?.unknownIncluded;
                   const n = (u?.country ?? 0) + (u?.seniority ?? 0) + (u?.remote ?? 0) + (u?.employmentType ?? 0);
-                  return n > 0 ? <span className="unk"> · includes {n} with unknown details</span> : null;
+                  // Called out separately from the rest. A date filter is the
+                  // one place where "unknown" reads as a lie rather than a gap:
+                  // asking for the last 24 hours and being handed rows with no
+                  // date at all is not a missing detail, it is a different
+                  // question being answered.
+                  const undated = u?.postedWithin ?? 0;
+                  return (
+                    <>
+                      {n > 0 && <span className="unk"> · includes {n} with unknown details</span>}
+                      {undated > 0 && (
+                        <span className="unk"> · {undated} have no posting date</span>
+                      )}
+                    </>
+                  );
                 })()}
                 {data && jobs.length < data.matched && (
                   <span className="unk"> · showing {visible.length}</span>

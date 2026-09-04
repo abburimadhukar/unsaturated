@@ -19,6 +19,13 @@ import { toFeedJob, type JobRow } from './db-feed.js';
 export interface FeedPage {
   jobs: FeedJob[];
   total: number;
+  /**
+   * How many of the matched rows have no posting date, over the whole match
+   * rather than the current page. The sort puts undated rows last, so counting
+   * within the page reports zero until the caller has already scrolled past
+   * them — which is how "past 24 hours" quietly showed four-day-old rows.
+   */
+  undated: number;
 }
 
 export interface Facets {
@@ -89,11 +96,12 @@ export async function queryFeedFromDb(
       console.error('feed_page failed:', error.message);
       return null;
     }
-    const body = data as { total?: number; rows?: JobRow[] } | null;
+    const body = data as { total?: number; undated?: number; rows?: JobRow[] } | null;
     if (!body || !Array.isArray(body.rows)) return null;
 
     return {
       total: body.total ?? body.rows.length,
+      undated: body.undated ?? 0,
       jobs: body.rows.map((r) => toFeedJob(r)),
     };
   } catch (err) {

@@ -49,7 +49,11 @@ const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
  * How many of the returned rows only survived because unknowns are kept.
  * Surfacing this stops a filter quietly changing what "matched" means.
  */
-function unknownsIn(jobs: { country: string | null; seniority: string | null; remoteType: string | null; employmentType: string | null }[], q: { country?: string; seniority?: string; remote?: string; employmentType?: string }) {
+function unknownsIn(
+  jobs: { country: string | null; seniority: string | null; remoteType: string | null; employmentType: string | null }[],
+  q: { country?: string; seniority?: string; remote?: string; employmentType?: string; postedWithinDays?: number },
+  undated = 0,
+) {
   return {
     // Always zero: country is an exact filter with its own "location unclear"
     // option, so choosing a country never quietly folds in undecoded rows.
@@ -57,6 +61,10 @@ function unknownsIn(jobs: { country: string | null; seniority: string | null; re
     seniority: q.seniority ? jobs.filter((r) => !r.seniority).length : 0,
     remote: q.remote ? jobs.filter((r) => !r.remoteType).length : 0,
     employmentType: q.employmentType ? jobs.filter((r) => !r.employmentType).length : 0,
+    // Counted by the database over every matched row, not by filtering this
+    // page: undated rows sort last, so the page-based count the others use
+    // would read zero on page one and only become true after scrolling.
+    postedWithin: q.postedWithinDays ? undated : 0,
   };
 }
 
@@ -175,7 +183,7 @@ export async function GET(request: Request) {
       total: facets.scanned || scannedFromFacets(facets),
       inScope: facets.inScope,
       matched: fromDb.total,
-      unknownIncluded: unknownsIn(fromDb.jobs, query),
+      unknownIncluded: unknownsIn(fromDb.jobs, query, fromDb.undated),
       offset,
       limit,
       shown: fromDb.jobs.length,
