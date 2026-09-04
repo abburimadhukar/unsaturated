@@ -145,6 +145,78 @@ test('the facets carry a specialization count including __unknown__', async (t) 
   assert.equal(sum, body.facets.family.software);
 });
 
+// ---------------------------------------------------------------------------
+// Regression: the posting window
+//
+// "Posted within 24 hours" returned rows with no posting date at all, some of
+// them first seen four days earlier. It survived the first round of testing
+// because the assertion read `ageDays === null || age <= days` — excusing
+// exactly the rows that were wrong — and because it only looked at the first
+// page, while the sort puts undated rows last. Both mistakes are encoded below
+// as things that must not pass again.
+// ---------------------------------------------------------------------------
+
+/** Walks every page. The defect lived in the tail; a first-page check is blind. */
+async function allPages(query: string): Promise<any[]> {
+  const out: any[] = [];
+  for (let offset = 0; offset < 25_000; offset += 200) {
+    const { status, body } = await call(`${query}&limit=200&offset=${offset}`);
+    if (status !== 200) break;
+    out.push(...(body.jobs ?? []));
+    if (!body.hasMore || (body.jobs ?? []).length === 0) break;
+  }
+  return out;
+}
+
+for (const days of [1, 3, 7]) {
+  test(`posting window: no row older than ${days}d, on any page`, async (t) => {
+    if (!migrated) return t.skip(skipReason);
+    const rows = await allPages(`postedWithinDays=${days}`);
+    // No escape hatch: a dated row outside the window is a failure, full stop.
+    const stale = rows.filter((j) => j.ageDays !== null && j.ageDays > days);
+    assert.equal(stale.length, 0,
+      `${stale.length} stale rows, e.g. ${stale.slice(0, 3).map((j) => `${j.ageDays}d ${j.title}`).join(' | ')}`);
+  });
+
+  test(`posting window: undated rows in ${days}d are counted and disclosed`, async (t) => {
+    if (!migrated) return t.skip(skipReason);
+    const rows = await allPages(`postedWithinDays=${days}`);
+    const undated = rows.filter((j) => j.ageDays === null).length;
+    const { body } = await call(`postedWithinDays=${days}&limit=1`);
+    // Counted over the whole match by the database, not by filtering a page —
+    // undated rows sort last, so a page-based count reads zero until you have
+    // already scrolled past them.
+    assert.equal(body.unknownIncluded.postedWithin, undated,
+      `header says ${body.unknownIncluded.postedWithin}, ${undated} served`);
+  });
+
+  test(`posting window: includeUnknown=0 removes every undated row in ${days}d`, async (t) => {
+    if (!migrated) return t.skip(skipReason);
+    const rows = await allPages(`postedWithinDays=${days}&includeUnknown=0`);
+    assert.ok(rows.length > 0, 'expected rows');
+    assert.equal(rows.filter((j) => j.ageDays === null).length, 0);
+  });
+}
+
+test('posting window: a tighter window is a strict subset of a looser one', async (t) => {
+  if (!migrated) return t.skip(skipReason);
+  const [one, three] = [await allPages('postedWithinDays=1'), await allPages('postedWithinDays=3')];
+  const wider = new Set(three.map((j) => j.key));
+  const leaked = one.filter((j) => !wider.has(j.key));
+  assert.equal(leaked.length, 0, `${leaked.length} rows in 1d that 3d excludes`);
+  assert.ok(one.length < three.length, `${one.length} vs ${three.length}`);
+});
+
+test('posting window: matched equals the rows actually served', async (t) => {
+  if (!migrated) return t.skip(skipReason);
+  const { body } = await call('postedWithinDays=3&limit=1');
+  const rows = await allPages('postedWithinDays=3');
+  // The header said "1,393 roles" while serving a different set. A count that
+  // disagrees with the rows is the same class of defect as the window itself.
+  assert.ok(Math.abs(rows.length - body.matched) <= 5,
+    `matched=${body.matched} served=${rows.length}`);
+});
+
 test('the specialization facet ignores its own selection but not the others', async (t) => {
   if (!migrated) return t.skip(skipReason);
   const all = await call('family=software');
