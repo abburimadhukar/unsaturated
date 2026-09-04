@@ -211,6 +211,13 @@ async function loadBoard(board: CorpusBoard, now: number) {
         inScope: cls.family !== null,
         ai: cls.ai,
         family: cls.family,
+        // Carried out of the classifier so the crawl can count what it threw
+        // away. `no family matched` is its own reason: a posting no rule
+        // excluded and no family claimed is the interesting case, and it was
+        // previously indistinguishable from a deliberate exclusion.
+        ...(cls.family === null
+          ? { excludedReason: cls.excludedReason ?? 'no family matched' }
+          : {}),
         specialization: spec?.specialization ?? null,
         specializationReason: spec?.reason ?? null,
         classificationVersion: spec?.version ?? null,

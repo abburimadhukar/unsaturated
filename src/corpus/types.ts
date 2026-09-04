@@ -41,6 +41,16 @@ export interface FeedJob {
   inScope: boolean;
   family: Family | null;
   /**
+   * Which rule discarded this posting, when one did.
+   *
+   * Present only in memory during a crawl and never stored on the job row —
+   * discarded postings are not persisted at all. The crawl aggregates these
+   * into counts before throwing the rows away, which is the only record that
+   * 93% of everything read was rejected for defensible reasons rather than by
+   * a broken rule.
+   */
+  excludedReason?: string;
+  /**
    * The role's specialization within its family — null when the family is known
    * but the kind of job is not. Never guessed: see specializations.ts.
    */

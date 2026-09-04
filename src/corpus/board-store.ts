@@ -167,55 +167,122 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
 /**
  * Records the outcome of a crawl so persistently broken boards drop out.
  *
- * Deactivation is deliberately slow — a board is only retired after failing
- * several runs in a row, because a single failure is far more often a rate limit
- * than a closed board.
+ * Called by the hourly crawl and by the weekly re-verification. Until it was
+ * wired into the crawl, `last_crawled_at` was NULL on all 12,479 boards and
+ * `consecutive_failures` was 0 on every one of them — so no board could ever
+ * retire from crawl failures, and "crawled and empty" was indistinguishable
+ * from "never reached". The only cleanup path was the weekly 600-board check,
+ * which needs 21 weeks to cross the registry once.
+ *
+ * UPDATE, never UPSERT. The crawl reads the merged list — database boards plus
+ * the ones still in discovered-boards.json — and an upsert would try to INSERT
+ * the file-only ones, which carry no `company` (NOT NULL) and, for Workday, no
+ * `extra.site` the crawler needs. Silently registering half-formed boards is a
+ * worse outcome than not recording a row that isn't in the registry.
+ *
+ * Batched by shared value rather than issued per board. Every success gets the
+ * same three fields, so one statement covers a chunk; failures are grouped by
+ * their resulting count, which is a handful of statements rather than 3,400.
+ *
+ * Deactivation is deliberately slow — a board is retired only after failing
+ * several runs in a row, because a single failure is far more often a rate
+ * limit than a closed board.
  */
 export async function recordCrawlOutcomes(
-  outcomes: { provider: string; token: string; ok: boolean; jobs: number }[],
+  outcomes: { provider: string; token: string; ok: boolean; jobs: number; error?: string }[],
   maxFailures: number,
-): Promise<{ deactivated: number }> {
-  if (outcomes.length === 0) return { deactivated: 0 };
+): Promise<{ recorded: number; deactivated: number }> {
+  if (outcomes.length === 0) return { recorded: 0, deactivated: 0 };
   const client = dbWrite();
   const now = new Date().toISOString();
   let deactivated = 0;
+  let recorded = 0;
 
-  const ok = outcomes.filter((o) => o.ok);
-  const CHUNK = 500;
-  for (let i = 0; i < ok.length; i += CHUNK) {
-    const chunk = ok.slice(i, i + CHUNK);
-    const { error } = await client.from('boards').upsert(
-      chunk.map((o) => ({
-        provider: o.provider,
-        token: o.token,
-        last_ok_at: now,
-        job_count: o.jobs,
-        consecutive_failures: 0,
-      })),
-      { onConflict: 'provider,token' },
-    );
-    if (error) console.error('board outcome write failed:', error.message);
+  // Tokens are only unique within a provider, so every statement is scoped by
+  // one. Chunked because these become query-string parameters.
+  const CHUNK = 200;
+  const byProvider = new Map<string, typeof outcomes>();
+  for (const o of outcomes) {
+    const list = byProvider.get(o.provider) ?? [];
+    list.push(o);
+    byProvider.set(o.provider, list);
   }
 
-  // Failures need the current count, so they are read first rather than blindly
-  // incremented.
-  const failed = outcomes.filter((o) => !o.ok);
-  for (const f of failed) {
-    const { data } = await client
-      .from('boards')
-      .select('consecutive_failures')
-      .eq('provider', f.provider)
-      .eq('token', f.token)
-      .maybeSingle();
-    const next = ((data as { consecutive_failures?: number } | null)?.consecutive_failures ?? 0) + 1;
-    const retire = next >= maxFailures;
-    if (retire) deactivated++;
-    await client
-      .from('boards')
-      .update({ consecutive_failures: next, ...(retire ? { active: false } : {}) })
-      .eq('provider', f.provider)
-      .eq('token', f.token);
+  for (const [provider, list] of byProvider) {
+    const ok = list.filter((o) => o.ok).map((o) => o.token);
+    for (let i = 0; i < ok.length; i += CHUNK) {
+      const { error, count } = await client
+        .from('boards')
+        .update(
+          { last_crawled_at: now, last_ok_at: now, consecutive_failures: 0, last_error: null },
+          { count: 'exact' },
+        )
+        .eq('provider', provider)
+        .in('token', ok.slice(i, i + CHUNK));
+      if (error) console.error('board outcome write failed:', error.message);
+      else recorded += count ?? 0;
+    }
+
+    const failed = list.filter((o) => !o.ok);
+    if (failed.length === 0) continue;
+
+    // Read the current counts first rather than blindly incrementing: PostgREST
+    // cannot express `set n = n + 1`, and guessing would let one bad run retire
+    // a board that had been healthy until then.
+    const current = new Map<string, number>();
+    const tokens = failed.map((o) => o.token);
+    for (let i = 0; i < tokens.length; i += CHUNK) {
+      const { data, error } = await client
+        .from('boards')
+        .select('token,consecutive_failures')
+        .eq('provider', provider)
+        .in('token', tokens.slice(i, i + CHUNK));
+      if (error) { console.error('board failure read failed:', error.message); continue; }
+      for (const r of (data ?? []) as { token: string; consecutive_failures: number }[]) {
+        current.set(r.token, r.consecutive_failures ?? 0);
+      }
+    }
+
+    // Group by the count they land on, so this is a few statements whatever the
+    // number of failures.
+    const byNext = new Map<number, string[]>();
+    for (const f of failed) {
+      // Absent from the map means the board is not in the registry — a
+      // file-only board. Nothing to update.
+      if (!current.has(f.token)) continue;
+      const next = (current.get(f.token) ?? 0) + 1;
+      const list2 = byNext.get(next) ?? [];
+      list2.push(f.token);
+      byNext.set(next, list2);
+    }
+
+    const errorOf = new Map(failed.map((f) => [f.token, f.error ?? 'crawl failed']));
+    for (const [next, group] of byNext) {
+      const retire = next >= maxFailures;
+      for (let i = 0; i < group.length; i += CHUNK) {
+        const slice = group.slice(i, i + CHUNK);
+        const { error, count } = await client
+          .from('boards')
+          .update(
+            {
+              last_crawled_at: now,
+              consecutive_failures: next,
+              // One message for the group. Storing each board's own text would
+              // mean a statement per board, and the reason a board is failing
+              // is nearly always the same across a batch.
+              last_error: errorOf.get(slice[0] as string)?.slice(0, 300) ?? null,
+              ...(retire ? { active: false } : {}),
+            },
+            { count: 'exact' },
+          )
+          .eq('provider', provider)
+          .in('token', slice);
+        if (error) { console.error('board failure write failed:', error.message); continue; }
+        recorded += count ?? 0;
+        if (retire) deactivated += count ?? 0;
+      }
+    }
   }
 
-  return { deactivated };
+  return { recorded, deactivated };
 }
