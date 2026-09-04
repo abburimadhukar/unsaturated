@@ -79,6 +79,18 @@ export async function readActiveBoards(): Promise<CorpusBoard[] | null> {
 /** Adds or refreshes boards. Only ever called by CLIs holding the secret key. */
 export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
   if (boards.length === 0) return 0;
+
+  // Refuse blocked boards at the point of storage, so discovery cannot re-add an
+  // aggregator that was deliberately removed. Filtering only at crawl time would
+  // leave them accumulating in the registry and reappearing on every audit.
+  const { loadBlocklist, blockKey } = await import('./blocklist.js');
+  const blocked = await loadBlocklist();
+  const allowed = boards.filter((b) => !blocked.has(blockKey(b.provider, b.token)));
+  const refused = boards.length - allowed.length;
+  if (refused > 0) console.log(`skipped ${refused} blocked board(s)`);
+  if (allowed.length === 0) return 0;
+  boards = allowed;
+
   const client = dbWrite();
   const now = new Date().toISOString();
 

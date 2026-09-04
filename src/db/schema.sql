@@ -9,7 +9,7 @@
 -- the crawler's own insert. Anyone reading it to understand the data model
 -- learned a fiction.
 --
--- Five tables, matching production. Safe to re-run.
+-- Six tables, matching production. Safe to re-run.
 
 -- ---------------------------------------------------------------------------
 -- jobs — one row per posting, keyed by "provider:token:externalId"
@@ -89,6 +89,27 @@ create index if not exists boards_active_idx on public.boards (provider, token) 
 --   alter table public.boards add column if not exists last_ok_at timestamptz;
 
 -- ---------------------------------------------------------------------------
+-- blocked_boards — boards that must never be crawled
+--
+-- The corpus is built by reading employers' own job boards, so an aggregator
+-- republishing other companies' postings is the one thing that must not get in:
+-- its apply links point at a middleman. Two of them were contributing 1,269
+-- jobs, 8% of the feed, from 2 boards out of 12,214.
+--
+-- A table rather than a one-off deactivation, because discovery adds a couple of
+-- hundred boards a week out of a web archive and aggregators are exactly what
+-- turns up there. Enforced when discovery stores a board and again when the
+-- crawl loads the list.
+-- ---------------------------------------------------------------------------
+create table if not exists public.blocked_boards (
+  provider   text not null,
+  token      text not null,
+  reason     text not null,
+  blocked_at timestamptz not null default now(),
+  primary key (provider, token)
+);
+
+-- ---------------------------------------------------------------------------
 -- crawl_runs — one row per completed crawl. readFeed's freshness check reads
 -- the newest finished_at; a run that persisted nothing is never recorded.
 -- ---------------------------------------------------------------------------
@@ -132,14 +153,15 @@ create table if not exists public.job_events (
 -- These policies previously existed only in the Supabase dashboard — unversioned
 -- and unreviewable — while this file contained no RLS at all.
 --
--- The publishable key is committed to a public repo, so anon is deliberately
--- read-only on the corpus. user_state and job_events still accept anon
--- INSERT/UPDATE because the deployed site writes with that key; once
--- SUPABASE_SECRET_KEY is set in the hosting environment those two policies
--- should be dropped, leaving anon with SELECT alone. anon DELETE is granted
--- nowhere: nothing in the application deletes, and a stranger with the
--- published key could otherwise wipe both tables.
+-- The publishable key is committed to a public repo, so anon is SELECT-only
+-- everywhere. It was not always: user_state and job_events accepted anon
+-- INSERT/UPDATE while the site wrote with that key, which let anyone holding the
+-- published key overwrite a visitor's resume. Those policies were dropped once
+-- SUPABASE_SECRET_KEY reached the hosting environment and the site's writes
+-- began bypassing RLS. Verified empirically: with them gone, a direct PATCH from
+-- outside changes zero rows while the site still saves.
 -- ---------------------------------------------------------------------------
+alter table public.blocked_boards enable row level security;
 alter table public.jobs       enable row level security;
 alter table public.boards     enable row level security;
 alter table public.crawl_runs enable row level security;
@@ -156,6 +178,10 @@ drop policy if exists "boards are publicly readable" on public.boards;
 create policy "boards are publicly readable" on public.boards
   for select to anon, authenticated using (true);
 
+drop policy if exists "blocked boards are publicly readable" on public.blocked_boards;
+create policy "blocked boards are publicly readable" on public.blocked_boards
+  for select to anon, authenticated using (true);
+
 drop policy if exists "crawl runs are publicly readable" on public.crawl_runs;
 create policy "crawl runs are publicly readable" on public.crawl_runs
   for select to anon, authenticated using (true);
@@ -163,19 +189,14 @@ create policy "crawl runs are publicly readable" on public.crawl_runs
 drop policy if exists "user_state readable pre-auth" on public.user_state;
 create policy "user_state readable pre-auth" on public.user_state
   for select to anon, authenticated using (true);
+
+-- Explicitly dropped, not merely absent: re-running this file must close the
+-- hole on a database where the old policies still exist.
 drop policy if exists "user_state insertable pre-auth" on public.user_state;
-create policy "user_state insertable pre-auth" on public.user_state
-  for insert to anon, authenticated with check (true);
 drop policy if exists "user_state updatable pre-auth" on public.user_state;
-create policy "user_state updatable pre-auth" on public.user_state
-  for update to anon, authenticated using (true) with check (true);
+drop policy if exists "job_events insertable pre-auth" on public.job_events;
+drop policy if exists "job_events updatable pre-auth" on public.job_events;
 
 drop policy if exists "job_events readable pre-auth" on public.job_events;
 create policy "job_events readable pre-auth" on public.job_events
   for select to anon, authenticated using (true);
-drop policy if exists "job_events insertable pre-auth" on public.job_events;
-create policy "job_events insertable pre-auth" on public.job_events
-  for insert to anon, authenticated with check (true);
-drop policy if exists "job_events updatable pre-auth" on public.job_events;
-create policy "job_events updatable pre-auth" on public.job_events
-  for update to anon, authenticated using (true) with check (true);

@@ -55,6 +55,22 @@ export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
   for (const b of fromDb) {
     merged.set(`${b.provider}:${b.token}`, { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });
   }
+
+  // Applied after the merge, not before. Deactivating a board in the database is
+  // not enough on its own: the file is merged in too, so a blocked board that
+  // also appears there would keep being crawled. Filtering the combined list is
+  // the only place that catches both.
+  try {
+    const { loadBlocklist, blockKey } = await import('./blocklist.js');
+    const blocked = await loadBlocklist();
+    if (blocked.size > 0) {
+      for (const key of merged.keys()) if (blocked.has(key)) merged.delete(key);
+    }
+  } catch (err) {
+    // An unreadable blocklist must not stop the crawl.
+    console.error('blocklist not applied:', err);
+  }
+
   return [...merged.values()];
 }
 
