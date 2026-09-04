@@ -1,9 +1,10 @@
 # Deploy the site to Cloudflare Workers.
 #
-# Runs only from the `cloudflare` branch, and only when triggered by hand. While
-# both hosts exist this must never fire on its own — main deploys to Netlify and
-# this deploys the branch, and the two are compared side by side before anything
-# is switched over.
+# Manual only. Cloudflare is the only host now: the Netlify deploy workflow is
+# gone and that version is preserved as the netlify-final tag.
+#
+# Deliberately not automatic on push, so landing a crawler fix does not also
+# republish the website. Shipping stays a separate decision.
 #
 # The crawler is untouched by any of this. It runs in crawl.yml, writes to
 # Supabase, and does not care which host serves the website.
@@ -23,11 +24,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          # Always the Cloudflare branch, whichever branch the run was started
-          # from — a deploy of main here would ship a build still wired to
-          # Netlify's adapter.
-          ref: cloudflare
 
       - uses: actions/setup-node@v4
         with:
