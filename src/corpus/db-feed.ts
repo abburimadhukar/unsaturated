@@ -83,8 +83,13 @@ export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
     // Null is a value here, not a gap: the family is known and the kind of job
     // is not. The UI says so rather than picking one.
     specialization: (r.specialization as Specialization | null) ?? null,
-    specializationReason: r.specialization_reason ?? null,
-    classificationVersion: r.classification_version ?? null,
+    // Spread rather than assigned, so the keys are absent instead of null when
+    // the row did not carry them. feed_page strips both from the page it
+    // returns — they are classifier debugging, and this response is CDN-cached
+    // and read by a browser that displays neither — and `?? null` was putting
+    // the empty keys back on every one of the 50 rows.
+    ...(r.specialization_reason != null ? { specializationReason: r.specialization_reason } : {}),
+    ...(r.classification_version != null ? { classificationVersion: r.classification_version } : {}),
     ai: r.ai ?? false,
     matchedSkills: r.matched_skills ?? [],
     skillScore: r.skill_score ?? 0,
