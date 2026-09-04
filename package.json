@@ -24,10 +24,13 @@
     "boards:seed": "tsx src/cli/boards-seed.ts",
     "boards:verify": "tsx src/cli/boards-verify.ts",
     "harvest:cc": "tsx src/cli/harvest-cc.ts",
-    "build:snapshot": "tsx src/cli/snapshot.ts && next build"
+    "build:snapshot": "tsx src/cli/snapshot.ts && next build",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
-    "@netlify/plugin-nextjs": "^5.15.13",
+    "@opennextjs/cloudflare": "^1.20.5",
     "@supabase/supabase-js": "^2.112.4",
     "dotenv": "^16.4.5",
     "fast-xml-parser": "^4.5.0",
@@ -42,6 +45,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wrangler": "^4.128.0"
   }
 }

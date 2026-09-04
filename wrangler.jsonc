@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unsaturated-jobs",
+  "main": ".open-next/worker.js",
+
+  // 2024-09-23 or later is required by the adapter; this is simply a recent one.
+  "compatibility_date": "2025-03-01",
+
+  // nodejs_compat is mandatory for Next.js on Workers.
+  // global_fetch_strictly_public makes fetch() reach the public internet, which
+  // is what the Supabase client does on every request.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+
+  // Worker responses are NOT cached by Cloudflare unless this is on. With it,
+  // the Cache-Control the feed route already sets is honoured — and unlike
+  // Netlify, the query string is part of the cache key by default, so filters do
+  // not collapse onto a single entry.
+  "cache": {
+    "enabled": true
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
