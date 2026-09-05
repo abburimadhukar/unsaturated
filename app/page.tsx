@@ -202,6 +202,32 @@ export default function Page() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   /**
+   * Dark or light, remembered.
+   *
+   * Initialised from what the inline script in layout.tsx already put on
+   * <html>, not from localStorage again — reading the DOM keeps the two in step
+   * and cannot disagree with what is on screen.
+   */
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof document === 'undefined') return 'dark';
+    return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  });
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      try {
+        localStorage.setItem('unsaturated.theme', next);
+      } catch {
+        // Private browsing and blocked site data both throw. The theme still
+        // applies for this session; it just will not be remembered.
+      }
+      return next;
+    });
+  }, []);
+
+  /**
    * The resume panel opens at the top of the document, above the sticky header
    * and family nav. Opening it while scrolled down put it off screen, so the
    * button looked broken. Bring the top of the page into view when it opens.
@@ -279,7 +305,7 @@ export default function Page() {
       // both 400 (the feed has no 'fit' sort any more) and split the CDN cache
       // into a separate entry per visitor, which is the thing this split exists
       // to prevent.
-      if (k === 'hideSeen' || k === 'minFit') continue;
+      if (k === 'hideSeen' || k === 'minFit' || k === 'onlyApplied') continue;
       if (k === 'sort' && v === 'fit') continue;
       if (v === '' || v === false) continue;
       p.set(k, v === true ? '1' : String(v));
@@ -473,6 +499,7 @@ export default function Page() {
    */
   const visible = useMemo(() => {
     let rows = jobs;
+    if (filters.onlyApplied) rows = rows.filter((j) => applied.has(j.key));
     if (filters.hideSeen) rows = rows.filter((j) => !seen.has(j.key));
     const floor = filters.minFit === '' ? null : Number(filters.minFit);
     if (floor !== null && Number.isFinite(floor) && skills.length > 0) {
@@ -494,7 +521,7 @@ export default function Page() {
       });
     }
     return rows;
-  }, [jobs, filters.hideSeen, filters.minFit, filters.sort, seen, skills]);
+  }, [jobs, filters.hideSeen, filters.onlyApplied, filters.minFit, filters.sort, seen, applied, skills]);
 
   // Nothing of the feed renders until we know who is asking.
   if (!meChecked || !me?.user) {
@@ -528,8 +555,34 @@ export default function Page() {
           </div>
         )}
         <div className="grow" />
+        {/* The applied count was tracked from the first version and shown
+            nowhere, so "how many have I applied to this week" was a question
+            the site held the answer to and would not give. Clicking it filters
+            to those rows. */}
+        {applied.size > 0 && (
+          <button
+            className={filters.onlyApplied ? 'on' : ''}
+            onClick={() => set('onlyApplied', !filters.onlyApplied)}
+            title={filters.onlyApplied ? 'Show all jobs again' : 'Show only jobs you have applied to'}
+          >
+            ✓ <span className="tnum">{applied.size}</span> applied
+          </button>
+        )}
+        {seen.size > 0 && (
+          <span className="hseen" title="Jobs you have opened">
+            <span className="tnum">{seen.size.toLocaleString()}</span> seen
+          </span>
+        )}
         <button onClick={() => setShowResume((s) => !s)}>
           {skills.length ? `Skills · ${skills.length}` : 'Add resume'}
+        </button>
+        <button
+          className="icon"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
         </button>
         {me?.user && (
           <button onClick={() => void signOut()} title={me.user.email}>

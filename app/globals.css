@@ -1,10 +1,15 @@
 /*
- * Dark-first design system.
+ * Dark-first, with a light theme behind a toggle.
  *
- * Not a theme toggle: the palette is authored for dark and committed to it. A
- * job feed is read in long scanning sessions, so the surface stays near-black
- * and colour is spent almost entirely on the saturation score — the one number
- * the whole product exists to communicate.
+ * Dark is still the authored default — a job feed is read in long scanning
+ * sessions and a near-black surface is easier on the eyes for that. Light
+ * exists because a bright room makes dark unreadable, and it is a deliberate
+ * choice rather than a guess at the device setting: the toggle sets
+ * data-theme on <html> and the choice is remembered.
+ *
+ * Every colour is a token defined in BOTH blocks. A value hard-coded anywhere
+ * below is a bug that only shows up in one theme, which is the hardest kind of
+ * styling mistake to notice.
  */
 
 :root {
@@ -25,18 +30,76 @@
   --hot: #4ade80;      /* uncontested, high score  */
   --warm: #fbbf24;     /* middling                 */
   --cool: #6b6b78;     /* crowded, low score       */
-  --danger: #f2705c;   /* ghost risk               */
+  /* Was #f2705c, one shade from the accent — an "apply" link and a "this may
+   * be a ghost posting" warning read as the same colour. Pulled towards red
+   * until the two are unmistakably different. */
+  --danger: #e0484a;   /* ghost risk               */
 
   --accent: #e08a63;
   --accent-dim: #e08a6320;
+  /* The text that sits ON the accent. Near-black in both themes because the
+   * accent is a mid-tone terracotta either way. */
+  --on-accent: #17110d;
+
+  /* Tints and secondary hues. Every one of these was a hard-coded hex sitting
+   * in a rule further down, which is exactly how a light theme ends up with
+   * unreadable chips nobody notices for a week. */
+  --line-strong: #32323c;
+  --hot-dim: #4ade8014;
+  --hot-line: #4ade8052;
+  --danger-dim: #e0484a18;
+  --ai: #a78bfa;
+  --ai-dim: #a78bfa1a;
+  --adjacent: #f59e0b;
+  --adjacent-dim: #f59e0b1a;
 
   --radius: 12px;
   --radius-sm: 8px;
 }
 
+/*
+ * Light.
+ *
+ * Not the dark ladder inverted: an off-white ground with warm-grey lines reads
+ * as paper, where pure white and pure black read as a spreadsheet. The accent
+ * darkens slightly, because #e08a63 on white is too pale to be a link.
+ */
+:root[data-theme='light'] {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --surface-2: #f3f1ee;
+  --raised: #ffffff;
+  --line: #e2ded8;
+  --line-soft: #edeae5;
+
+  --text: #1b1a18;
+  --text-dim: #61605c;
+  --text-faint: #8d8b86;
+
+  --hot: #16a34a;
+  --warm: #b45309;
+  --cool: #78716c;
+  --danger: #a3181c;
+
+  --accent: #b85c31;
+  --accent-dim: #b85c3118;
+  --on-accent: #ffffff;
+
+  --line-strong: #cfc9c1;
+  --hot-dim: #16a34a16;
+  --hot-line: #16a34a55;
+  --danger-dim: #a3181c14;
+  --ai: #6d28d9;
+  --ai-dim: #6d28d914;
+  --adjacent: #b45309;
+  --adjacent-dim: #b4530914;
+}
+
 * { box-sizing: border-box; }
 
+/* Kept in step with data-theme so form controls and scrollbars follow too. */
 html { color-scheme: dark; }
+html[data-theme='light'] { color-scheme: light; }
 
 body {
   margin: 0;
@@ -102,10 +165,10 @@ button, select, input, textarea {
   padding: 6px 10px;
 }
 button { cursor: pointer; transition: background .13s, border-color .13s, color .13s; }
-button:hover:not(:disabled) { background: var(--raised); border-color: #32323c; }
+button:hover:not(:disabled) { background: var(--raised); border-color: var(--line-strong); }
 button:disabled { opacity: .45; cursor: default; }
 button.primary {
-  background: var(--accent); border-color: var(--accent); color: #17110d; font-weight: 600;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600;
 }
 button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 input::placeholder { color: var(--text-faint); }
@@ -259,9 +322,9 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
   color: var(--text-dim); white-space: nowrap;
 }
 .chip.fam { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
-.chip.skill { background: #4ade8014; border-color: transparent; color: var(--hot); }
-.chip.ghost { background: #f2705c18; border-color: transparent; color: var(--danger); }
-.chip.fresh { background: #4ade8014; border-color: transparent; color: var(--hot); font-weight: 560; }
+.chip.skill { background: var(--hot-dim); border-color: transparent; color: var(--hot); }
+.chip.ghost { background: var(--danger-dim); border-color: transparent; color: var(--danger); }
+.chip.fresh { background: var(--hot-dim); border-color: transparent; color: var(--hot); font-weight: 560; }
 .chip.pay { color: var(--text); border-color: var(--line); }
 
 .reasons { font-size: 12px; color: var(--text-faint); line-height: 1.5; margin-bottom: 10px; }
@@ -335,7 +398,7 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
 }
 .age.fresh { color: var(--hot); font-weight: 600; }
 
-.chip.ai { background: #a78bfa1a; border-color: transparent; color: #a78bfa; font-weight: 550; }
+.chip.ai { background: var(--ai-dim); border-color: transparent; color: var(--ai); font-weight: 550; }
 .chip.match { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
 .actions .src { color: var(--text-faint); font-size: 11.5px; margin-left: auto; }
 
@@ -351,7 +414,7 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
 /* Amber rather than the accent colour: this is a caveat on the row, not a
    feature of it. The role is related to what was asked for, not an answer to
    it, and the chip should read that way at a glance. */
-.chip.adjacent { background: #f59e0b1a; border-color: transparent; color: #f59e0b; font-weight: 550; }
+.chip.adjacent { background: var(--adjacent-dim); border-color: transparent; color: var(--adjacent); font-weight: 550; }
 
 /* Names the family the specialization list belongs to, without shouting it. */
 .sublabel { color: var(--text-faint); font-weight: 400; text-transform: none; }
@@ -370,8 +433,8 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
   border-left: 2px solid var(--hot);
 }
 .chip.appliedchip {
-  background: rgba(74, 222, 128, .13);
-  border-color: rgba(74, 222, 128, .32);
+  background: var(--hot-dim);
+  border-color: var(--hot-line);
   color: var(--hot);
   font-weight: 600;
 }
@@ -472,7 +535,7 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
   border-radius: var(--radius);
   border: 1px solid transparent;
   background: var(--accent);
-  color: #1a0f08;
+  color: var(--on-accent);
   cursor: pointer;
 }
 .authprimary:hover:not(:disabled) { filter: brightness(1.07); }
@@ -535,4 +598,29 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
   color: var(--text-faint);
   font-size: 13px;
   background: var(--bg);
+}
+
+/* ---------------- header: theme toggle and activity ---------------- */
+
+/*
+ * The applied count doubles as a filter, so it needs an obviously-pressed
+ * state. `.on` is reused from the facet buttons rather than invented, so a
+ * toggled control looks the same wherever it appears.
+ */
+header button.on {
+  background: var(--accent-dim);
+  border-color: transparent;
+  color: var(--accent);
+  font-weight: 560;
+}
+
+/* Seen is a fact, not a control: nothing to click, so it is not a button. */
+.hseen { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+@media (max-width: 860px) { .hseen { display: none; } }
+
+/* Square, so the sun and moon glyphs do not shift the header width when the
+   theme changes. */
+header button.icon {
+  width: 34px; padding: 6px 0; text-align: center;
+  font-size: 14px; line-height: 1; flex: none;
 }

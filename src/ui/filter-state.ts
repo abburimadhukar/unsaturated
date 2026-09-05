@@ -35,6 +35,9 @@ export const FILTER_DEFAULTS = {
   cloudOnly: true,
   hideGhosts: true,
   hideSeen: false,
+  // Browser-side, like hideSeen: the applied list belongs to the visitor, and
+  // sending it would make every response unique and uncacheable.
+  onlyApplied: false,
   sort: 'newest',
 };
 
