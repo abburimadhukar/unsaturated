@@ -26,7 +26,10 @@ export const dynamic = 'force-dynamic';
 // 'fit' is deliberately absent: it depends on the caller's resume, which this
 // endpoint no longer sees. The browser sorts by match itself.
 const SORTS: SortKey[] = ['newest', 'salary'];
-const FAMILIES = ['cloud', 'software', 'data', 'hris'];
+// 'unsorted' is a review queue rather than a kind of work: postings no rule
+// claimed and no rule rejected. Accepted here so it can be asked for by name,
+// and excluded from every view that does not name it.
+const FAMILIES = ['cloud', 'software', 'data', 'hris', 'unsorted'];
 // Which stack a role is built on. Deliberately not a family: a full-stack job is
 // genuinely both Python and JavaScript, so this is a property you filter on
 // rather than a category the job belongs to.

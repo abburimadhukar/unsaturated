@@ -20,16 +20,30 @@ import type { NormalizedJob } from '../ats/types.js';
  * so they can still be picked out anywhere.
  */
 
-export type Family = 'cloud' | 'software' | 'data' | 'hris';
+/**
+ * The four real families, plus a review queue.
+ *
+ * 'unsorted' is not a kind of work — it describes what WE know, not what the
+ * job is. It carries no specializations, is never inferred from skills, and is
+ * excluded from every default view: it appears only when selected by name. It
+ * exists so the roles the rules keep missing can be looked at by a person
+ * instead of guessed at by a rule.
+ */
+export type Family = 'cloud' | 'software' | 'data' | 'hris' | 'unsorted';
+
+/** The families that describe actual work — everything except the review queue. */
+export const REAL_FAMILIES = ['cloud', 'software', 'data', 'hris'] as const;
 
 export const FAMILY_LABELS: Record<Family, string> = {
   cloud: 'Cloud & Infrastructure',
   software: 'Software Engineering',
   data: 'Data',
   hris: 'HRIS',
+  unsorted: 'Unsorted',
 };
 
-export const FAMILY_ORDER: Family[] = ['cloud', 'software', 'data', 'hris'];
+// Last, deliberately. It is a queue to work through, not a category to browse.
+export const FAMILY_ORDER: Family[] = ['cloud', 'software', 'data', 'hris', 'unsorted'];
 
 interface SkillTerm {
   pattern: RegExp;

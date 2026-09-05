@@ -89,7 +89,17 @@ export const UNKNOWN_SPECIALIZATION = '__unknown__';
 export const CLASSIFICATION_VERSION = 'spec-1';
 
 /** Display order per family. The UI adds "All" and "Unknown" around these. */
-export const SPECIALIZATIONS_BY_FAMILY: Record<Family, readonly Specialization[]> = {
+/**
+ * Every family except the review queue.
+ *
+ * 'unsorted' has no specializations by design — it says what we do not know
+ * about a posting, not what the work is. Keying these maps on Family instead
+ * would force an empty entry for it in five places and invite someone to fill
+ * one in.
+ */
+export type RealFamily = Exclude<Family, 'unsorted'>;
+
+export const SPECIALIZATIONS_BY_FAMILY: Record<RealFamily, readonly Specialization[]> = {
   software: [
     'frontend',
     'backend',
@@ -372,7 +382,7 @@ const HRIS_RULES: SpecRule[] = [
   },
 ];
 
-const RULES: Record<Family, SpecRule[]> = {
+const RULES: Record<RealFamily, SpecRule[]> = {
   software: SOFTWARE_RULES,
   cloud: CLOUD_RULES,
   data: DATA_RULES,
@@ -388,7 +398,7 @@ const RULES: Record<Family, SpecRule[]> = {
  * like "Marketing Analyst", has said nothing about its specialization, and that
  * is NULL rather than "general".
  */
-const GENERIC_TITLE: Record<Family, RegExp> = {
+const GENERIC_TITLE: Record<RealFamily, RegExp> = {
   // Forward Deployed Engineer and AI Engineer are the two largest unmatched
   // software titles in the corpus, ~170 postings between them. Neither is one of
   // the eight specializations and both are genuinely general software roles, so
@@ -402,14 +412,14 @@ const GENERIC_TITLE: Record<Family, RegExp> = {
   hris: /\b(hris|hcm|hrms|hr (systems|technology|information)|people (systems|technology)|human resources (information|systems))\b/,
 };
 
-const GENERAL: Record<Family, Specialization> = {
+const GENERAL: Record<RealFamily, Specialization> = {
   software: 'general_software',
   cloud: 'general_cloud',
   data: 'general_data',
   hris: 'general_hris',
 };
 
-const FAMILY_NOUN: Record<Family, string> = {
+const FAMILY_NOUN: Record<RealFamily, string> = {
   software: 'Software',
   cloud: 'Cloud',
   data: 'Data',
@@ -450,6 +460,16 @@ export function classifySpecialization(
   title: string,
   description?: string | null,
 ): SpecializationResult {
+  // The review queue has no specializations to choose from: it is a statement
+  // about what we do not know, so inventing a sub-type for it would be exactly
+  // the guess this whole file refuses to make elsewhere.
+  if (family === 'unsorted') {
+    return {
+      specialization: null,
+      reason: 'Unsorted: awaiting review, no family assigned yet',
+      version: CLASSIFICATION_VERSION,
+    };
+  }
   const rules = RULES[family];
   const t = normalise(title);
   // Same cap as the family classifier — past a few thousand characters we are

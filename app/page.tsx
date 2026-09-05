@@ -587,7 +587,11 @@ export default function Page() {
                   specializations would offer Workday next to Frontend and let
                   you pick a pair that cannot exist; the options are meaningless
                   without their parent. */}
-              {filters.family !== '' && (
+              {/* `specializationsFor` rather than a bare family check: the
+                  review queue is a family with no specializations, and an
+                  "All specializations" dropdown listing nothing would look
+                  broken rather than deliberate. */}
+              {specializationsFor(filters.family).length > 0 && (
                 <div className="field">
                   <label>
                     Specialization

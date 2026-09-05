@@ -9,6 +9,7 @@ import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
 import { classifyAdjacent } from '../taxonomy/adjacent.js';
+import { belongsInReviewPile } from '../taxonomy/unsorted.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
@@ -161,7 +162,16 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // 'non-engineering management' and is exactly the kind of role this
       // exists to recover.
       const adj = cls.family === null ? classifyAdjacent(job) : null;
-      const family = cls.family ?? adj?.family ?? null;
+
+      // Third and last pass. Only for postings no rule excluded, no family
+      // claimed and the adjacent rules passed over — so it can never overturn
+      // an earlier decision. These are stored so a person can look at what the
+      // rules keep missing, and are kept out of every default view.
+      const review =
+        cls.family === null && !adj && !cls.excludedReason && belongsInReviewPile(job);
+
+      const family: Family | null =
+        cls.family ?? adj?.family ?? (review ? 'unsorted' : null);
 
       // Specialization is decided here, once per crawl, and never in the API or
       // in React. It is a pure function of the title and the description, and

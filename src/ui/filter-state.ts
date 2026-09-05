@@ -2,6 +2,7 @@ import type { Family } from '../taxonomy/families.js';
 import { FAMILY_ORDER } from '../taxonomy/families.js';
 import {
   SPECIALIZATIONS_BY_FAMILY,
+  type RealFamily,
   UNKNOWN_SPECIALIZATION,
   type Specialization,
 } from '../taxonomy/specializations.js';
@@ -39,10 +40,16 @@ export const FILTER_DEFAULTS = {
 
 export type Filters = typeof FILTER_DEFAULTS;
 
-/** The options offered under a family, before "All" and "Unknown" are added. */
+/**
+ * The options offered under a family, before "All" and "Unknown" are added.
+ *
+ * Empty for the review queue, which is not a kind of work and has no sub-types.
+ * The dropdown hides itself when there is nothing to offer.
+ */
 export function specializationsFor(family: string): readonly Specialization[] {
+  if (family === 'unsorted') return [];
   return (FAMILY_ORDER as string[]).includes(family)
-    ? SPECIALIZATIONS_BY_FAMILY[family as Family]
+    ? (SPECIALIZATIONS_BY_FAMILY[family as RealFamily] ?? [])
     : [];
 }
 
