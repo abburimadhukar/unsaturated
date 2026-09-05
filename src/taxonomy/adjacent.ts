@@ -65,6 +65,40 @@ const NEVER_ADJACENT =
   /\b(mechanical|electrical|electronics|civil|chemical|process|manufactur\w*|production|quality|industrial|structural|aerospace|automotive|biomedical|environmental|geotechnical|geological|mining|petroleum|drilling|welding|hvac|plumbing|marine|nuclear|packaging|textile|food|agricultur\w*|plant|facilities|field service|construction|survey\w*|cad|autocad|solidworks|piping|instrumentation|calibration|maintenance technician)\b/i;
 
 /**
+ * Physical and hardware engineering, which "Systems Engineer" attracts.
+ *
+ * The first crawl with adjacent switched on returned "Senior Fuel Systems
+ * Engineer, Air Vehicles" and "Senior Battery Systems Engineer" at Anduril, and
+ * "Ground Systems Engineer II - Structures & Mechanisms" at Rocket Lab. None
+ * tripped the list above: it had `structural` and not `structures`, `aerospace`
+ * and not `air vehicles`, and nothing at all for fuel or batteries. Systems
+ * engineering is a whole discipline outside software and the title alone cannot
+ * separate the two.
+ */
+const HARDWARE_ENGINEERING =
+  /\b(battery|batteries|fuel|thermal|propulsion|avionics|air vehicles?|spacecraft|satellite|launch|payload|airframe|flight|ground systems?|structures|mechanisms|mechatronics|robotics|motor|powertrain|optical|optics|laser|photonics|antenna|rf|microwave|semiconductor|silicon|wafer|asic|fpga|pcb|circuit|analog|bios|hardware|sensor|actuator|hydraulic|pneumatic|acoustic)\b/i;
+
+/**
+ * Words that make "Systems Engineer" an IT role rather than a physical one.
+ *
+ * Required for that one rule. A blocklist can only ever name the disciplines
+ * someone thought of, so this asks for positive evidence instead: no IT word
+ * anywhere in the title or description, no match.
+ */
+const IT_SIGNAL =
+  /\b(information (technology|systems)|linux|unix|windows|server|network|cloud|aws|azure|gcp|infrastructure|enterprise|active directory|vmware|virtuali[sz]\w*|storage|datacent(er|re)|sccm|intune|citrix|sql|database|erp|sap|saas|devops|kubernetes|docker|ansible|powershell|bash|python)\b/i;
+
+/**
+ * "IT" as an acronym: case-sensitive, and against the title only.
+ *
+ * It cannot join the pattern above. That one is case-insensitive and tested
+ * against the description, where the English word "it" appears in essentially
+ * every posting — so including it would make the check pass for everything and
+ * quietly do nothing, which is worse than not having it.
+ */
+const IT_ACRONYM = /\bIT\b/;
+
+/**
  * Titles that carry a technical word but name a job that is not technical.
  *
  * "Security Officer" is the largest single title in the whole discard pile at
@@ -154,6 +188,7 @@ export interface AdjacentMatch {
 export function classifyAdjacent(job: NormalizedJob): AdjacentMatch | null {
   const title = job.title;
   if (NEVER_ADJACENT.test(title)) return null;
+  if (HARDWARE_ENGINEERING.test(title)) return null;
   if (NOT_A_TECH_ROLE.test(title)) return null;
 
   // Same normalisation the family rules use, for the same reason: 'Full-Stack'
@@ -162,6 +197,14 @@ export function classifyAdjacent(job: NormalizedJob): AdjacentMatch | null {
 
   for (const rule of RULES) {
     if (!rule.pattern.test(forMatch)) continue;
+
+    // "Systems Engineer" is a title two unrelated professions share, and a
+    // blocklist can only name the disciplines someone remembered. This one rule
+    // therefore demands positive evidence that the role is an IT one.
+    if (rule.category === 'systems_engineering') {
+      const haystack = `${title} ${(job.descriptionText ?? '').slice(0, 4000)}`;
+      if (!IT_ACRONYM.test(title) && !IT_SIGNAL.test(haystack)) continue;
+    }
 
     // Let the description pick the family when it says anything at all. A
     // "Business Systems Analyst" describing Snowflake and dbt is a data role;

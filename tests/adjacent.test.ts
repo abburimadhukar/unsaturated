@@ -16,16 +16,21 @@ import type { NormalizedJob } from '../src/ats/types.js';
 const job = (title: string, body = ''): NormalizedJob =>
   ({ title, descriptionText: body }) as NormalizedJob;
 
+// "Systems Engineer" is shared by two unrelated professions, so that one rule
+// demands evidence the role is an IT one. Titles below that rely on it carry a
+// description; see the dedicated tests further down.
+const SYS_BODY = 'linux windows server active directory vmware';
+
 // ---------------------------------------------------------------------------
 // What it should catch — taken from the live exclusion tally
 // ---------------------------------------------------------------------------
 
-const SHOULD_MATCH: [string, string][] = [
+const SHOULD_MATCH: [string, string, string?][] = [
   ['Technical Program Manager', 'technical_pm'],
   ['Senior Technical Project Manager', 'technical_pm'],
   ['Lead Technical Product Manager', 'technical_pm'],
-  ['Systems Engineer', 'systems_engineering'],
-  ['Senior Systems Engineer', 'systems_engineering'],
+  ['IT Systems Engineer', 'systems_engineering'],
+  ['Senior Systems Engineer', 'systems_engineering', SYS_BODY],
   ['Business Systems Analyst', 'business_analysis'],
   ['Senior Business Analyst', 'business_analysis'],
   ['Product Analyst', 'business_analysis'],
@@ -43,9 +48,9 @@ const SHOULD_MATCH: [string, string][] = [
   ['Applications Engineer', 'generic_engineering'],
 ];
 
-for (const [title, category] of SHOULD_MATCH) {
+for (const [title, category, body] of SHOULD_MATCH) {
   test(`"${title}" is adjacent (${category})`, () => {
-    const m = classifyAdjacent(job(title));
+    const m = classifyAdjacent(job(title, body ?? ''));
     assert.ok(m, 'expected a match');
     assert.equal(m.category, category);
     // Always lands in a real family, so every existing filter keeps working.
@@ -136,4 +141,46 @@ test('a silent posting still lands somewhere, and says so', () => {
 test('a matched description records what it scored', () => {
   const m = classifyAdjacent(job('Systems Engineer', 'linux kubernetes aws terraform'));
   assert.match(m?.reason ?? '', /description scored \d+ for cloud/);
+});
+
+// ---------------------------------------------------------------------------
+// "Systems Engineer" needs evidence, because two professions share the title
+// ---------------------------------------------------------------------------
+
+test('a bare Systems Engineer with no evidence is refused', () => {
+  // Deliberate. The first live crawl filed "Senior Fuel Systems Engineer, Air
+  // Vehicles" and "Senior Battery Systems Engineer" at Anduril, and "Ground
+  // Systems Engineer II - Structures & Mechanisms" at Rocket Lab, as adjacent
+  // cloud roles. With nothing to go on, refusing is the honest answer — the
+  // next crawl fetches a description and can decide properly.
+  assert.equal(classifyAdjacent(job('Systems Engineer')), null);
+  assert.equal(classifyAdjacent(job('Senior Systems Engineer')), null);
+});
+
+test('an IT signal in the title or the body is enough', () => {
+  assert.ok(classifyAdjacent(job('IT Systems Engineer')));
+  assert.ok(classifyAdjacent(job('Systems Engineer', 'active directory vmware windows server')));
+  assert.ok(classifyAdjacent(job('Enterprise Systems Engineer')));
+});
+
+test('the IT acronym is matched case-sensitively, not as the English word', () => {
+  // `it` in a case-insensitive pattern matches "it" in nearly every
+  // description, which would let the whole check pass for everything and
+  // silently do nothing.
+  assert.equal(classifyAdjacent(job('Systems Engineer', 'it is a great place to work')), null);
+});
+
+test('hardware systems engineering never becomes an adjacent cloud role', () => {
+  for (const title of [
+    'Senior Fuel Systems Engineer, Air Vehicles',
+    'Senior Battery Systems Engineer',
+    'Ground Systems Engineer II - Structures & Mechanisms',
+    'Staff BIOS/Platform System Engineer',
+    'Propulsion Systems Engineer',
+    'Optical Systems Engineer',
+    'RF Systems Engineer',
+    'Robotics Systems Engineer',
+  ]) {
+    assert.equal(classifyAdjacent(job(title, 'linux server network')), null, title);
+  }
 });
