@@ -1,38 +1,27 @@
--- A review queue for the roles the rules keep missing.
+-- A review queue for the roles no rule claims.
 --
--- 374,272 postings across 35,512 distinct titles fell through every rule: none
--- excluded them, none claimed them. Almost all of it is chefs, machinists and
--- nurses, but buried in it are real roles the strict rules fumbled — a
--- "Sr Bus Intelligence Analyst" lost because the employer abbreviated
+-- 374,272 postings across 35,512 distinct titles fall through every rule:
+-- nothing excludes them, nothing claims them. Almost all of it is chefs,
+-- machinists and nurses, but buried in it are roles the strict rules fumbled —
+-- a "Sr Bus Intelligence Analyst" lost because the employer abbreviated
 -- "Business", an "Azure Integration Engineering Manager", a "Digital Forensics
--- Consultant".
---
--- Reviewing that pile by rule-guessing does not scale and reviewing it by hand
--- does not either: the top 500 titles cover under half of it. So the crawl now
--- keeps the subset that LOOKS technical — measured at 92 of 801 postings read
--- on a live shard — and files it under a fifth family for a person to judge.
+-- Consultant". The crawl now keeps the subset that looks technical and files it
+-- under a fifth family for a person to judge.
 --
 -- 'unsorted' is not a kind of work. It describes what we know, not what the job
--- is, which is why it carries no specializations and why every query below
--- excludes it unless it is asked for by name. The one exception is the family
--- facet: it has to keep counting the queue, or the tab would show nothing until
--- it was already selected.
+-- is, so every query here excludes it unless it is asked for by name. The one
+-- exception is the family facet, which must keep counting the queue or its tab
+-- would show nothing until it was already selected.
+--
+-- CREATE OR REPLACE, and deliberately no DROP. The signatures are unchanged —
+-- only the bodies gain a condition — so there is no overload to clear, and if
+-- anything here fails the live functions are left exactly as they were. The
+-- previous version of this file dropped both functions first and then failed to
+-- parse, which would have taken the site down had the editor not rolled back.
 --
 -- Safe to re-run.
 
-do $$
-declare r record;
-begin
-  for r in
-    select p.oid::regprocedure as sig
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname in ('feed_page', 'feed_facets')
-  loop
-    execute format('drop function if exists %s', r.sig);
-  end loop;
-end $$;
-
-create function public.feed_page(
+create or replace function public.feed_page(
   p_cutoff        timestamptz,
   p_in_scope      boolean  default true,
   p_family        text     default null,
@@ -141,7 +130,7 @@ as $function$
   );
 $function$;
 
-create function public.feed_facets(
+create or replace function public.feed_facets(
   p_cutoff        timestamptz,
   p_in_scope      boolean  default true,
   p_hide_ghosts   boolean  default false,
@@ -217,7 +206,8 @@ as $function$
   ),
   for_country as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_remote is null or remote_type = p_remote or (p_keep_unknown and remote_type is null))
       and (p_seniority is null or seniority = p_seniority or (p_keep_unknown and seniority is null))
@@ -229,7 +219,8 @@ as $function$
   ),
   for_remote as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_country is null or (p_country = '__unknown__' and country is null)
         or (p_country <> '__unknown__' and country = p_country))
@@ -242,7 +233,8 @@ as $function$
   ),
   for_seniority as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_country is null or (p_country = '__unknown__' and country is null)
         or (p_country <> '__unknown__' and country = p_country))
@@ -255,7 +247,8 @@ as $function$
   ),
   for_provider as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_country is null or (p_country = '__unknown__' and country is null)
         or (p_country <> '__unknown__' and country = p_country))
@@ -301,7 +294,8 @@ as $function$
   ),
   for_stack as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_country is null or (p_country = '__unknown__' and country is null)
         or (p_country <> '__unknown__' and country = p_country))
@@ -318,7 +312,8 @@ as $function$
   -- selected family, so these are that family's counts.
   for_specialization as (
     select * from base where
-      and (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      (p_family = 'unsorted' or coalesce(family, '') <> 'unsorted')
+      and
       (p_family is null or family = p_family)
       and (p_country is null or (p_country = '__unknown__' and country is null)
         or (p_country <> '__unknown__' and country = p_country))
