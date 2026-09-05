@@ -1,5 +1,5 @@
 import type { NormalizedJob } from '../ats/types.js';
-import { debugScores, type Family } from './families.js';
+import { debugScores, HRIS_PRODUCTS, HRIS_NON_HR_MODULE, type Family } from './families.js';
 
 /**
  * Roles that are technically related but do not belong to a core family.
@@ -36,6 +36,8 @@ import { debugScores, type Family } from './families.js';
  */
 
 export type AdjacentCategory =
+  | 'hris_platform'
+  | 'hris_operations'
   | 'business_analysis'
   | 'technical_pm'
   | 'systems_engineering'
@@ -45,6 +47,8 @@ export type AdjacentCategory =
   | 'generic_engineering';
 
 export const ADJACENT_LABELS: Record<AdjacentCategory, string> = {
+  hris_platform: 'HR platform, non-HR modules',
+  hris_operations: 'Payroll & benefits management',
   business_analysis: 'Business / systems analysis',
   technical_pm: 'Technical program & project management',
   systems_engineering: 'Systems engineering',
@@ -115,6 +119,28 @@ interface AdjacentRule {
 }
 
 const RULES: AdjacentRule[] = [
+  // Both HRIS rules come first, because core HRIS has already had its say: this
+  // pass only ever sees titles no family claimed, so anything with a vendor
+  // product or a payroll word left over is by definition the case the core
+  // rules deliberately declined.
+  //
+  // Workday Financials, Supply Chain, Adaptive Planning: the same platform,
+  // different work. Someone with Workday experience can do these, and an HR
+  // filter should not return them unasked.
+  {
+    category: 'hris_platform',
+    pattern: new RegExp(`${HRIS_PRODUCTS.source}`, 'i'),
+    fallback: 'hris',
+  },
+  // Payroll, benefits and compensation MANAGEMENT. 80 of the 94 such titles in
+  // the corpus are Manager, Director, Head, Lead, VP or Partner — they run the
+  // function and its vendors rather than the system. The systems half of the
+  // same vocabulary was already taken by core HRIS above.
+  {
+    category: 'hris_operations',
+    pattern: /\b(payroll|benefits|total rewards|compensation|people operations)\b/i,
+    fallback: 'hris',
+  },
   // "Technical" is required. Plain Product and Project Managers are the bulk of
   // the 15,038 postings the management rule drops, and they are correctly
   // dropped — only 595 of them carry "technical", and those are engineers.
@@ -204,6 +230,19 @@ export function classifyAdjacent(job: NormalizedJob): AdjacentMatch | null {
     if (rule.category === 'systems_engineering') {
       const haystack = `${title} ${(job.descriptionText ?? '').slice(0, 4000)}`;
       if (!IT_ACRONYM.test(title) && !IT_SIGNAL.test(haystack)) continue;
+    }
+
+    // The two HRIS rules are family-authoritative. Letting description scores
+    // decide would file a payroll manager as `data` on the strength of one
+    // mention of SQL, and HRIS roles carry no skill fingerprint by design.
+    if (rule.category === 'hris_platform' || rule.category === 'hris_operations') {
+      const why =
+        rule.category === 'hris_platform'
+          ? (HRIS_NON_HR_MODULE.test(title)
+              ? 'Adjacent (hris_platform); HR platform, non-HR module'
+              : 'Adjacent (hris_platform); vendor product outside the core rules')
+          : 'Adjacent (hris_operations); payroll or benefits management, not systems';
+      return { category: rule.category, family: 'hris', reason: why };
     }
 
     // Let the description pick the family when it says anything at all. A

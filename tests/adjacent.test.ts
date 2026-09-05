@@ -164,7 +164,7 @@ test('an IT signal in the title or the body is enough', () => {
 });
 
 test('the IT acronym is matched case-sensitively, not as the English word', () => {
-  // `it` in a case-insensitive pattern matches "it" in nearly every
+  // A word-boundary "it" in a case-insensitive pattern matches "it" in nearly every
   // description, which would let the whole check pass for everything and
   // silently do nothing.
   assert.equal(classifyAdjacent(job('Systems Engineer', 'it is a great place to work')), null);

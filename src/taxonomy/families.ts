@@ -161,11 +161,66 @@ const DATA_TITLES =
  * Kronos, Dayforce and Taleo role unclassified and therefore invisible.
  * HRIS_EXCLUSIONS still removes the engineers who merely work AT those vendors.
  */
-const HRIS_VENDOR_ROLE =
-  '(workday|successfactors|peoplesoft|oracle hcm|taleo|ukg|ultipro|kronos|dayforce|ceridian) (consultant|analyst|specialist|administrator|developer|engineer|architect|functional|technical|integration|configuration|reporting|lead)';
+/**
+ * The HRIS vendors, as they appear in a TITLE.
+ *
+ * Naming one is decisive on its own. This used to require the product be
+ * followed immediately by one of a fixed list of nouns, and no list could ever
+ * be long enough: 36 unambiguous roles were invisible because of it — "Workday
+ * Techno Functional Consultant", "Workday Extend Consultant", "Workday Platform
+ * Manager", "Manager, Workday Compensation & Talent", "SuccessFactors Support
+ * Analyst", "VP, Enterprise Systems, Workday". Nothing excluded them; no rule
+ * ever reached them.
+ *
+ * The title only, never the description. Half the companies in the corpus name
+ * Workday in their benefits paragraph, which is exactly why HRIS is never
+ * inferred from a skill fingerprint.
+ *
+ * 'namely', 'gusto' and 'rippling' are absent deliberately: they are ordinary
+ * words or companies whose own engineers post here, and matching them would
+ * file a backend engineer at Rippling as an HRIS analyst.
+ */
+export const HRIS_PRODUCTS =
+  /\b(workday|successfactors|sap ?sf|peoplesoft|oracle hcm|taleo|ukg|ultipro|kronos|dayforce|ceridian|paycom|paylocity|paychex|bamboohr)\b/i;
+
+/**
+ * What turns a payroll, benefits or compensation title into a systems one.
+ *
+ * "Payroll Specialist" runs and configures the payroll system; "Payroll
+ * Manager" runs the function and its vendors. Measured across the corpus that
+ * split is 78 systems against 94 management, and only the first belongs in a
+ * family called HR Information Systems. The second is picked up as adjacent, so
+ * it is one dropdown away rather than gone.
+ */
+const HRIS_SYSTEMS_WORD =
+  '(analyst|administrator|systems?|specialist|configuration|implementation|integration|technolog\\w*|reporting|data|platform)';
+
+/**
+ * Workday modules that are not HR at all.
+ *
+ * Financials, Supply Chain, Adaptive Planning and Student are the same platform
+ * and much the same skills, but the work is finance, procurement or academic
+ * administration. They stay out of core HRIS and surface as adjacent — close
+ * enough to matter to someone with Workday experience, wrong enough that an HR
+ * filter should not return them unasked.
+ */
+export const HRIS_NON_HR_MODULE =
+  /\b(financ\w*|fins?|accounting|supply chain|procurement|inventory|adaptive planning|student|grants?|revenue)\b/i;
 
 const HRIS_TITLES = new RegExp(
-  `\\b(hris|hcm|hrms|human resources? (information|systems)|hr systems|hr technology|people systems|people technology|${HRIS_VENDOR_ROLE}|payroll (analyst|systems|configuration)|benefits (analyst|systems)|compensation analyst|hr data analyst|hr operations analyst|total rewards analyst)\\b`,
+  [
+    // The category, named outright.
+    '\\b(hris|hcm|hrms)\\b',
+    '\\b(human resources? (information|systems?)|hr (systems?|technology|information)|people (systems|technology|platform))\\b',
+    // A vendor product, anywhere in the title.
+    HRIS_PRODUCTS.source,
+    // Payroll, benefits or compensation WITH a systems word. Two lookaheads
+    // rather than an enumeration, because the halves appear in either order —
+    // "Payroll Systems Analyst" and "Analyst, Global Payroll" alike.
+    `(?=.*\\b(payroll|benefits|total rewards|compensation)\\b)(?=.*\\b${HRIS_SYSTEMS_WORD}\\b)`,
+    // Reporting on people data is HRIS work wherever it sits.
+    '\\b(hr data analyst|hr operations analyst|people analytics|workforce analytics|hr reporting)\\b',
+  ].join('|'),
   'i',
 );
 
@@ -397,6 +452,14 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   for (const spec of SPECS) {
     if (!spec.titles.test(titleForMatch)) continue;
     if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(titleForMatch)) continue;
+    // A Workday Financials or Supply Chain role is the same platform doing
+    // different work. Skipping core HRIS here lets the adjacent pass claim it,
+    // so it sits one dropdown away instead of inside an HR filter.
+    if (
+      spec.id === 'hris' &&
+      HRIS_PRODUCTS.test(titleForMatch) &&
+      HRIS_NON_HR_MODULE.test(titleForMatch)
+    ) continue;
 
     const { score, names } = matchSkills(spec.skills, haystack);
 
