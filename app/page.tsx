@@ -504,7 +504,19 @@ export default function Page() {
   return (
     <>
       <header>
-        <h1 className="brand"><span className="dot" />Unsaturated</h1>
+        {/* Three dots falling away in size and saturation — what the name
+            means, drawn. It reuses the saturation scale's own green, amber and
+            grey rather than introducing a brand colour, so the mark and the job
+            cards are saying the same thing. Inline rather than an image file so
+            it inherits the theme tokens and stays sharp at any size. */}
+        <h1 className="brand">
+          <svg className="mark" viewBox="0 0 30 12" aria-hidden="true" focusable="false">
+            <circle cx="5" cy="6" r="4.4" />
+            <circle cx="16" cy="6" r="3.2" />
+            <circle cx="25" cy="6" r="2.3" />
+          </svg>
+          Unsaturated
+        </h1>
         {data && (
           <div className="hstats">
             <span><b className="tnum">{data.inScope.toLocaleString()}</b> in corpus</span>

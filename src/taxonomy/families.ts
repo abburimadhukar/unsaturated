@@ -142,8 +142,58 @@ const HRIS_SKILLS: SkillTerm[] = [
 // checked before software but after data, so the title never reached the family
 // that owns the specialization. `ml platform` and `ai infrastructure` stay:
 // those are platform-engineering roles that happen to serve ML.
+/**
+ * Words that mean a cloud term in a title is not about doing the work.
+ *
+ * Checked before the cloud rules. Teaching GCP, auditing a GCP estate, and
+ * buying cloud capacity all put "GCP" in a title without being cloud jobs. The
+ * civil-engineering words are here for one reason: "infrastructure" means roads
+ * and bridges to a road builder, and Webber's seasonal equipment operators were
+ * landing in the review queue on the strength of that one word.
+ */
+const CLOUD_TITLE_NOISE =
+  /\b(instructor|trainer|training|teacher|curriculum|academy|bootcamp|audit\w*|sourcing|procurement|vendor manage\w*|sales|account executive|recruit\w*|equipment operator|bridge|highway|roadway|civil|paving|seasonal|learning management)\b/i;
+
+/**
+ * A cloud role by title.
+ *
+ * The second half of this was added after 610 postings with a cloud word in the
+ * title were found sitting unclassified: "Cloud Networking & Infrastructure
+ * Developer", "System Admin Linux", "Linux Administrator", "OpenShift Platform
+ * Administrator", "Azure Integration Developer", "IT Infrastructure Analyst".
+ * Every one of them named a platform and a technical role, and no rule reached
+ * any of them, because the original list enumerated exact phrases.
+ *
+ * The pairing rule below is deliberately order-free: a platform word anywhere
+ * plus a technical-role word anywhere. "Cloud Developer" and "Developer, Cloud
+ * Platform" are the same job written two ways, and an enumeration will always
+ * miss one of them.
+ */
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b|\b(systems?|sys)\s?admin\w*\b|\b(linux|unix|aix)\s+(administrator|admin)\b|\binfrastructure\s+(engineer|developer|analyst|architect|specialist|lead)\b/i;
+
+/**
+ * A platform word and a technical role word, in either order.
+ *
+ * Applied ONLY as a last resort, after every family has failed — never in the
+ * ordinary title pass. Tried earlier it is a wrecking ball: it pulls "Sr.
+ * Software Engineer - Java/SpringBoot/AWS" and "Senior Data Engineer Cloud
+ * (Terraform, dbt, Azure)" into cloud, because cloud is checked before software
+ * and the mere presence of AWS wins. Measured at 256 roles stolen from Software
+ * and Data that way.
+ *
+ * Used last, it costs nothing and recovers the 610 postings found sitting
+ * unclassified with a cloud word in the title — "Cloud Networking &
+ * Infrastructure Developer", "OpenShift Platform Administrator", "Azure
+ * Integration Developer", "IT Infrastructure Analyst". They named a platform and
+ * a technical role, and every rule enumerated exact phrases instead.
+ *
+ * Deliberately order-free and description-free: "Cloud Developer" and
+ * "Developer, Cloud Platform" are the same job written two ways, and 18% of
+ * postings have no description to consult.
+ */
+const CLOUD_TITLES_LOOSE =
+  /\b(cloud|aws|amazon web services|azure|gcp|google cloud|kubernetes|k8s|openshift|terraform|vmware|datacent(er|re)|active directory)\b[^,]{0,40}\b(engineer|developer|architect|administrator|admin|analyst|specialist|consultant|operations|sre|lead)\b|\b(engineer|developer|architect|administrator|admin|analyst|specialist|consultant)\b[^,]{0,40}\b(cloud|aws|azure|gcp|kubernetes|openshift|vmware)\b/i;
 
 const SOFTWARE_TITLES =
   /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|ux engineer|growth engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
@@ -451,6 +501,10 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   // nothing to compare against.
   for (const spec of SPECS) {
     if (!spec.titles.test(titleForMatch)) continue;
+    // A cloud word in a title that is teaching, auditing, buying or building
+    // roads. The widened cloud pairing rule below is loose on purpose, and this
+    // is what keeps it honest.
+    if (spec.id === 'cloud' && CLOUD_TITLE_NOISE.test(titleForMatch)) continue;
     if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(titleForMatch)) continue;
     // A Workday Financials or Supply Chain role is the same platform doing
     // different work. Skipping core HRIS here lets the adjacent pass claim it,
@@ -515,6 +569,28 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
       };
     }
   }
+
+  // Pass 3 — last resort, and only for a posting nothing else claimed.
+  //
+  // A platform word plus a technical role word. Tried any earlier this is a
+  // wrecking ball, because cloud is checked before software and a passing
+  // mention of AWS would take "Sr. Software Engineer - Java/SpringBoot/AWS".
+  // Here it can only ever turn a nothing into a something.
+  if (
+    best.family === null &&
+    !CLOUD_TITLE_NOISE.test(titleForMatch) &&
+    CLOUD_TITLES_LOOSE.test(titleForMatch)
+  ) {
+    return {
+      family: 'cloud',
+      score: matchSkills(CLOUD_SKILLS, haystack).score,
+      matchedSkills: matchSkills(CLOUD_SKILLS, haystack).names,
+      allSkills: allMatchedSkills(haystack),
+      titleMatched: true,
+      ai,
+    };
+  }
+
   return best;
 }
 

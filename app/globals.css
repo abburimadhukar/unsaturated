@@ -67,6 +67,20 @@ header {
   font-size: 15px; font-weight: 620; letter-spacing: -0.025em;
   margin: 0; display: flex; align-items: center; gap: 9px;
 }
+/*
+ * The mark: three dots falling away in size and saturation.
+ *
+ * Replaces a single glowing dot. It uses the saturation scale's own colours
+ * rather than a new brand colour, so it means the same thing as the chips on
+ * the job cards — bright is uncontested, grey is crowded — instead of being
+ * decoration that happens to sit next to them.
+ */
+.brand .mark { width: 30px; height: 12px; flex: none; overflow: visible; }
+.brand .mark circle:nth-child(1) { fill: var(--hot); filter: drop-shadow(0 0 5px var(--hot)); }
+.brand .mark circle:nth-child(2) { fill: var(--warm); opacity: 0.62; }
+.brand .mark circle:nth-child(3) { fill: var(--cool); opacity: 0.5; }
+
+/* Kept for the sign-in page, which still uses the single dot. */
 .brand .dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--hot); box-shadow: 0 0 10px var(--hot);

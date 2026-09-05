@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!--
+    The mark, at favicon size.
+
+    Three dots falling away in size and saturation — literally what the name
+    describes, and the same green/amber/grey the saturation scale uses
+    throughout the site, so the icon and the job cards say the same thing.
+
+    Colours are hard-coded here rather than tokenised: a favicon is rendered
+    outside the page, where CSS custom properties do not exist.
+  -->
+  <rect width="32" height="32" rx="7" fill="#101014"/>
+  <circle cx="9"  cy="16" r="4.6" fill="#4ade80"/>
+  <circle cx="19" cy="16" r="3.4" fill="#fbbf24" opacity="0.62"/>
+  <circle cx="26" cy="16" r="2.4" fill="#6b6b78" opacity="0.5"/>
+</svg>
