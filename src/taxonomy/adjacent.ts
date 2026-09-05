@@ -36,6 +36,9 @@ import { debugScores, HRIS_PRODUCTS, HRIS_NON_HR_MODULE, type Family } from './f
  */
 
 export type AdjacentCategory =
+  | 'gtm'
+  | 'solutions_engineering'
+  | 'devrel'
   | 'hris_platform'
   | 'hris_operations'
   | 'business_analysis'
@@ -47,6 +50,9 @@ export type AdjacentCategory =
   | 'generic_engineering';
 
 export const ADJACENT_LABELS: Record<AdjacentCategory, string> = {
+  gtm: 'Go-to-market engineering',
+  solutions_engineering: 'Solutions & implementation engineering',
+  devrel: 'Developer relations',
   hris_platform: 'HR platform, non-HR modules',
   hris_operations: 'Payroll & benefits management',
   business_analysis: 'Business / systems analysis',
@@ -119,6 +125,25 @@ interface AdjacentRule {
 }
 
 const RULES: AdjacentRule[] = [
+  // Three roles recovered from the exclusion rules, each of which was binning
+  // engineers for who they talk to rather than what they do.
+  //
+  // "Go to market" is a department, not a job. The revenue rule binned ~205
+  // engineers on three letters: GTM Engineer, GTM Systems Administrator, "Staff
+  // Software Engineer, Go To Market Systems & AI", GTM Staff Data Scientist.
+  { category: 'gtm', pattern: /\b(gtm|go[-\s]?to[-\s]?market)\b/i, fallback: 'software' },
+  // Solutions, implementation and customer-success ENGINEERS. ~288 of them,
+  // binned for facing customers. They still run proofs of concept, build
+  // integrations and deploy the product. Cloud is the fallback because that is
+  // what most solutions work turns out to be when the description says nothing.
+  {
+    category: 'solutions_engineering',
+    pattern: /\b(solutions?|implementation|customer success|customer reliability|technical account)\s+engineer\b/i,
+    fallback: 'cloud',
+  },
+  // Developer advocates write demos, SDK samples and talks. Technical writers
+  // stay excluded — documentation is a different job.
+  { category: 'devrel', pattern: /\b(developer\s+(relations|advocate)|devrel)\b/i, fallback: 'software' },
   // Both HRIS rules come first, because core HRIS has already had its say: this
   // pass only ever sees titles no family claimed, so anything with a vendor
   // product or a payroll word left over is by definition the case the core
@@ -216,6 +241,22 @@ export interface AdjacentMatch {
  * Only ever called for a job `classifyRole` gave no family — this widens the
  * net, it never overrides a decision already made.
  */
+/**
+ * Titles that are adjacent however strong their description is.
+ *
+ * The ordinary adjacent pass only sees postings NO family claimed, which is
+ * right for a vague title and wrong for these three. A Solutions Engineer whose
+ * advert lists Kubernetes and Terraform scores well enough to be filed as a
+ * core cloud role — and it is not one, it is a pre-sales engineer who happens
+ * to know the stack. Same for a GTM Engineer naming Python.
+ *
+ * So these keep whatever family the evidence suggests, and are flagged adjacent
+ * on top of it: the family answers "what is this work", the flag answers "how
+ * close to the centre".
+ */
+export const FORCE_ADJACENT =
+  /\b(gtm|go[-\s]?to[-\s]?market|(solutions?|implementation|customer success|customer reliability|technical account)\s+engineer|developer\s+(relations|advocate)|devrel)\b/i;
+
 export function classifyAdjacent(job: NormalizedJob): AdjacentMatch | null {
   const title = job.title;
   if (NEVER_ADJACENT.test(title)) return null;

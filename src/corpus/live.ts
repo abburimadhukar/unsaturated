@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
-import { classifyAdjacent } from '../taxonomy/adjacent.js';
+import { classifyAdjacent, FORCE_ADJACENT } from '../taxonomy/adjacent.js';
 import { belongsInReviewPile } from '../taxonomy/unsorted.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
@@ -155,13 +155,26 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // its skills to both the fingerprint and the fit match.
       const cls: RoleClassification = classifyRole(job);
 
-      // Second chance, and only ever a second chance: this runs when no family
-      // claimed the posting, so it widens the net and can never overturn a
-      // decision the core rules already made. It deliberately also sees jobs a
-      // SOFT exclusion dropped — Technical Program Manager is filed as
-      // 'non-engineering management' and is exactly the kind of role this
-      // exists to recover.
-      const adj = cls.family === null ? classifyAdjacent(job) : null;
+      // Adjacent: a technically related role that is not what someone searching
+      // this family asked for.
+      //
+      // Usually a second chance — it runs when no family claimed the posting, so
+      // it widens the net and never overturns a decision already made. It also
+      // sees jobs a SOFT exclusion dropped, which is how a Technical Program
+      // Manager is recovered from 'non-engineering management'.
+      //
+      // FORCE_ADJACENT is the exception. Three titles are adjacent however
+      // strong their description is.
+      //
+      // The ordinary rule — only look when no family claimed it — is right for a
+      // vague title and wrong for these. A Solutions Engineer whose advert lists
+      // Kubernetes and Terraform scores well enough to be filed as a core cloud
+      // role, and it is not one: it is a pre-sales engineer who happens to know
+      // the stack. Same for a GTM Engineer naming Python. They keep whichever
+      // family the evidence suggests and carry the flag on top, because the
+      // family says what the work is and the flag says how close to the centre.
+      const adj =
+        cls.family === null || FORCE_ADJACENT.test(job.title) ? classifyAdjacent(job) : null;
 
       // Third and last pass. Only for postings no rule excluded, no family
       // claimed and the adjacent rules passed over — so it can never overturn

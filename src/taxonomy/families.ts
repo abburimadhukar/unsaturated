@@ -352,7 +352,12 @@ const HARD_EXCLUSIONS: [RegExp, string][] = [
   [/\b(nurse|physician|therapist|clinician|caregiver|pharmacist|dental|veterinar)\b/i, 'clinical'],
   [/\b(teacher|professor|lecturer|faculty)\b/i, 'education'],
   [/\b(counsel|attorney|paralegal|compliance officer)\b/i, 'legal'],
-  [/\b(developer relations|developer advocate|devrel|evangelist|technical writer)\b/i, 'devrel/docs'],
+  // Developer Relations and Developer Advocate have left this rule: they are
+  // engineers who write demos, SDK samples and talks, and the rule was binning
+  // ~21 of them. They are surfaced as adjacent instead. Technical Writer stays
+  // — documentation is a different job, not engineering — as does evangelist,
+  // which is a sales title wearing a technical hat.
+  [/\b(evangelist|technical writer)\b/i, 'devrel/docs'],
   // Physical-security and manual roles. "security officer" is deliberately NOT
   // here: Chief Information Security Officer and Cloud Security Officer are
   // infosec titles, not night watchmen.
@@ -372,11 +377,26 @@ const HARD_EXCLUSIONS: [RegExp, string][] = [
   // Revenue-side roles. "solutions architect" is excluded from this list on
   // purpose — at a vendor it is pre-sales, but at an enterprise it is ordinary
   // internal architecture, so the title alone is not disqualifying.
-  [/\b(gtm|go.to.market|deal desk)\b/i, 'revenue'],
+  // GTM has left this rule. "Go to market" is a department, not a job: the rule
+  // was binning ~205 engineers on the strength of three letters — GTM Engineer,
+  // GTM Systems Administrator, "Staff Software Engineer, Go To Market Systems &
+  // AI", GTM Staff Data Scientist. They are surfaced as adjacent instead.
+  //
+  // Deal Desk stays. That one really is sales operations — pricing approvals and
+  // contract terms — and no amount of "analyst" in the title changes it.
+  [/\bdeal desk\b/i, 'revenue'],
   // The HRIS lookahead matters: "HRIS Implementation Consultant" and "Workday
   // Implementation Consultant" are the dominant titles in that family, not
   // customer-facing sales roles, and HRIS is the thinnest family in the corpus.
-  [/^(?!.*\b(hris|hcm|hrms|workday|successfactors|peoplesoft|ukg|dayforce|payroll|benefits)\b).*\b(solutions?|sales|customer success|customer reliability|implementation)\s+(engineer|consultant|manager)\b/i, 'customer-facing'],
+  // `engineer` has left the role list. It was binning ~288 technical people —
+  // 868 sightings of "Solutions Engineer" alone, plus Implementation Engineer
+  // and Customer Success Engineer — on the grounds that they face customers.
+  // They do, and they are still engineers: they run proofs of concept, build
+  // integrations and deploy the product. They are surfaced as adjacent instead.
+  //
+  // Consultant and manager stay. A Solutions Consultant or Customer Success
+  // Manager is an account role, and the title says so.
+  [/^(?!.*\b(hris|hcm|hrms|workday|successfactors|peoplesoft|ukg|dayforce|payroll|benefits)\b).*\b(solutions?|sales|customer success|customer reliability|implementation)\s+(consultant|manager)\b/i, 'customer-facing'],
   [/\bsales\b|\bbusiness development\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
   [/\b(financial analyst|finance manager|treasury|investor relations)\b/i, 'finance'],
   [/\b(executive assistant|office administrator|receptionist|facilities)\b/i, 'admin'],
