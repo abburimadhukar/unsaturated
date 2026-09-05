@@ -151,6 +151,37 @@ const HRIS_SKILLS: SkillTerm[] = [
  * and bridges to a road builder, and Webber's seasonal equipment operators were
  * landing in the review queue on the strength of that one word.
  */
+/**
+ * "Production Engineer" is two different jobs sharing one name.
+ *
+ * At a software company it is the person who keeps the service running — the
+ * same job as SRE. At a factory it is the person who keeps the line running.
+ * Measured across the corpus: 73 postings, 66 of them filed as cloud, and 51 of
+ * those had no cloud tool anywhere in their description. Blue Origin's
+ * "Production Engineer III", ASML's "NXE 2nd Shift Production Engineer" and
+ * Entegris' bare "Production Engineer" were all sitting in the Cloud family.
+ *
+ * The title alone cannot separate them — "Production Engineer" at Entegris and
+ * at CoreWeave are spelled identically — so this asks for a reason to believe,
+ * either from a qualifying word in the title or a cloud tool in the description.
+ */
+const PRODUCTION_ENGINEER = /\bproduction\s+engineer\b/i;
+
+/** Words that settle it as a factory role from the title alone. */
+const PRODUCTION_MANUFACTURING =
+  /\b(mechanical|manufactur\w*|additive|assembly|fabricat\w*|machin(e|ing)|cnc|tooling|weld\w*|casting|moulding|molding|shift|plant|factory|shop floor|lean|six sigma|electrical|electronics|semiconductor|wafer|cleanroom|lithograph\w*|materials?|chemical|hardware|aerospace|automotive|laser|optics?|optical|photonics|vacuum|duv|euv|robotics|bioprocess)\b/i;
+
+/**
+ * Words that settle it the other way.
+ *
+ * 'systems' is deliberately absent. It let ASML's "Production Engineer (DUV
+ * Laser system)" qualify as cloud — a lithography role earning its place on the
+ * word "system", which appears in the name of nearly every piece of factory
+ * equipment ever built.
+ */
+const PRODUCTION_TECHNICAL =
+  /\b(cloud|software|network|infrastructure|platform|site reliability|data|web|devops|sre|application|bioinformatics)\b/i;
+
 const CLOUD_TITLE_NOISE =
   /\b(instructor|trainer|training|teacher|curriculum|academy|bootcamp|audit\w*|sourcing|procurement|vendor manage\w*|sales|account executive|recruit\w*|equipment operator|bridge|highway|roadway|civil|paving|seasonal|learning management)\b/i;
 
@@ -327,6 +358,15 @@ const HARD_EXCLUSIONS: [RegExp, string][] = [
   // infosec titles, not night watchmen.
   [/\b(forklift|janitor|custodian|security guard|armed guard)\b/i, 'manual'],
   [/\b(delivery|truck|cdl|bus|van)\s+drivers?\b/i, 'manual'],
+  // A Production Engineer naming a manufacturing discipline is a factory role,
+  // and a hard exclusion rather than merely "not cloud" — otherwise the skill
+  // pass rescues it a moment later on a passing mention of Linux, which is how
+  // a Mechanical Production Engineer ends up in the Cloud family. Two lookaheads
+  // because the words appear in either order.
+  [
+    /(?=.*\bproduction\s+engineer\b)(?=.*\b(mechanical|manufactur\w*|additive|assembly|fabricat\w*|machining|cnc|tooling|weld\w*|casting|moulding|molding|shop floor|six sigma|electrical|electronics|semiconductor|wafer|cleanroom|lithograph\w*|laser|optics?|photonics|vacuum|duv|euv|aerospace|automotive)\b)/i,
+    'manufacturing',
+  ],
   // Drafts left on public boards; not real openings.
   [/^copy of\b/i, 'draft'],
   // Revenue-side roles. "solutions architect" is excluded from this list on
@@ -505,6 +545,21 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     // roads. The widened cloud pairing rule below is loose on purpose, and this
     // is what keeps it honest.
     if (spec.id === 'cloud' && CLOUD_TITLE_NOISE.test(titleForMatch)) continue;
+
+    // "Production Engineer" needs a reason to be a cloud role, because the same
+    // two words name a factory job. A manufacturing word in the title settles
+    // it; otherwise a technical qualifier or a cloud tool in the description
+    // has to earn it. With neither, it falls through rather than being guessed
+    // at — 51 of the 66 filed as cloud had no cloud tool at all.
+    if (spec.id === 'cloud' && PRODUCTION_ENGINEER.test(titleForMatch)) {
+      const settledAsFactory = PRODUCTION_MANUFACTURING.test(titleForMatch);
+      const qualified =
+        !settledAsFactory &&
+        (PRODUCTION_TECHNICAL.test(titleForMatch) || matchSkills(CLOUD_SKILLS, haystack).score > 0);
+      // Only skip when `production engineer` is the ONLY reason cloud matched.
+      // "Cloud Operations / Production Engineer" has another claim of its own.
+      if (!qualified && !CLOUD_TITLES.test(titleForMatch.replace(PRODUCTION_ENGINEER, ''))) continue;
+    }
     if (spec.id === 'hris' && HRIS_EXCLUSIONS.test(titleForMatch)) continue;
     // A Workday Financials or Supply Chain role is the same platform doing
     // different work. Skipping core HRIS here lets the adjacent pass claim it,
