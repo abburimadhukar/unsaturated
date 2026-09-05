@@ -20,7 +20,10 @@ const verify = read('../src/discovery/verify.ts');
 const adapters = read('../src/ats/adapters/index.ts');
 
 /** Providers the discovery harvest can actually produce candidates for. */
-const HARVESTED = ['greenhouse', 'ashby', 'workday', 'smartrecruiters', 'workable', 'personio'];
+const HARVESTED = [
+  'greenhouse', 'ashby', 'workday', 'smartrecruiters', 'workable', 'personio',
+  'bamboohr', 'ukg',
+];
 
 test('every harvested provider has a verification endpoint', () => {
   const missing = HARVESTED.filter((p) => !verify.includes(`case '${p}':`));

@@ -106,6 +106,29 @@ export async function getJson<T>(
   return (await withDeadline(res.json(), provider, token, ctx)) as T;
 }
 
+/**
+ * A JSON POST, for boards that will not answer a GET.
+ *
+ * UKG's job board is one: the listing is a search endpoint that takes a body
+ * with paging in it. Routed through `request` like everything else so the
+ * timeout, the user agent and the error handling stay identical whichever verb
+ * a vendor happens to require.
+ */
+export async function postJson<T>(
+  url: string,
+  body: unknown,
+  provider: AtsProvider,
+  token: string,
+  ctx: FetchContext,
+): Promise<T> {
+  const res = await request(url, provider, token, ctx, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return (await withDeadline(res.json(), provider, token, ctx)) as T;
+}
+
 export async function getText(
   url: string,
   provider: AtsProvider,

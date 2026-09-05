@@ -59,6 +59,11 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   ashby: 0.4,
   smartrecruiters: 0.6,
   workable: 0.65,
+  // Mid-market HR suites. Almost nothing syndicates these — an opening on a
+  // BambooHR or UKG board is seen by far fewer people than the same role on
+  // Greenhouse, which is the entire reason for adding them.
+  bamboohr: 0.75,
+  ukg: 0.8,
   // Enterprise Workday boards are rarely syndicated and rarely browsed by the
   // tech-startup job-seeking crowd, so the same role is seen by far fewer people.
   workday: 0.75,
@@ -84,6 +89,11 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   breezy: 0.35,
   workable: 0.4,
   personio: 0.5,
+  // BambooHR applications are short. UKG demands a per-tenant account and a
+  // re-keyed resume, which is where most human applicants give up — the same
+  // reason Workday scores high.
+  bamboohr: 0.35,
+  ukg: 0.75,
   smartrecruiters: 0.55,
   workday: 1,
   rippling: 0.4,

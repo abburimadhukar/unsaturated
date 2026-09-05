@@ -45,7 +45,7 @@ jobs:
         # from the original file. Scaling them is the cheapest corpus growth
         # available while Common Crawl has nothing left for greenhouse, workday,
         # ashby and lever.
-        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio]
+        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg]
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run

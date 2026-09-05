@@ -64,6 +64,30 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
       return { url: `https://apply.workable.com/api/v1/widget/accounts/${b.token}` };
     case 'breezy':
       return { url: `https://${b.token}.breezy.hr/json` };
+    case 'bamboohr':
+      return {
+        url: `https://${b.token}.bamboohr.com/careers/list`,
+        // redirect: 'manual' matters more than it looks. A BambooHR tenant that
+        // does not exist answers 302 to a marketing page, and fetch follows
+        // redirects by default — so the check would land on a cheerful 200 of
+        // HTML and record every dead board as live. Left manual, the 302 is
+        // seen for what it is.
+        init: { redirect: 'manual' },
+      };
+    case 'ukg': {
+      // Two identifiers, like Workday: a company code and a board id, and
+      // neither works without the other.
+      const boardId = b.extra?.board;
+      if (!boardId) return null;
+      return {
+        url: `https://recruiting.ultipro.com/${b.token}/JobBoard/${boardId}/JobBoardView/LoadSearchResults`,
+        init: {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ opportunitySearch: { Top: 1, Skip: 0, QuerySort: [], SearchText: '' } }),
+        },
+      };
+    }
     default:
       return null;
   }
@@ -80,6 +104,8 @@ function countJobs(provider: AtsProvider, body: unknown): number {
   const o = body as Record<string, unknown>;
   if (provider === 'workday') return typeof o.total === 'number' ? o.total : 0;
   if (provider === 'smartrecruiters') return typeof o.totalFound === 'number' ? o.totalFound : 0;
+  if (provider === 'ukg') return typeof o.totalCount === 'number' ? o.totalCount : 0;
+  if (provider === 'bamboohr') return Array.isArray(o.result) ? o.result.length : 0;
   if (provider === 'workable' && Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.data)) return o.data.length;

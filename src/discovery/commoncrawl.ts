@@ -78,6 +78,26 @@ const PATTERNS: Pattern[] = [
     match: '*.jobs.personio.com/*',
     extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.jobs\.personio\.com/i,
   },
+  // BambooHR: the company is the subdomain, and only the careers pages count —
+  // the marketing site lives on the same domain and would otherwise contribute
+  // "www" as a board.
+  {
+    provider: 'bamboohr',
+    match: '*.bamboohr.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.bamboohr\.com\/(?:careers|jobs)/i,
+  },
+  // UKG needs BOTH halves of the URL: a company code and a board id. A match
+  // that finds only the code is unusable, so the pattern demands both.
+  {
+    provider: 'ukg',
+    match: 'recruiting.ultipro.com/*',
+    extract: /ultipro\.com\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
+  },
+  {
+    provider: 'ukg',
+    match: 'recruiting2.ultipro.com/*',
+    extract: /ultipro\.com\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
+  },
 ];
 
 /** Path segments that are routing, not a company. */
@@ -132,6 +152,20 @@ function toBoard(p: Pattern, url: string): OpenBoard | null {
       token: tenant,
       company: titleise(tenant),
       extra: { host: `${tenant}.${shard}.myworkdayjobs.com`, site, locale: 'en-US' },
+    };
+  }
+
+  if (p.provider === 'ukg') {
+    // Same shape as Workday: two identifiers, and a board carrying only one of
+    // them cannot be fetched or verified. Storing it would put a row in the
+    // registry that fails every crawl forever.
+    const [, code, boardId] = m;
+    if (!code || !boardId) return null;
+    return {
+      provider: 'ukg',
+      token: code,
+      company: titleise(code),
+      extra: { board: boardId },
     };
   }
 

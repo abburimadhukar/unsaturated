@@ -6,6 +6,8 @@ import { personioAdapter } from './personio.js';
 import { smartRecruitersAdapter } from './smartrecruiters.js';
 import { workableAdapter } from './workable.js';
 import { workdayAdapter } from './workday.js';
+import { bambooHrAdapter } from './bamboohr.js';
+import { ukgAdapter } from './ukg.js';
 import { ripplingAdapter } from './rippling.js';
 import { usajobsAdapter } from './usajobs.js';
 import { socrataAdapter } from './socrata.js';
@@ -27,6 +29,8 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   breezy: breezyAdapter,
   personio: personioAdapter,
   workday: workdayAdapter,
+  bamboohr: bambooHrAdapter,
+  ukg: ukgAdapter,
   rippling: ripplingAdapter,
   usajobs: usajobsAdapter,
   socrata: socrataAdapter,

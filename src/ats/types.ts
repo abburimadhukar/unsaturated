@@ -14,6 +14,8 @@ export type AtsProvider =
   | 'breezy'
   | 'personio'
   | 'workday'
+  | 'bamboohr'
+  | 'ukg'
   | 'rippling'
   | 'usajobs'
   | 'socrata';
