@@ -18,6 +18,8 @@ type Phase = 'idle' | 'sending' | 'sent' | 'landing' | 'error';
 
 export default function SignIn() {
   const [email, setEmail] = useState('');
+  const [first, setFirst] = useState('');
+  const [last, setLast] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [seatsLeft, setSeatsLeft] = useState<number | null>(null);
@@ -84,7 +86,7 @@ export default function SignIn() {
       const res = await fetch('/api/auth/signin', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, firstName: first, lastName: last }),
       });
       const body = (await res.json()) as { error?: string; message?: string; seatsLeft?: number };
       if (typeof body.seatsLeft === 'number') setSeatsLeft(body.seatsLeft);
@@ -139,23 +141,55 @@ export default function SignIn() {
           </>
         ) : (
           <>
+            {/* Asked of everyone, including people who already have an account
+                and whose name we already hold. A form that skipped the question
+                for returning users would behave differently for them, and that
+                difference is a way to discover which addresses have accounts —
+                the exact leak the identical seat-full message avoids. What is
+                typed here is used only when the account is new; afterwards the
+                account page is where a name is changed. */}
+            <div className="namerow">
+              <label className="authlabel">
+                First name
+                <input
+                  autoFocus
+                  autoComplete="given-name"
+                  maxLength={60}
+                  placeholder="Ada"
+                  value={first}
+                  onChange={(e) => setFirst(e.target.value)}
+                />
+              </label>
+              <label className="authlabel">
+                Last name
+                <input
+                  autoComplete="family-name"
+                  maxLength={60}
+                  placeholder="Lovelace"
+                  value={last}
+                  onChange={(e) => setLast(e.target.value)}
+                />
+              </label>
+            </div>
+
             <label className="authlabel" htmlFor="email">Email address</label>
             <input
               id="email"
               type="email"
               inputMode="email"
               autoComplete="email"
-              autoFocus
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && email) void send(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && email && first.trim() && last.trim()) void send();
+              }}
             />
 
             <button
               className="authprimary"
               onClick={() => void send()}
-              disabled={phase === 'sending' || !email}
+              disabled={phase === 'sending' || !email || !first.trim() || !last.trim()}
             >
               {phase === 'sending' ? 'Sending…' : 'Email me a sign-in link'}
             </button>

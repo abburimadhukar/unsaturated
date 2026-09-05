@@ -16,6 +16,7 @@ import {
   toggleFilter,
 } from '../src/ui/filter-state.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
+import { initialsOf } from '../src/ui/initials.js';
 
 interface Job {
   key: string;
@@ -67,7 +68,10 @@ function fitFor(job: Job, skills: string[]): Fit {
 }
 
 interface Me {
-  profile: { skills: string[]; resumeChars: number; updatedAt: string | null };
+  profile: {
+    skills: string[]; resumeChars: number; updatedAt: string | null;
+    firstName: string | null; lastName: string | null;
+  };
   state: { seen: string[]; applied: string[] };
   /** Null when signed out. Signed-in state follows the account, not the browser. */
   user: { email: string } | null;
@@ -531,16 +535,23 @@ export default function Page() {
   return (
     <>
       <header>
-        {/* Three dots falling away in size and saturation — what the name
-            means, drawn. It reuses the saturation scale's own green, amber and
-            grey rather than introducing a brand colour, so the mark and the job
-            cards are saying the same thing. Inline rather than an image file so
-            it inherits the theme tokens and stays sharp at any size. */}
+        {/* The mark: a crowded field, and the one opening in it.
+
+            Six dim dots packed together are the jobs everyone has already
+            found; the bright ringed one, set apart, is the uncontested role.
+            That is the whole product in one picture, and it reuses the
+            saturation scale's own green and grey rather than introducing a
+            brand colour — so the logo and the job cards mean the same thing. */}
         <h1 className="brand">
-          <svg className="mark" viewBox="0 0 30 12" aria-hidden="true" focusable="false">
-            <circle cx="5" cy="6" r="4.4" />
-            <circle cx="16" cy="6" r="3.2" />
-            <circle cx="25" cy="6" r="2.3" />
+          <svg className="mark" viewBox="0 0 32 24" aria-hidden="true" focusable="false">
+            <circle className="crowd" cx="4"  cy="5"  r="2.0" opacity="0.55" />
+            <circle className="crowd" cx="10" cy="3"  r="1.6" opacity="0.40" />
+            <circle className="crowd" cx="3"  cy="12" r="1.6" opacity="0.45" />
+            <circle className="crowd" cx="9"  cy="10" r="2.0" opacity="0.55" />
+            <circle className="crowd" cx="5"  cy="19" r="1.6" opacity="0.40" />
+            <circle className="crowd" cx="12" cy="17" r="1.5" opacity="0.35" />
+            <circle className="ring" cx="21" cy="12" r="6.2" fill="none" strokeWidth="1.3" />
+            <circle className="open" cx="21" cy="12" r="3.4" />
           </svg>
           Unsaturated
         </h1>
@@ -573,21 +584,14 @@ export default function Page() {
             <span className="tnum">{seen.size.toLocaleString()}</span> seen
           </span>
         )}
-        <button onClick={() => setShowResume((s) => !s)}>
-          {skills.length ? `Skills · ${skills.length}` : 'Add resume'}
-        </button>
-        <button
-          className="icon"
-          onClick={toggleTheme}
-          title={theme === 'dark' ? 'Switch to light' : 'Switch to dark'}
-          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        >
-          {theme === 'dark' ? '☀' : '☾'}
-        </button>
+        {/* Resume, theme and sign-out moved to /account: five controls in a
+            row is a settings menu pretending to be a toolbar. The applied count
+            above stays, because it is also a filter and belongs with the
+            filtering. */}
         {me?.user && (
-          <button onClick={() => void signOut()} title={me.user.email}>
-            {me.user.email.split('@')[0]} · sign out
-          </button>
+          <a className="avatar" href="/account" title={`${me.user.email} — your account`}>
+            {initialsOf(me.profile.firstName, me.profile.lastName, me.user.email)}
+          </a>
         )}
       </header>
 
@@ -598,7 +602,11 @@ export default function Page() {
           <span className="n">{Object.values(facets?.family ?? {}).reduce((a, b) => a + b, 0)}</span>
         </button>
         {FAMILY_ORDER.map((f) => (
-          <button key={f} className={filters.family === f ? 'on' : ''} onClick={() => toggle('family', f)}>
+          <button
+            key={f}
+            className={`fam-${f}${filters.family === f ? ' on' : ''}`}
+            onClick={() => toggle('family', f)}
+          >
             {FAMILY_LABELS[f]}
             <span className="n">{facets?.family?.[f] ?? 0}</span>
           </button>
@@ -606,29 +614,8 @@ export default function Page() {
       </nav>
 
       <main>
-        {showResume && (
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <h3>Resume</h3>
-            <p className="note">
-              Paste your resume to get match percentages. Keywords are extracted and the
-              <b> skill list is saved to this browser</b> so it survives a reload — the resume
-              text itself is not kept, only its length.
-            </p>
-            <textarea
-              value={resume} onChange={(e) => setResume(e.target.value)}
-              placeholder="Paste resume text…"
-            />
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-              {saveError && <p className="hint">{saveError}</p>}
-              <button className="primary" onClick={() => void saveResume()} disabled={busy}>
-                Extract skills
-              </button>
-              <div className="chips" style={{ margin: 0 }}>
-                {skills.map((s) => <span className="chip skill" key={s}>{s}</span>)}
-              </div>
-            </div>
-          </div>
-        )}
+        {/* The resume panel lives on /account now, with the theme and the
+            sign-out it used to sit beside. */}
 
         <div className="layout">
           <aside className={`sidebar${filtersOpen ? '' : ' collapsed'}`}>
@@ -918,7 +905,7 @@ export default function Page() {
 
                       <div className="chips">
                         {j.family && (
-                          <span className="chip fam">
+                          <span className={`chip fam fam-${j.family}`}>
                             {(FAMILY_LABELS as Record<string, string>)[j.family] ?? j.family}
                           </span>
                         )}

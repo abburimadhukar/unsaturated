@@ -16,15 +16,22 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   let email: string;
+  let firstName = '';
+  let lastName = '';
   try {
-    const body = (await request.json()) as { email?: string };
+    const body = (await request.json()) as { email?: string; firstName?: string; lastName?: string };
     email = String(body.email ?? '').trim();
+    firstName = String(body.firstName ?? '').trim().slice(0, 60);
+    lastName = String(body.lastName ?? '').trim().slice(0, 60);
   } catch {
     return NextResponse.json({ error: 'send an email address' }, { status: 400 });
   }
 
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: 'that does not look like an email address' }, { status: 400 });
+  }
+  if (!firstName || !lastName) {
+    return NextResponse.json({ error: 'enter your first and last name' }, { status: 400 });
   }
 
   const taken = await seatsTaken();
@@ -39,6 +46,13 @@ export async function POST(request: Request) {
       // people to a page that ignored the link and bounced them back to the
       // form, losing the fragment on the way.
       emailRedirectTo: `${origin}/signin`,
+      // Carried into the account's metadata so a NEW account arrives already
+      // named. Supabase ignores this for an account that already exists, which
+      // is exactly right: the form asks everyone for a name so it behaves
+      // identically whoever types in it — a form that skipped the question for
+      // existing users would quietly reveal which addresses hold accounts.
+      // Returning users edit their name on the account page instead.
+      data: { first_name: firstName, last_name: lastName },
       // Supabase creating the account is fine — holding an account is not the
       // same as holding a seat, and the seat is what grants access.
       shouldCreateUser: true,

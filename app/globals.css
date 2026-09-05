@@ -53,6 +53,24 @@
   --adjacent: #f59e0b;
   --adjacent-dim: #f59e0b1a;
 
+  /* One colour per family.
+   *
+   * Chosen to sit apart from every colour already spoken for — green means
+   * uncontested, red means ghost risk, violet means AI, amber means adjacent —
+   * so a family colour can never be mistaken for a judgement about the job.
+   * Unsorted is deliberately the only grey: it is a queue, not a kind of work,
+   * and it should look like one. */
+  --fam-cloud: #4c9fe0;
+  --fam-cloud-dim: #4c9fe01f;
+  --fam-software: #22d3ee;
+  --fam-software-dim: #22d3ee1f;
+  --fam-data: #c56fd0;
+  --fam-data-dim: #c56fd01f;
+  --fam-hris: #a3c93a;
+  --fam-hris-dim: #a3c93a1f;
+  --fam-unsorted: #7b8194;
+  --fam-unsorted-dim: #7b819422;
+
   --radius: 12px;
   --radius-sm: 8px;
 }
@@ -93,6 +111,17 @@
   --ai-dim: #6d28d914;
   --adjacent: #b45309;
   --adjacent-dim: #b4530914;
+
+  --fam-cloud: #1565c0;
+  --fam-cloud-dim: #1565c014;
+  --fam-software: #00897b;
+  --fam-software-dim: #00897b14;
+  --fam-data: #9333a8;
+  --fam-data-dim: #9333a814;
+  --fam-hris: #5f7c14;
+  --fam-hris-dim: #5f7c1414;
+  --fam-unsorted: #5b6070;
+  --fam-unsorted-dim: #5b607018;
 }
 
 * { box-sizing: border-box; }
@@ -138,10 +167,10 @@ header {
  * the job cards — bright is uncontested, grey is crowded — instead of being
  * decoration that happens to sit next to them.
  */
-.brand .mark { width: 30px; height: 12px; flex: none; overflow: visible; }
-.brand .mark circle:nth-child(1) { fill: var(--hot); filter: drop-shadow(0 0 5px var(--hot)); }
-.brand .mark circle:nth-child(2) { fill: var(--warm); opacity: 0.62; }
-.brand .mark circle:nth-child(3) { fill: var(--cool); opacity: 0.5; }
+.brand .mark { width: 27px; height: 20px; flex: none; overflow: visible; }
+.brand .mark .crowd { fill: var(--cool); }
+.brand .mark .ring  { stroke: var(--hot); opacity: 0.42; }
+.brand .mark .open  { fill: var(--hot); filter: drop-shadow(0 0 5px var(--hot)); }
 
 /* Kept for the sign-in page, which still uses the single dot. */
 .brand .dot {
@@ -624,3 +653,80 @@ header button.icon {
   width: 34px; padding: 6px 0; text-align: center;
   font-size: 14px; line-height: 1; flex: none;
 }
+
+/* ---------------- family colours ---------------- */
+
+/*
+ * One colour per family, used on the nav tabs and on each card's chip.
+ *
+ * The saturation scale already owns green, amber and grey as judgements about a
+ * job — uncontested, middling, crowded — so these are picked from hues nothing
+ * else uses. A family colour says what KIND of work it is and must never be
+ * mistaken for a verdict on it.
+ */
+.fam-cloud    { color: var(--fam-cloud); }
+.fam-software { color: var(--fam-software); }
+.fam-data     { color: var(--fam-data); }
+.fam-hris     { color: var(--fam-hris); }
+.fam-unsorted { color: var(--fam-unsorted); }
+
+.chip.fam.fam-cloud    { background: var(--fam-cloud-dim);    color: var(--fam-cloud); }
+.chip.fam.fam-software { background: var(--fam-software-dim); color: var(--fam-software); }
+.chip.fam.fam-data     { background: var(--fam-data-dim);     color: var(--fam-data); }
+.chip.fam.fam-hris     { background: var(--fam-hris-dim);     color: var(--fam-hris); }
+.chip.fam.fam-unsorted { background: var(--fam-unsorted-dim); color: var(--fam-unsorted); }
+
+/* A 2px bar under the selected tab, in that family's own colour, so the nav
+   says which family you are in twice over — position and hue. */
+.families button.on.fam-cloud    { background: var(--fam-cloud-dim);    color: var(--fam-cloud); }
+.families button.on.fam-software { background: var(--fam-software-dim); color: var(--fam-software); }
+.families button.on.fam-data     { background: var(--fam-data-dim);     color: var(--fam-data); }
+.families button.on.fam-hris     { background: var(--fam-hris-dim);     color: var(--fam-hris); }
+.families button.on.fam-unsorted { background: var(--fam-unsorted-dim); color: var(--fam-unsorted); }
+.families button.on.fam-cloud .n    { color: var(--fam-cloud); }
+.families button.on.fam-software .n { color: var(--fam-software); }
+.families button.on.fam-data .n     { color: var(--fam-data); }
+.families button.on.fam-hris .n     { color: var(--fam-hris); }
+.families button.on.fam-unsorted .n { color: var(--fam-unsorted); }
+
+/* ---------------- avatar and account page ---------------- */
+
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; flex: none;
+  border-radius: 50%;
+  background: var(--accent-dim); color: var(--accent);
+  border: 1px solid transparent;
+  font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
+  text-decoration: none; cursor: pointer;
+}
+.avatar:hover { border-color: var(--accent); }
+.avatar.lg { width: 52px; height: 52px; font-size: 18px; }
+
+.account { max-width: 640px; margin: 0 auto; padding: 26px 22px 60px; }
+.account h1 { font-size: 21px; margin: 0 0 2px; letter-spacing: -0.02em; }
+.account h2 { font-size: 13px; margin: 0 0 10px; color: var(--text-dim); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em; }
+.account .panel { margin-bottom: 14px; }
+.account textarea { width: 100%; margin-top: 10px; }
+.account .row { display: flex; gap: 10px; margin-top: 10px; }
+.backlink { display: inline-block; margin-bottom: 18px; font-size: 13px; }
+.acct-id { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.muted { color: var(--text-dim); font-size: 13px; margin: 0 0 10px; }
+.err { color: var(--danger); font-size: 13px; }
+.okmsg { color: var(--hot); font-size: 13px; }
+.namerow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.namerow label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-dim); }
+@media (max-width: 520px) { .namerow { grid-template-columns: 1fr; } }
+
+/* Two buttons behaving as one control, so the current theme is a position as
+   well as a highlight. */
+.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.segmented button { border: none; border-radius: 0; background: var(--surface-2); }
+.segmented button.on { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+
+.stats { display: flex; gap: 26px; }
+.stat { display: flex; flex-direction: column; text-decoration: none; color: inherit; }
+.stat b { font-size: 24px; font-weight: 640; }
+.stat span { font-size: 12px; color: var(--text-dim); }
+a.stat:hover b { color: var(--accent); }

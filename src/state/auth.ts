@@ -79,6 +79,14 @@ export async function seatsTaken(): Promise<number> {
 export interface SignedInUser {
   id: string;
   email: string;
+  /**
+   * Whatever was typed into the sign-in form when the account was created.
+   *
+   * Supabase writes this once, at account creation, and ignores it on every
+   * later sign-in — which is why it is copied into user_state on first read
+   * rather than being the place the name actually lives.
+   */
+  metadata?: { first_name?: string; last_name?: string };
 }
 
 /** True when this user already holds a seat. */
@@ -142,7 +150,11 @@ export async function resolveSession(request: Request): Promise<ResolvedSession 
     try {
       const { data, error } = await auth().auth.getUser(token);
       if (!error && data.user?.email) {
-        const user = { id: data.user.id, email: data.user.email };
+        const user = {
+          id: data.user.id,
+          email: data.user.email,
+          metadata: (data.user.user_metadata ?? {}) as { first_name?: string; last_name?: string },
+        };
         if (await hasSeat(token, user.id)) return { user };
         return null;
       }
@@ -158,7 +170,11 @@ export async function resolveSession(request: Request): Promise<ResolvedSession 
     const { data, error } = await auth().auth.refreshSession({ refresh_token: refresh });
     const session = data.session;
     if (error || !session?.access_token || !data.user?.email) return null;
-    const user = { id: data.user.id, email: data.user.email };
+    const user = {
+      id: data.user.id,
+      email: data.user.email,
+      metadata: (data.user.user_metadata ?? {}) as { first_name?: string; last_name?: string },
+    };
     if (!(await hasSeat(session.access_token, user.id))) return null;
     return {
       user,
