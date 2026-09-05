@@ -179,6 +179,56 @@ export async function readFeed(): Promise<Feed | null> {
 }
 
 /**
+ * A FeedJob as the `jobs` table wants it.
+ *
+ * Extracted from writeFeed so it can be tested. It was inline, and one crawl
+ * stored 11,491 unsorted rows and zero adjacent ones because `adjacent` was
+ * simply missing from the object literal: the flag was computed, carried
+ * through the whole pipeline, and then never written. Nothing failed — the
+ * column was absent from the payload, so every row silently took its default.
+ *
+ * A field dropped here is invisible at every other layer, which is exactly why
+ * this needs to be a function with a test rather than a literal buried in a
+ * hundred-line write path.
+ */
+export function toJobRow(j: FeedJob, now: string = new Date().toISOString()) {
+  return {
+    key: j.key,
+    provider: j.provider,
+    board_token: j.key.split(':')[1] ?? '',
+    company: j.company,
+    title: j.title,
+    location: j.location,
+    country: j.country,
+    remote_type: j.remoteType,
+    seniority: j.seniority,
+    employment_type: j.employmentType,
+    department: j.department,
+    salary_min: j.salaryMin,
+    salary_max: j.salaryMax,
+    salary_currency: j.salaryCurrency,
+    posted_at: j.postedAt,
+    apply_url: j.applyUrl,
+    family: j.family,
+    // Absent from this mapping for one crawl, which is why that run stored
+    // 11,491 unsorted rows and zero adjacent ones: the flag was computed in
+    // memory, carried through the whole pipeline, and then simply not written.
+    // Nothing failed — the column just never appeared in the payload, so every
+    // row took the default of false.
+    adjacent: j.adjacent === true,
+    specialization: j.specialization,
+    specialization_reason: j.specializationReason ?? null,
+    classification_version: j.classificationVersion ?? null,
+    ai: j.ai,
+    matched_skills: j.matchedSkills,
+    skill_score: j.skillScore,
+    ghost_risk: j.components.ghostRisk ?? 0,
+    last_seen_at: now,
+    closed_at: null,
+  };
+}
+
+/**
  * Writes a completed crawl to the database.
  *
  * Upserts every job seen, then closes anything on those boards that stopped
@@ -199,34 +249,7 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
   const byKey = new Map<string, (typeof feed.jobs)[number]>();
   for (const j of feed.jobs) if (!byKey.has(j.key)) byKey.set(j.key, j);
 
-  const rows = [...byKey.values()].map((j) => ({
-    key: j.key,
-    provider: j.provider,
-    board_token: j.key.split(':')[1] ?? '',
-    company: j.company,
-    title: j.title,
-    location: j.location,
-    country: j.country,
-    remote_type: j.remoteType,
-    seniority: j.seniority,
-    employment_type: j.employmentType,
-    department: j.department,
-    salary_min: j.salaryMin,
-    salary_max: j.salaryMax,
-    salary_currency: j.salaryCurrency,
-    posted_at: j.postedAt,
-    apply_url: j.applyUrl,
-    family: j.family,
-    specialization: j.specialization,
-    specialization_reason: j.specializationReason ?? null,
-    classification_version: j.classificationVersion ?? null,
-    ai: j.ai,
-    matched_skills: j.matchedSkills,
-    skill_score: j.skillScore,
-    ghost_risk: j.components.ghostRisk ?? 0,
-    last_seen_at: new Date().toISOString(),
-    closed_at: null,
-  }));
+  const rows = [...byKey.values()].map((j) => toJobRow(j));
 
   let upserted = 0;
   const CHUNK = 500;
