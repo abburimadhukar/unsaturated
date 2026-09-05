@@ -154,7 +154,13 @@ test('ordinary English words are not treated as vendors', () => {
 test('generic HR is neither core nor adjacent HRIS', () => {
   // Tier 4, deliberately excluded: an HR Business Partner under a filter called
   // HRIS would make the label a lie.
-  for (const title of ['HR Business Partner', 'HR Generalist', 'HR Coordinator', 'Recruiter']) {
+  for (const title of [
+    'HR Business Partner', 'HR Generalist', 'HR Coordinator', 'Recruiter',
+    // People Operations is the same thing under a newer name. It was briefly
+    // pulled in by the payroll rule and dragged 130 generic HR roles with it.
+    'People Operations Generalist', 'People Operations Partner',
+    'Senior People Operations Manager',
+  ]) {
     assert.equal(family(title), null, `${title} should not be core`);
     const a = classifyAdjacent(job(title));
     assert.notEqual(a?.category, 'hris_operations', `${title} should not be adjacent HRIS`);

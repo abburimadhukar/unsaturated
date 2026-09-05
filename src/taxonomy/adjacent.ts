@@ -138,7 +138,12 @@ const RULES: AdjacentRule[] = [
   // same vocabulary was already taken by core HRIS above.
   {
     category: 'hris_operations',
-    pattern: /\b(payroll|benefits|total rewards|compensation|people operations)\b/i,
+    // 'people operations' is deliberately absent. It is generic HR — People
+    // Operations Generalist, People Operations Partner — not payroll or
+    // benefits work, and it was pulling 130 such roles in here. Tier 4 was
+    // considered and declined: an HR Business Partner under a filter called
+    // HRIS makes the label a lie, whichever side of the adjacent line it sits.
+    pattern: /\b(payroll|benefits|total rewards|compensation)\b/i,
     fallback: 'hris',
   },
   // "Technical" is required. Plain Product and Project Managers are the bulk of
