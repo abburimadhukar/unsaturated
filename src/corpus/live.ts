@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
+import { classifyAdjacent } from '../taxonomy/adjacent.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
 import { loadSnapshot } from './snapshot.js';
@@ -153,6 +154,15 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // its skills to both the fingerprint and the fit match.
       const cls: RoleClassification = classifyRole(job);
 
+      // Second chance, and only ever a second chance: this runs when no family
+      // claimed the posting, so it widens the net and can never overturn a
+      // decision the core rules already made. It deliberately also sees jobs a
+      // SOFT exclusion dropped — Technical Program Manager is filed as
+      // 'non-engineering management' and is exactly the kind of role this
+      // exists to recover.
+      const adj = cls.family === null ? classifyAdjacent(job) : null;
+      const family = cls.family ?? adj?.family ?? null;
+
       // Specialization is decided here, once per crawl, and never in the API or
       // in React. It is a pure function of the title and the description, and
       // the description is the expensive part — it exists in this process only
@@ -208,14 +218,15 @@ async function loadBoard(board: CorpusBoard, now: number) {
         saturation: scored.score,
         components: scored.components as unknown as Record<string, number>,
         reasons: scored.reasons,
-        inScope: cls.family !== null,
+        inScope: family !== null,
         ai: cls.ai,
-        family: cls.family,
+        family,
+        ...(adj ? { adjacent: true } : {}),
         // Carried out of the classifier so the crawl can count what it threw
         // away. `no family matched` is its own reason: a posting no rule
         // excluded and no family claimed is the interesting case, and it was
         // previously indistinguishable from a deliberate exclusion.
-        ...(cls.family === null
+        ...(family === null
           ? { excludedReason: cls.excludedReason ?? 'no family matched' }
           : {}),
         specialization: spec?.specialization ?? null,

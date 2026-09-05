@@ -41,6 +41,15 @@ export interface FeedJob {
   inScope: boolean;
   family: Family | null;
   /**
+   * A technically-related role the core rules refused.
+   *
+   * Carries a family so it fits everything already built, but stays out of the
+   * feed unless asked for: someone searching for a Backend Engineer must not be
+   * handed a Technical Support Engineer by default. Off unless `adjacent` is
+   * set on the request.
+   */
+  adjacent?: boolean;
+  /**
    * Which rule discarded this posting, when one did.
    *
    * Present only in memory during a crawl and never stored on the job row —
@@ -119,6 +128,11 @@ export interface FeedQuery {
   skills?: string[];
   /** 'python' | 'other' | 'unknown' — which stack a role is built on. */
   stack?: string;
+  /**
+   * 'include' | 'only'. Absent means core roles only, which is the default
+   * everywhere: adjacent roles are opt-in, never a surprise.
+   */
+  adjacent?: string;
   /**
    * A normalised specialization, or '__unknown__' for rows whose family is known
    * and whose specialization is not. Exact, like `country`: an explicit option,

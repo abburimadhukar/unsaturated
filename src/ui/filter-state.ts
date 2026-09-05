@@ -28,6 +28,9 @@ export const FILTER_DEFAULTS = {
   includeUnknown: true,
   employmentType: '',
   stack: '',
+  // '' = core roles only, 'include' = both, 'only' = adjacent alone. Empty is
+  // the default so adjacent roles never appear unasked.
+  adjacent: '',
   cloudOnly: true,
   hideGhosts: true,
   hideSeen: false,

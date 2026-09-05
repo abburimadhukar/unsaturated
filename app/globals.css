@@ -334,6 +334,10 @@ textarea { width: 100%; min-height: 120px; resize: vertical; font-size: 13px; li
    quieter than .chip.fam — related, not competing with it. */
 .chip.spec { background: var(--surface-2); border-color: transparent; color: var(--text-dim); }
 .chip.spec.unknown { background: none; border-color: var(--line); }
+/* Amber rather than the accent colour: this is a caveat on the row, not a
+   feature of it. The role is related to what was asked for, not an answer to
+   it, and the chip should read that way at a glance. */
+.chip.adjacent { background: #f59e0b1a; border-color: transparent; color: #f59e0b; font-weight: 550; }
 
 /* Names the family the specialization list belongs to, without shouting it. */
 .sublabel { color: var(--text-faint); font-weight: 400; text-transform: none; }

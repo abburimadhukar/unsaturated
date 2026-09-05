@@ -36,6 +36,8 @@ export interface Facets {
   seniority: Record<string, number>;
   /** python / other / unknown — which stack the role is built on. */
   stack: Record<string, number>;
+  /** How many core vs adjacent roles the rest of the filters leave. */
+  adjacent: Record<string, number>;
   /**
    * Counts per specialization for the family currently selected, keyed by the
    * normalised value, plus '__unknown__' for rows whose specialization is NULL.
@@ -89,6 +91,7 @@ export async function queryFeedFromDb(
       p_limit: limit,
       p_stack: orNull(f.stack),
       p_specialization: orNull(f.specialization),
+      p_adjacent: orNull(f.adjacent),
     });
 
     if (error) {
@@ -140,6 +143,7 @@ export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
       p_keep_unknown: f.includeUnknown !== false,
       p_stack: orNull(f.stack),
       p_specialization: orNull(f.specialization),
+      p_adjacent: orNull(f.adjacent),
     });
     if (error) {
       console.error('feed_facets failed:', error.message);

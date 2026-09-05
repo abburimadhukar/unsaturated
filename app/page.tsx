@@ -36,6 +36,7 @@ interface Job {
   components: Record<string, number>;
   family: string | null;
   specialization: string | null;
+  adjacent?: boolean;
   ai: boolean;
   matchedSkills: string[];
 }
@@ -92,6 +93,7 @@ interface Feed {
     country: Record<string, number>;
     countryUnknown?: number;
     stack?: Record<string, number>;
+    adjacent?: Record<string, number>;
     specialization?: Record<string, number>;
   };
   jobs: Job[];
@@ -365,6 +367,35 @@ export default function Page() {
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }, [filters]);
 
+  /**
+   * A new filter is a new list, so go back to the top of it.
+   *
+   * Changing a filter while scrolled down left the window exactly where it was,
+   * looking at row 300 of a result set that had just been replaced. At best you
+   * were reading unrelated jobs without realising the list had changed; if the
+   * new set was shorter than the old scroll position, you landed past the end
+   * and the page looked empty.
+   *
+   * Deliberately not on the first render: the restore path in `load` puts you
+   * back where you left off when returning from a job posting, and scrolling to
+   * the top here would immediately undo it. Deliberately not on `loadMore`
+   * either — appending rows must never move the viewport.
+   *
+   * `auto`, not `smooth`: this fires on every keystroke in the search box, and
+   * animating each one fights the typing.
+   */
+  const filterKey = serializeFilters(filters);
+  const lastFilterKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastFilterKey.current === null) {
+      lastFilterKey.current = filterKey; // first paint — leave the restore alone
+      return;
+    }
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [filterKey]);
+
   // Record the position before the tab is hidden or unloaded, so returning from
   // a job posting lands where it left off.
   useEffect(() => {
@@ -610,6 +641,29 @@ export default function Page() {
                 </select>
               </div>
               <div className="field">
+                <label>Role scope</label>
+                <select value={filters.adjacent} onChange={(e) => set('adjacent', e.target.value)}>
+                  {/* Adjacent roles are technically related but sit outside the
+                      four families — Technical Program Manager, Business Systems
+                      Analyst, Test Automation Engineer. Worth surfacing because
+                      almost nobody applies to them, and off by default for the
+                      same reason nobody applies: they are not what you searched
+                      for. */}
+                  <option value="">
+                    Core roles only{facets?.adjacent?.core ? ` (${facets.adjacent.core})` : ''}
+                  </option>
+                  <option value="include">
+                    Include adjacent roles
+                    {facets?.adjacent
+                      ? ` (${(facets.adjacent.core ?? 0) + (facets.adjacent.adjacent ?? 0)})`
+                      : ''}
+                  </option>
+                  <option value="only">
+                    Adjacent roles only{facets?.adjacent?.adjacent ? ` (${facets.adjacent.adjacent})` : ''}
+                  </option>
+                </select>
+              </div>
+              <div className="field">
                 <label>Country</label>
                 <select value={filters.country} onChange={(e) => set('country', e.target.value)}>
                   <option value="">Anywhere</option>
@@ -811,6 +865,12 @@ export default function Page() {
                               : 'Specialization unknown'}
                           </span>
                         )}
+                        {/* Marked on the card, not only in the filter. Someone
+                            who turned adjacent roles on has to be able to tell
+                            which rows arrived that way — otherwise a Technical
+                            Support Engineer sitting among Backend Engineers
+                            reads as a classification error. */}
+                        {j.adjacent && <span className="chip adjacent">Adjacent</span>}
                         {j.ai && <span className="chip ai">AI / ML</span>}
                         <span className={`chip${j.remoteType ? '' : ' unknown'}`}>
                           {j.remoteType ? (WORK_LABELS[j.remoteType] ?? j.remoteType) : 'work type unknown'}

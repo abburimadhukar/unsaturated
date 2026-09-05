@@ -30,6 +30,7 @@ export interface JobRow {
   posted_at: string | null;
   apply_url: string | null;
   family: string | null;
+  adjacent?: boolean | null;
   specialization: string | null;
   specialization_reason?: string | null;
   classification_version?: string | null;
@@ -80,6 +81,7 @@ export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
     saturation: 0,
     inScope: r.family !== null,
     family: (r.family as Family | null) ?? null,
+    adjacent: r.adjacent === true,
     // Null is a value here, not a gap: the family is known and the kind of job
     // is not. The UI says so rather than picking one.
     specialization: (r.specialization as Specialization | null) ?? null,
@@ -129,7 +131,7 @@ export async function readFeed(): Promise<Feed | null> {
       .select(
         'key,provider,board_token,company,title,location,country,remote_type,seniority,' +
           'employment_type,department,salary_min,salary_max,salary_currency,posted_at,apply_url,family,' +
-          'specialization,specialization_reason,classification_version,ai,' +
+          'adjacent,specialization,specialization_reason,classification_version,ai,' +
           'matched_skills,skill_score,ghost_risk',
       )
       .is('closed_at', null)
@@ -233,9 +235,34 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
     // count:'exact' so jobs_upserted records rows actually written rather than
     // rows attempted — the old counter reported the input size unconditionally,
     // which would read as a full success even if nothing changed.
-    const { error, count } = await client
+    let { error, count } = await client
       .from('jobs')
       .upsert(chunk, { onConflict: 'key', count: 'exact' });
+
+    // Migrations here are applied by hand, so code and schema are briefly out of
+    // step by design — and the crawl runs hourly, which means a column this
+    // writes but the database does not yet have would fail every run in between.
+    // Dropping the unknown column and retrying keeps the corpus updating until
+    // the migration lands; the value is lost for those runs and nothing else is.
+    //
+    // Narrow on purpose: only a missing-column error, only the columns named
+    // here, and it says so loudly every time rather than healing in silence.
+    const missing = error && /column "?(\w+)"? .*does not exist/i.exec(error.message)?.[1];
+    if (missing && ['adjacent', 'specialization', 'specialization_reason', 'classification_version'].includes(missing)) {
+      console.error(
+        `jobs.${missing} does not exist yet — writing without it. ` +
+          'Apply the pending migration in src/db/migrations/ to stop losing this field.',
+      );
+      const stripped = chunk.map((row) => {
+        const copy = { ...(row as Record<string, unknown>) };
+        delete copy[missing];
+        return copy;
+      });
+      ({ error, count } = await client
+        .from('jobs')
+        .upsert(stripped as typeof chunk, { onConflict: 'key', count: 'exact' }));
+    }
+
     if (error) throw new Error(`supabase upsert failed: ${error.message}`);
     upserted += count ?? chunk.length;
   }

@@ -31,6 +31,9 @@ const FAMILIES = ['cloud', 'software', 'data', 'hris'];
 // genuinely both Python and JavaScript, so this is a property you filter on
 // rather than a category the job belongs to.
 const STACKS = ['python', 'other', 'unknown'];
+// How far from the centre a role may be. Absent means core roles only — the
+// default everywhere, so adjacent roles are always an explicit choice.
+const ADJACENT = ['include', 'only'];
 
 // 50, not 200: the first screen is what people actually read, and 200 rows was
 // 161 KB before anyone scrolled. The client raises `offset` for more.
@@ -113,6 +116,12 @@ export async function GET(request: Request) {
   if (stackRaw && !STACKS.includes(stackRaw)) {
     bad.push(`stack must be one of ${STACKS.join(', ')}`);
   }
+  const adjacentRaw = str('adjacent');
+  if (adjacentRaw && !ADJACENT.includes(adjacentRaw)) {
+    // 'exclude' is deliberately not accepted: it is the default, and offering a
+    // second way to spell the default splits the CDN cache for no gain.
+    bad.push(`adjacent must be one of ${ADJACENT.join(', ')}`);
+  }
 
   // Specialization is checked twice: that the value exists at all, and that it
   // belongs to the family asked for alongside it. Without the second check
@@ -148,7 +157,7 @@ export async function GET(request: Request) {
     sort: sortRaw && SORTS.includes(sortRaw as SortKey) ? (sortRaw as SortKey) : 'newest',
   };
 
-  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType', 'stack', 'specialization'] as const) {
+  for (const key of ['remote', 'seniority', 'family', 'provider', 'country', 'q', 'employmentType', 'stack', 'specialization', 'adjacent'] as const) {
     const v = str(key);
     if (v) query[key] = v;
   }
@@ -175,7 +184,7 @@ export async function GET(request: Request) {
   const fromDb = await queryFeedFromDb(query, offset, limit);
   if (fromDb) {
     const facets = (await facetsFromDb(query)) ?? {
-      family: {}, country: {}, remote: {}, provider: {}, seniority: {},
+      family: {}, country: {}, remote: {}, provider: {}, seniority: {}, adjacent: {},
       stack: {}, specialization: {}, countryUnknown: 0, inScope: 0,
       refreshedAt: null, scanned: 0,
     };
