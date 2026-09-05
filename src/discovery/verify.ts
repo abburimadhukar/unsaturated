@@ -47,15 +47,40 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
         },
       };
     }
+    // The four below were absent, and their absence was silent. `endpoint`
+    // returning null makes a board "unknown", and only `live` boards are ever
+    // stored — so a discovery run for personio, smartrecruiters or workable
+    // harvested thousands of candidates, verified every one as unclear, stored
+    // nothing, and reported success. 1,667 Personio boards were found and
+    // dropped that way.
+    case 'personio':
+      // XML rather than JSON, which the reader below now allows for.
+      return { url: `https://${b.token}.jobs.personio.de/xml` };
+    case 'smartrecruiters':
+      return {
+        url: `https://api.smartrecruiters.com/v1/companies/${b.token}/postings?limit=1`,
+      };
+    case 'workable':
+      return { url: `https://apply.workable.com/api/v1/widget/accounts/${b.token}` };
+    case 'breezy':
+      return { url: `https://${b.token}.breezy.hr/json` };
     default:
       return null;
   }
 }
 
 function countJobs(provider: AtsProvider, body: unknown): number {
+  // Personio answers in XML, so the body arrives as a string. Counting the
+  // position elements is enough to tell a live board from an empty one, which
+  // is all this needs to decide.
+  if (typeof body === 'string') {
+    return (body.match(/<position[\s>]/gi) ?? []).length;
+  }
   if (!body || typeof body !== 'object') return 0;
   const o = body as Record<string, unknown>;
   if (provider === 'workday') return typeof o.total === 'number' ? o.total : 0;
+  if (provider === 'smartrecruiters') return typeof o.totalFound === 'number' ? o.totalFound : 0;
+  if (provider === 'workable' && Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.data)) return o.data.length;
   if (Array.isArray(body)) return (body as unknown[]).length;
@@ -135,7 +160,13 @@ export async function verifyBoards(
           break;
         }
 
-        const body: unknown = await res.json().catch(() => null);
+        // Personio serves XML. Reading it as text and letting countJobs decide
+        // keeps one code path for every provider; JSON parsing a feed that is
+        // not JSON would otherwise report a perfectly live board as unclear.
+        const body: unknown =
+          board.provider === 'personio'
+            ? await res.text().catch(() => null)
+            : await res.json().catch(() => null);
         const domain = board.provider === 'greenhouse' ? domainFrom(body) : undefined;
         result = {
           board,
