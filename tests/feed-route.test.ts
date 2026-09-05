@@ -94,6 +94,18 @@ test('a specialization on its own, with no family, is allowed', async () => {
   assert.notEqual((await call('specialization=workday')).status, 400);
 });
 
+test('every browser-side filter is refused by the API', async () => {
+  // These three depend on who is asking, so they never leave the browser. The
+  // API must refuse them rather than ignore them: a shared URL carrying
+  // onlyApplied=1 was answering 200 with every job, which reads as a filter
+  // that worked. onlyApplied joined the list late and was missed.
+  for (const key of ['minFit=0.5', 'hideSeen=1', 'onlyApplied=1']) {
+    const { status, body } = await call(key);
+    assert.equal(status, 400, `${key} should be refused`);
+    assert.match(body.details.join(' '), /applied in the browser/);
+  }
+});
+
 test('an unknown family is still a 400', async () => {
   assert.equal((await call('family=marketing')).status, 400);
 });

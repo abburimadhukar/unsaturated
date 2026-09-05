@@ -146,7 +146,12 @@ export async function GET(request: Request) {
   // cacheable. Silently ignoring them would hand back an unfiltered result set
   // that looks like a successful query — the same quiet-failure the rest of this
   // route was fixed to avoid.
-  for (const moved of ['minFit', 'hideSeen'] as const) {
+  // onlyApplied joined this list late and was missed: the browser correctly
+  // stopped sending it, but the API happily accepted and ignored it, so a
+  // shared URL carrying `onlyApplied=1` answered 200 with every job — a filter
+  // that reads as applied and is not. Found by testing the deployed site, not
+  // by anything local, because locally nothing sends it.
+  for (const moved of ['minFit', 'hideSeen', 'onlyApplied'] as const) {
     if (p.get(moved) !== null) {
       bad.push(`${moved} is applied in the browser and is not accepted here`);
     }
