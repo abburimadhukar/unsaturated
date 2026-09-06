@@ -22,7 +22,7 @@ const adapters = read('../src/ats/adapters/index.ts');
 /** Providers the discovery harvest can actually produce candidates for. */
 const HARVESTED = [
   'greenhouse', 'ashby', 'workday', 'smartrecruiters', 'workable', 'personio',
-  'bamboohr', 'ukg',
+  'bamboohr', 'ukg', 'recruitee', 'teamtailor',
 ];
 
 test('every harvested provider has a verification endpoint', () => {

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { bambooHrAdapter } from '../src/ats/adapters/bamboohr.js';
 import { ukgAdapter } from '../src/ats/adapters/ukg.js';
+import { recruiteeAdapter } from '../src/ats/adapters/recruitee.js';
+import { teamtailorAdapter } from '../src/ats/adapters/teamtailor.js';
 import { ADAPTERS, SUPPORTED_PROVIDERS } from '../src/ats/adapters/index.js';
 import type { FetchContext } from '../src/ats/types.js';
 
@@ -230,6 +232,115 @@ test('the apply link points at the host the board lives on', async () => {
 test('both are registered so the crawler can reach them', () => {
   for (const p of ['bamboohr', 'ukg'] as const) {
     assert.ok(SUPPORTED_PROVIDERS.includes(p), `${p} is not a supported provider`);
+    assert.equal(ADAPTERS[p].provider, p);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Recruitee and Teamtailor
+//
+// Both matter for one reason beyond volume: their listing carries the
+// DESCRIPTION. Most providers make that a second request per job, which is why
+// the crawl only backfills descriptions for postings that already look
+// relevant — so a family the description would have revealed is never seen.
+// These two arrive complete.
+// ---------------------------------------------------------------------------
+
+test('Recruitee reads a posting, description included', async () => {
+  const jobs = await recruiteeAdapter.fetchJobs(
+    { provider: 'recruitee', token: 'acme' },
+    ctx({ offers: [{
+      id: 2694504, title: 'Data Engineer', city: 'Nijverdal', state_name: 'Overijssel',
+      country: 'Nederland', country_code: 'NL', department: 'Operations',
+      employment_type_code: 'fulltime_permanent', hybrid: true, experience_code: 'mid_level',
+      published_at: '2026-08-05 13:17:11 UTC',
+      description: '<p>Build pipelines with Python and dbt.</p>',
+      requirements: '<p>5 years SQL.</p>',
+      careers_apply_url: 'https://acme.recruitee.com/o/data-engineer/apply',
+      careers_url: 'https://acme.recruitee.com/o/data-engineer',
+    }] }),
+  );
+  assert.equal(jobs.length, 1);
+  const j = jobs[0]!;
+  assert.equal(j.title, 'Data Engineer');
+  assert.equal(j.locationRaw, 'Nijverdal, Overijssel, Nederland');
+  assert.equal(j.country, 'NL');
+  assert.equal(j.remoteType, 'hybrid');
+  assert.equal(j.employmentType, 'Full-time');
+  // Description AND requirements: the classifier reads whatever text exists,
+  // and half of it living in a second field is easy to miss.
+  assert.match(j.descriptionText!, /Python and dbt/);
+  assert.match(j.descriptionText!, /5 years SQL/);
+});
+
+test('Recruitee trusts the three arrangement booleans over the location text', async () => {
+  const mk = async (o: Record<string, unknown>) =>
+    (await recruiteeAdapter.fetchJobs({ provider: 'recruitee', token: 'a' },
+      ctx({ offers: [{ id: 1, title: 'Engineer', ...o }] })))[0]!;
+  assert.equal((await mk({ remote: true })).remoteType, 'fully_remote');
+  assert.equal((await mk({ hybrid: true })).remoteType, 'hybrid');
+  assert.equal((await mk({ on_site: true })).remoteType, 'on_site');
+  // All three false is a real state: the employer said nothing.
+  assert.equal((await mk({})).remoteType, undefined);
+});
+
+test('Recruitee skips an offer that is no longer published', async () => {
+  // Closed offers stay in the feed. Showing one puts a role on the site that
+  // cannot be applied for.
+  const jobs = await recruiteeAdapter.fetchJobs(
+    { provider: 'recruitee', token: 'a' },
+    ctx({ offers: [
+      { id: 1, title: 'Closed Role', status: 'closed' },
+      { id: 2, title: 'Open Role', status: 'published' },
+    ] }),
+  );
+  assert.deepEqual(jobs.map((j) => j.title), ['Open Role']);
+});
+
+test('Teamtailor reads the schema.org block, not just the feed item', async () => {
+  const jobs = await teamtailorAdapter.fetchJobs(
+    { provider: 'teamtailor', token: 'acme' },
+    ctx({ items: [{
+      id: 'ec153dc3', title: 'Backend Engineer',
+      url: 'https://acme.teamtailor.com/jobs/7027594-backend-engineer',
+      date_published: '2026-01-09T14:11:48+00:00',
+      content_html: '<p>Go and Postgres.</p>',
+      _jobposting: {
+        employmentType: 'FULL_TIME',
+        jobLocation: { address: { addressLocality: 'Cambridge', addressCountry: 'UK' } },
+      },
+    }] }),
+  );
+  const j = jobs[0]!;
+  assert.equal(j.locationRaw, 'Cambridge, UK');
+  assert.equal(j.employmentType, 'Full-time');
+  assert.match(j.descriptionText!, /Go and Postgres/);
+});
+
+test('Teamtailor copes with an empty schema.org block', async () => {
+  // The structured half is filled in to whatever degree the employer bothers;
+  // an "Open Application" carries almost nothing.
+  const jobs = await teamtailorAdapter.fetchJobs(
+    { provider: 'teamtailor', token: 'a' },
+    ctx({ items: [{ id: 'x', title: 'Open Application', url: 'https://a.teamtailor.com/jobs/1' }] }),
+  );
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0]!.locationRaw, undefined);
+});
+
+test('Teamtailor keys on the feed id, not the URL', async () => {
+  // The URL carries a slug that changes whenever a title is edited, which would
+  // make an edited posting look like a brand-new job every crawl.
+  const jobs = await teamtailorAdapter.fetchJobs(
+    { provider: 'teamtailor', token: 'a' },
+    ctx({ items: [{ id: 'stable-uuid', title: 'Engineer', url: 'https://a.teamtailor.com/jobs/9-engineer' }] }),
+  );
+  assert.equal(jobs[0]!.externalId, 'stable-uuid');
+});
+
+test('the two newest providers are registered', () => {
+  for (const p of ['recruitee', 'teamtailor'] as const) {
+    assert.ok(SUPPORTED_PROVIDERS.includes(p), `${p} is not supported`);
     assert.equal(ADAPTERS[p].provider, p);
   }
 });

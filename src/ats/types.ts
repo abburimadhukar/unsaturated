@@ -16,6 +16,8 @@ export type AtsProvider =
   | 'workday'
   | 'bamboohr'
   | 'ukg'
+  | 'recruitee'
+  | 'teamtailor'
   | 'rippling'
   | 'usajobs'
   | 'socrata';

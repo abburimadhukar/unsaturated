@@ -64,6 +64,10 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
       return { url: `https://apply.workable.com/api/v1/widget/accounts/${b.token}` };
     case 'breezy':
       return { url: `https://${b.token}.breezy.hr/json` };
+    case 'recruitee':
+      return { url: `https://${b.token}.recruitee.com/api/offers/` };
+    case 'teamtailor':
+      return { url: `https://${b.token}.teamtailor.com/jobs.json` };
     case 'bamboohr':
       return {
         url: `https://${b.token}.bamboohr.com/careers/list`,
@@ -110,6 +114,9 @@ function countJobs(provider: AtsProvider, body: unknown): number {
   if (provider === 'smartrecruiters') return typeof o.totalFound === 'number' ? o.totalFound : 0;
   if (provider === 'ukg') return typeof o.totalCount === 'number' ? o.totalCount : 0;
   if (provider === 'bamboohr') return Array.isArray(o.result) ? o.result.length : 0;
+  if (provider === 'recruitee') return Array.isArray(o.offers) ? o.offers.length : 0;
+  // A JSON Feed, so the jobs are `items` rather than anything job-shaped.
+  if (provider === 'teamtailor') return Array.isArray(o.items) ? o.items.length : 0;
   if (provider === 'workable' && Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.jobs)) return o.jobs.length;
   if (Array.isArray(o.data)) return o.data.length;

@@ -64,6 +64,9 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   // Greenhouse, which is the entire reason for adding them.
   bamboohr: 0.75,
   ukg: 0.8,
+  // European mid-market, syndicated even less than BambooHR.
+  recruitee: 0.8,
+  teamtailor: 0.8,
   // Enterprise Workday boards are rarely syndicated and rarely browsed by the
   // tech-startup job-seeking crowd, so the same role is seen by far fewer people.
   workday: 0.75,
@@ -94,6 +97,9 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   // reason Workday scores high.
   bamboohr: 0.35,
   ukg: 0.75,
+  // Both apply in-page without an account, so the friction is low.
+  recruitee: 0.3,
+  teamtailor: 0.3,
   smartrecruiters: 0.55,
   workday: 1,
   rippling: 0.4,

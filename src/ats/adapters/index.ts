@@ -8,6 +8,8 @@ import { workableAdapter } from './workable.js';
 import { workdayAdapter } from './workday.js';
 import { bambooHrAdapter } from './bamboohr.js';
 import { ukgAdapter } from './ukg.js';
+import { recruiteeAdapter } from './recruitee.js';
+import { teamtailorAdapter } from './teamtailor.js';
 import { ripplingAdapter } from './rippling.js';
 import { usajobsAdapter } from './usajobs.js';
 import { socrataAdapter } from './socrata.js';
@@ -31,6 +33,8 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   workday: workdayAdapter,
   bamboohr: bambooHrAdapter,
   ukg: ukgAdapter,
+  recruitee: recruiteeAdapter,
+  teamtailor: teamtailorAdapter,
   rippling: ripplingAdapter,
   usajobs: usajobsAdapter,
   socrata: socrataAdapter,

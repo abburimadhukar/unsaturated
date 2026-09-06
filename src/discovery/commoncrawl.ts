@@ -86,6 +86,19 @@ const PATTERNS: Pattern[] = [
     match: '*.bamboohr.com/*',
     extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.bamboohr\.com\/(?:careers|jobs)/i,
   },
+  // Recruitee and Teamtailor: the company is the subdomain. Both publish a
+  // usable JSON listing with descriptions included, which is rarer than it
+  // sounds — most providers make the description a second request per job.
+  {
+    provider: 'recruitee',
+    match: '*.recruitee.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.recruitee\.com/i,
+  },
+  {
+    provider: 'teamtailor',
+    match: '*.teamtailor.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.teamtailor\.com/i,
+  },
   // UKG needs BOTH halves of the URL: a company code and a board id. A match
   // that finds only the code is unusable, so the pattern demands both.
   // Both hosts, and the host is captured. UKG serves boards from
