@@ -1,5 +1,5 @@
 import { postJson } from '../http.js';
-import { inferRemoteType, inferSeniority, parseDate } from '../normalize.js';
+import { inferRemoteType, inferSeniority, parseDate, stripHtml } from '../normalize.js';
 import type { AtsAdapter, NormalizedJob } from '../types.js';
 
 /**
@@ -129,6 +129,12 @@ export const ukgAdapter: AtsAdapter = {
             : inferRemoteType(locationRaw, title);
         const seniority = inferSeniority(title);
         const posted = parseDate(j.PostedDate ?? undefined);
+        // Declared in the interface since the adapter was written and never
+        // read. UKG puts a summary right in the listing, so 2,233 postings were
+        // carrying description text that was thrown away on arrival — text the
+        // classifier, the resume match and the sector rules all want, and which
+        // no other request can recover for this provider.
+        const descriptionText = stripHtml(j.BriefDescription ?? undefined);
 
         out.push({
           externalId: String(id),
@@ -139,6 +145,7 @@ export const ukgAdapter: AtsAdapter = {
           ...(j.JobCategoryName ? { department: j.JobCategoryName } : {}),
           ...(seniority ? { seniority } : {}),
           ...(posted ? { postedAt: posted } : {}),
+          ...(descriptionText ? { descriptionText } : {}),
           applyUrl: `https://${host}/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
           listingUrl: `https://${host}/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
           raw: j,

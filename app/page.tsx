@@ -588,16 +588,30 @@ export default function Page() {
             answers "what is nobody looking at?", which wants its own sort and
             its own defaults. A link is the whole of its footprint on this
             page — nothing else in this file changes for it. */}
-        <a className="navlink" href="/quiet" title="Roles advertised under titles nobody searches for">
+        <a className="navlink quiet" href="/quiet" title="Roles advertised under titles nobody searches for">
           Quiet roles
+        </a>
+        <a className="navlink inst" href="/institutions" title="Universities, hospitals, charities and public bodies">
+          Institutions
         </a>
         {/* Resume, theme and sign-out moved to /account: five controls in a
             row is a settings menu pretending to be a toolbar. The applied count
             above stays, because it is also a filter and belongs with the
             filtering. */}
+        {/* The name, not just the initials.
+            It was stored, editable and shown on /account, and nowhere else —
+            so signing in looked identical whether you had given a name or not.
+            Hidden on narrow screens, where the header has no room for it. */}
         {me?.user && (
-          <a className="avatar" href="/account" title={`${me.user.email} — your account`}>
-            {initialsOf(me.profile.firstName, me.profile.lastName, me.user.email)}
+          <a className="me" href="/account" title={`${me.user.email} — your account`}>
+            {(me.profile.firstName || me.profile.lastName) && (
+              <span className="myname">
+                {`${me.profile.firstName ?? ''} ${me.profile.lastName ?? ''}`.trim()}
+              </span>
+            )}
+            <span className="avatar">
+              {initialsOf(me.profile.firstName, me.profile.lastName, me.user.email)}
+            </span>
           </a>
         )}
       </header>

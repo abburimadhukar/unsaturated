@@ -50,6 +50,15 @@ export interface FeedJob {
    */
   adjacent?: boolean;
   /**
+   * Universities, hospitals, charities and public bodies.
+   *
+   * Read from the advert's own language rather than the employer name, because
+   * the name we hold is an ATS slug: Michigan is "umich" and UKG returns no
+   * name at all. Null for the great majority — a posting with no description,
+   * or one that reads like a vendor selling TO institutions, claims nothing.
+   */
+  sector?: string | null;
+  /**
    * Which rule discarded this posting, when one did.
    *
    * Present only in memory during a crawl and never stored on the job row —

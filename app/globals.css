@@ -73,6 +73,23 @@
 
   --radius: 12px;
   --radius-sm: 8px;
+
+  /* ---- page identity ----------------------------------------------------
+     Three list pages that must look like one product and read as three
+     places. Only the accent moves: every rule already speaks in var(--accent),
+     so setting it on a wrapper re-tints the whole page — links, chips, active
+     tabs — with no duplicated CSS and nothing to keep in sync.
+
+     The greens are not decoration. The logo's bright ringed dot, the "fresh"
+     chip and the uncontested end of the saturation scale are all already
+     green, so a page about roles nobody is competing for inherits a meaning
+     the product had already established. */
+  --page-quiet: #57c98b;
+  --page-quiet-dim: #57c98b1f;
+  --page-inst: #7c9fe8;
+  --page-inst-dim: #7c9fe81f;
+  --page-account: #c58ad6;
+  --page-account-dim: #c58ad61f;
 }
 
 /*
@@ -122,6 +139,15 @@
   --fam-hris-dim: #5f7c1414;
   --fam-unsorted: #5b6070;
   --fam-unsorted-dim: #5b607018;
+
+  /* Same three, darkened for a white ground — the dark values are far too
+     pale here to read as text or to carry a border. */
+  --page-quiet: #1f8f57;
+  --page-quiet-dim: #1f8f5716;
+  --page-inst: #3f66b8;
+  --page-inst-dim: #3f66b816;
+  --page-account: #8e4aa3;
+  --page-account-dim: #8e4aa316;
 }
 
 * { box-sizing: border-box; }
@@ -732,77 +758,120 @@ header button.icon {
 a.stat:hover b { color: var(--accent); }
 
 
-/* ---------------- quiet roles ----------------
+/* ---------------- the list pages ----------------
 
-   A separate page, and it should feel like one: wider gutters, more air
-   between cards, and reasons set as a list rather than more chips. The main
-   feed is for scanning hundreds of rows; this is for reading forty of them
-   properly, which is the whole point of the page. */
+   Quiet Roles and Institutions are the same page as the main feed wearing a
+   different colour. Shared card, shared chips, shared type — only --accent
+   moves, and because every rule was already written in terms of the token,
+   setting it on the wrapper re-tints links, chips and active tabs at once. */
 
 .navlink {
   font-size: 13px; color: var(--text-dim); text-decoration: none;
   border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
 }
-.navlink:hover { color: var(--text); border-color: var(--line-strong); }
+.navlink:hover { color: var(--accent); border-color: var(--accent); }
 
-.quietpage { max-width: 860px; margin: 0 auto; padding: 0 22px 64px; }
+.listpage { max-width: 900px; margin: 0 auto; padding: 0 22px 64px; }
 
-.quietintro { padding: 30px 0 18px; }
-.quietintro h2 { font-size: 25px; font-weight: 650; margin: 0 0 8px; letter-spacing: -0.015em; }
-.quietintro p { margin: 0; color: var(--text-dim); font-size: 14px; max-width: 62ch; line-height: 1.6; }
+/* One declaration per page, and it is the whole visual difference. */
+.page-quiet   { --accent: var(--page-quiet);   --accent-dim: var(--page-quiet-dim); }
+.page-inst    { --accent: var(--page-inst);    --accent-dim: var(--page-inst-dim); }
+.page-account { --accent: var(--page-account); --accent-dim: var(--page-account-dim); }
+
+/* A tinted rule under the header, so which page you are on is legible before
+   you have read a word of it. */
+.listpage > .quietintro { border-bottom: 2px solid var(--accent); }
+
+.quietintro { padding: 30px 0 16px; margin-bottom: 4px; }
+.quietintro h2 { font-size: 25px; font-weight: 650; margin: 0 0 8px; letter-spacing: -0.015em; color: var(--accent); }
+.quietintro p { margin: 0; color: var(--text-dim); font-size: 14px; max-width: 64ch; line-height: 1.6; }
 
 /* Not sticky here. The main feed's family bar is sticky because that list runs
-   to thousands of rows; this one is short enough to scroll past honestly. */
+   to thousands of rows; these are short enough to scroll past honestly. */
 .families.quietfams {
-  position: static; padding: 0 0 14px; background: none;
+  position: static; padding: 12px 0; background: none;
   backdrop-filter: none; border-bottom: 1px solid var(--line-soft);
 }
 
 .quietnarrow {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
-  padding: 14px 0 6px;
+  padding: 13px 0 4px;
 }
 .quietnarrow .lbl { font-size: 12px; color: var(--text-faint); margin-right: 2px; }
 .quietnarrow button {
   background: none; border: 1px solid var(--line); border-radius: 999px;
   padding: 4px 12px; font-size: 12.5px; color: var(--text-dim);
 }
-.quietnarrow button:hover { border-color: var(--line-strong); color: var(--text); }
+.quietnarrow button:hover { border-color: var(--accent); color: var(--text); }
 .quietnarrow button.on {
-  background: var(--hot-dim); border-color: var(--hot-line);
-  color: var(--hot); font-weight: 560;
+  background: var(--accent-dim); border-color: transparent;
+  color: var(--accent); font-weight: 560;
 }
 
-.quietlist { list-style: none; margin: 14px 0 0; padding: 0; }
-.quietcard {
-  border: 1px solid var(--line-soft); border-radius: 12px;
-  background: var(--surface); padding: 16px 18px; margin-bottom: 10px;
-}
-.quietcard:hover { border-color: var(--line); }
-.quietcard .title { font-size: 15.5px; font-weight: 600; margin: 0; }
-.quietcard .title a { color: var(--text); text-decoration: none; }
-.quietcard .title a:hover { color: var(--accent); }
+.joblist { margin-top: 14px; }
 
-/* The score is context, not a headline — it sits quietly at the end of the row
-   rather than competing with the job title for attention. */
+/* Context, not a headline: it sits at the end of the row rather than competing
+   with the job title. */
 .qscore {
   flex: none; font-size: 12px; color: var(--text-faint);
   border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px;
 }
 
-.why { list-style: none; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px dashed var(--line-soft); }
+.chip.sector { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
+.chip.quiet { background: var(--page-quiet-dim); border-color: transparent; color: var(--page-quiet); font-weight: 550; }
+
+.why { list-style: none; margin: 11px 0 0; padding: 9px 0 0; border-top: 1px dashed var(--line-soft); }
 .why li {
   font-size: 12.5px; color: var(--text-dim); line-height: 1.7;
   padding-left: 15px; position: relative;
 }
 .why li::before {
   content: ''; position: absolute; left: 3px; top: 9px;
-  width: 4px; height: 4px; border-radius: 50%; background: var(--hot); opacity: 0.55;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: 0.7;
 }
 /* The first reason is the one the page exists for. */
 .why li:first-child { color: var(--text); }
 
 @media (max-width: 640px) {
-  .quietpage { padding: 0 14px 48px; }
+  .listpage { padding: 0 14px 48px; }
   .quietintro h2 { font-size: 21px; }
+}
+
+
+/* ---------------- team view ----------------
+
+   Four people share this site and there was no way to see how it was being
+   used. Counts only: how many skills a resume yielded says whether the feature
+   works, the CV itself is not ours to show. */
+
+.people { list-style: none; margin: 4px 0 0; padding: 0; }
+.person {
+  display: flex; align-items: center; gap: 13px;
+  padding: 12px 0; border-bottom: 1px solid var(--line-soft);
+}
+.person:last-child { border-bottom: none; }
+.person .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.person .who b { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+.person .who .muted { font-size: 12.5px; }
+.person .usage { display: flex; gap: 16px; align-items: baseline; font-size: 12.5px; color: var(--text-dim); }
+.person .usage b { color: var(--text); font-weight: 620; }
+.chip.you { background: var(--accent-dim); border-color: transparent; color: var(--accent); font-weight: 550; }
+
+.linkbtn { display: inline-block; text-decoration: none; }
+
+/* The signed-in person's name in the header, beside their initials. It was
+   stored, editable and shown on /account and nowhere else. */
+.me { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+.myname { font-size: 13px; color: var(--text-dim); font-weight: 550; }
+.me:hover .myname { color: var(--text); }
+
+/* The two page links carry their page's colour, so the header says where each
+   one goes before it is read. */
+.navlink.quiet:hover { color: var(--page-quiet); border-color: var(--page-quiet); }
+.navlink.inst:hover { color: var(--page-inst); border-color: var(--page-inst); }
+
+@media (max-width: 860px) {
+  .myname { display: none; }
+  .person { flex-wrap: wrap; }
+  .person .usage { gap: 12px; width: 100%; padding-left: 45px; }
 }

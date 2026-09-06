@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FAMILY_LABELS, FAMILY_ORDER, type Family } from '../../src/taxonomy/families.js';
 import { SPECIALIZATION_LABELS } from '../../src/taxonomy/specializations.js';
+import { JobCard } from '../_components/JobCard.js';
 
 /**
  * Quiet Roles — the same work, filed under a title nobody searches.
@@ -50,26 +51,6 @@ interface Payload {
 }
 
 const PAGE = 50;
-
-function money(job: QuietJob): string | null {
-  const { salaryMin: lo, salaryMax: hi, salaryCurrency: cur } = job;
-  if (lo === null && hi === null) return null;
-  const c = cur === 'USD' ? '$' : cur === 'GBP' ? '£' : cur === 'EUR' ? '€' : '';
-  const k = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-  if (lo !== null && hi !== null && lo !== hi) return `${c}${k(lo)}–${c}${k(hi)}`;
-  return `${c}${k((lo ?? hi) as number)}`;
-}
-
-/** "3d" reads better than "3 days ago" on a dense card. */
-function age(job: QuietJob): string {
-  if (job.ageDays === null) return 'undated';
-  const d = job.ageDays;
-  const label = d === 0 ? 'today' : d === 1 ? '1d' : `${d}d`;
-  // Undated rows are aged from when WE first saw them, which is not the same
-  // claim as a publish date. Saying so is the difference between a fact and a
-  // guess presented as one.
-  return job.dated ? label : `seen ${label}`;
-}
 
 export default function QuietRoles() {
   const [family, setFamily] = useState<Family>('cloud');
@@ -139,7 +120,7 @@ export default function QuietRoles() {
         <a className="navlink" href="/">← All roles</a>
       </header>
 
-      <main className="quietpage">
+      <main className="listpage page-quiet">
         <div className="quietintro">
           <h2>Quiet roles</h2>
           <p>
@@ -202,58 +183,26 @@ export default function QuietRoles() {
           <p className="empty">Nothing quiet here right now. Try turning a narrowing off.</p>
         )}
 
-        <ul className="quietlist">
+        <div className="joblist">
           {data?.jobs.map((j) => (
-            <li key={j.key} className="quietcard">
-              <div className="jobhead">
-                <h3 className="title">
-                  {j.applyUrl ? (
-                    <a href={j.applyUrl} target="_blank" rel="noopener noreferrer">
-                      {j.title}
-                    </a>
-                  ) : (
-                    j.title
+            <JobCard
+              key={j.key}
+              job={j}
+              score={j.quietScore}
+              reasons={j.reasons}
+              chips={
+                <>
+                  <span className={`chip fam fam-${family}`}>{FAMILY_LABELS[family]}</span>
+                  {j.specialization && SPECIALIZATION_LABELS[j.specialization as never] && (
+                    <span className="chip spec">
+                      {SPECIALIZATION_LABELS[j.specialization as never]}
+                    </span>
                   )}
-                </h3>
-                <span className="qscore tnum" title="How quiet this looks, from what we know">
-                  {j.quietScore}
-                </span>
-              </div>
-
-              <p className="meta">
-                <span className="co">{j.company}</span>
-                {j.location && (
-                  <>
-                    <span className="sep">·</span>
-                    {j.location}
-                  </>
-                )}
-                <span className="sep">·</span>
-                {age(j)}
-              </p>
-
-              <div className="chips">
-                <span className={`chip fam fam-${family}`}>{FAMILY_LABELS[family]}</span>
-                {j.specialization && SPECIALIZATION_LABELS[j.specialization as never] && (
-                  <span className="chip spec">
-                    {SPECIALIZATION_LABELS[j.specialization as never]}
-                  </span>
-                )}
-                {money(j) && <span className="chip pay">{money(j)}</span>}
-                {j.employmentType && <span className="chip">{j.employmentType}</span>}
-                {j.seniority && <span className="chip">{j.seniority}</span>}
-              </div>
-
-              {/* Why this one is quieter than its neighbours. Every line is read
-                  off a column we already hold — nothing here is estimated. */}
-              <ul className="why">
-                {j.reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            </li>
+                </>
+              }
+            />
           ))}
-        </ul>
+        </div>
 
         {data?.hasMore && (
           <button className="more" onClick={() => setShown((n) => n + PAGE)} disabled={loading}>

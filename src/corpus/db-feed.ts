@@ -31,6 +31,7 @@ export interface JobRow {
   apply_url: string | null;
   family: string | null;
   adjacent?: boolean | null;
+  sector?: string | null;
   specialization: string | null;
   specialization_reason?: string | null;
   classification_version?: string | null;
@@ -109,6 +110,7 @@ export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
     inScope: r.family !== null,
     family: (r.family as Family | null) ?? null,
     adjacent: r.adjacent === true,
+    sector: r.sector ?? null,
     // Null is a value here, not a gap: the family is known and the kind of job
     // is not. The UI says so rather than picking one.
     specialization: (r.specialization as Specialization | null) ?? null,
@@ -158,7 +160,7 @@ export async function readFeed(): Promise<Feed | null> {
       .select(
         'key,provider,board_token,company,title,location,country,remote_type,seniority,' +
           'employment_type,department,salary_min,salary_max,salary_currency,posted_at,apply_url,family,' +
-          'adjacent,specialization,specialization_reason,classification_version,ai,' +
+          'adjacent,sector,specialization,specialization_reason,classification_version,ai,' +
           'matched_skills,skill_score,ghost_risk',
       )
       .is('closed_at', null)
@@ -243,6 +245,7 @@ export function toJobRow(j: FeedJob, now: string = new Date().toISOString()) {
     // Nothing failed — the column just never appeared in the payload, so every
     // row took the default of false.
     adjacent: j.adjacent === true,
+    sector: j.sector ?? null,
     specialization: j.specialization,
     specialization_reason: j.specializationReason ?? null,
     classification_version: j.classificationVersion ?? null,
@@ -298,7 +301,7 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
     // Narrow on purpose: only a missing-column error, only the columns named
     // here, and it says so loudly every time rather than healing in silence.
     const missing = error && /column "?(\w+)"? .*does not exist/i.exec(error.message)?.[1];
-    if (missing && ['adjacent', 'specialization', 'specialization_reason', 'classification_version'].includes(missing)) {
+    if (missing && ['adjacent', 'sector', 'specialization', 'specialization_reason', 'classification_version'].includes(missing)) {
       console.error(
         `jobs.${missing} does not exist yet — writing without it. ` +
           'Apply the pending migration in src/db/migrations/ to stop losing this field.',

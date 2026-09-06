@@ -197,6 +197,9 @@ export interface HarvestReport {
   pattern: string;
   urls: number;
   tokens: number;
+  /** Index pages this pattern asked for and did not get. */
+  pagesTotal: number;
+  pagesRead: number;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -215,6 +218,24 @@ export async function harvestCommonCrawl(opts: {
   maxPagesPerPattern?: number;
   delayMs?: number;
   onProgress?: (msg: string) => void;
+  /**
+   * Read only this vendor's patterns.
+   *
+   * Without it, all eleven jobs in the discovery matrix read the WHOLE index —
+   * every pattern for every vendor — and then threw away all but their own
+   * provider. Eleven times the load on Common Crawl's query server for exactly
+   * one eleventh of the value, and it showed: a single run logged CDX 502, 503
+   * and 504 across most patterns, three vendors read "0 urls -> 0 new", and the
+   * same pattern returned 2,388, 2,410, 9,154 and 12,110 urls in four different
+   * jobs of that one run.
+   *
+   * A refused page loses that slice silently, so each job ended up with a
+   * different partial view of the index and the run still reported success.
+   * That is why Greenhouse offered 701 candidates one run and 44 the next, and
+   * why boards as large as Airbnb, Adyen and Affirm are live, in the index, and
+   * still not in the registry — they simply never surfaced as candidates.
+   */
+  provider?: AtsProvider;
 }): Promise<{ crawl: string; boards: OpenBoard[]; reports: HarvestReport[] }> {
   const crawl = opts.crawl ?? (await latestCrawl(opts.userAgent));
   const maxPages = opts.maxPagesPerPattern ?? 8;
@@ -222,7 +243,12 @@ export async function harvestCommonCrawl(opts: {
   const seen = new Map<string, OpenBoard>();
   const reports: HarvestReport[] = [];
 
-  for (const p of PATTERNS) {
+  const patterns = opts.provider ? PATTERNS.filter((p) => p.provider === opts.provider) : PATTERNS;
+  if (opts.provider && patterns.length === 0) {
+    throw new Error(`no Common Crawl pattern for provider "${opts.provider}"`);
+  }
+
+  for (const p of patterns) {
     const base = `${INDEX_HOST}/${crawl}-index?url=${encodeURIComponent(p.match)}&output=json`;
 
     let pages = 0;
@@ -231,27 +257,34 @@ export async function harvestCommonCrawl(opts: {
       pages = Number((JSON.parse(meta || '{}') as { pages?: number }).pages ?? 0);
     } catch (err) {
       opts.onProgress?.(`  ${p.match}: index unavailable (${String(err)})`);
-      reports.push({ provider: p.provider, pattern: p.match, urls: 0, tokens: 0 });
+      reports.push({ provider: p.provider, pattern: p.match, urls: 0, tokens: 0, pagesTotal: 0, pagesRead: 0 });
       continue;
     }
     if (pages === 0) {
       opts.onProgress?.(`  ${p.match}: nothing in this crawl`);
-      reports.push({ provider: p.provider, pattern: p.match, urls: 0, tokens: 0 });
+      reports.push({ provider: p.provider, pattern: p.match, urls: 0, tokens: 0, pagesTotal: 0, pagesRead: 0 });
       continue;
     }
 
     let urls = 0;
+    let pagesRead = 0;
     const before = seen.size;
-    for (let page = 0; page < Math.min(pages, maxPages); page++) {
+    const wanted = Math.min(pages, maxPages);
+    for (let page = 0; page < wanted; page++) {
       let body: string;
       try {
         body = await cdx(`${base}&page=${page}`, opts.userAgent);
       } catch (err) {
-        // A refused page loses that slice, not the whole harvest.
-        opts.onProgress?.(`  ${p.match} page ${page}: ${String(err)}`);
+        // A refused page loses that slice, not the whole harvest — but it is
+        // now COUNTED. Silently dropping a page is what let a run report
+        // success while holding a different partial view of the index each
+        // time, so a board could be live, present in the index, and never once
+        // offered as a candidate.
+        opts.onProgress?.(`  ${p.match} page ${page + 1}/${wanted}: LOST (${String(err)})`);
         await sleep(delayMs * 4);
         continue;
       }
+      pagesRead++;
 
       for (const line of body.split('\n')) {
         if (!line.trim()) continue;
@@ -274,7 +307,7 @@ export async function harvestCommonCrawl(opts: {
     }
 
     const tokens = seen.size - before;
-    reports.push({ provider: p.provider, pattern: p.match, urls, tokens });
+    reports.push({ provider: p.provider, pattern: p.match, urls, tokens, pagesTotal: wanted, pagesRead });
     opts.onProgress?.(`  ${p.match.padEnd(32)} ${String(urls).padStart(7)} urls -> ${tokens} new`);
   }
 

@@ -31,6 +31,7 @@ export default function AccountPage() {
   const [last, setLast] = useState('');
   const [resume, setResume] = useState('');
   const [showResume, setShowResume] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -53,6 +54,15 @@ export default function AccountPage() {
       // A blip must not throw someone out of their own account page.
     } finally {
       setChecked(true);
+    }
+
+    // Ask the route rather than comparing the email here. The server holds the
+    // list and the verified session; a browser-side check would be a second,
+    // weaker copy of the same rule, free to disagree with it.
+    try {
+      setIsAdmin((await fetch('/api/admin')).ok);
+    } catch {
+      setIsAdmin(false);
     }
   }, []);
 
@@ -123,14 +133,14 @@ export default function AccountPage() {
   }
 
   if (!checked || !me?.user) {
-    return <main className="account"><p className="muted">Loading…</p></main>;
+    return <main className="account page-account"><p className="muted">Loading…</p></main>;
   }
 
   const p = me.profile;
   const named = Boolean(p.firstName || p.lastName);
 
   return (
-    <main className="account">
+    <main className="account page-account">
       <a className="backlink" href="/">← Back to jobs</a>
 
       <div className="acct-id">
@@ -164,6 +174,16 @@ export default function AccountPage() {
           Save name
         </button>
       </section>
+
+      {/* Only rendered when /api/admin actually answers. The route decides;
+          this is a link, not a permission. */}
+      {isAdmin && (
+        <section className="panel">
+          <h2>Team</h2>
+          <p className="muted">See everyone&rsquo;s activity across the four seats.</p>
+          <a className="primary linkbtn" href="/admin">Open team view</a>
+        </section>
+      )}
 
       <section className="panel">
         <h2>Appearance</h2>

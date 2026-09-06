@@ -9,6 +9,7 @@ import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
 import { classifyAdjacent, FORCE_ADJACENT } from '../taxonomy/adjacent.js';
+import { classifySector } from '../taxonomy/sector.js';
 import { belongsInReviewPile } from '../taxonomy/unsorted.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
@@ -195,6 +196,19 @@ async function loadBoard(board: CorpusBoard, now: number) {
       // its skills to both the fingerprint and the fit match.
       const cls: RoleClassification = classifyRole(job);
 
+      // Only for postings we are keeping. The classifier discards ~93% of what
+      // it scans, and asking the sector of a posting nobody will ever see is
+      // work with no reader.
+      const sector =
+        cls.family === null
+          ? null
+          : classifySector({
+              title: job.title,
+              descriptionText: job.descriptionText ?? null,
+              company: board.company,
+              token: board.token,
+            }).sector;
+
       // Adjacent: a technically related role that is not what someone searching
       // this family asked for.
       //
@@ -285,6 +299,13 @@ async function loadBoard(board: CorpusBoard, now: number) {
         ai: cls.ai,
         family,
         ...(adj ? { adjacent: true } : {}),
+        // Universities, hospitals, charities and public bodies.
+        //
+        // Decided from the advert's own words, not the employer name — the name
+        // we hold is an ATS slug, and matching slugs returns venture-funded
+        // health-tech startups rather than hospitals. Computed here because
+        // this is the only place the description exists: it is never stored.
+        ...(sector ? { sector } : {}),
         // Carried out of the classifier so the crawl can count what it threw
         // away. `no family matched` is its own reason: a posting no rule
         // excluded and no family claimed is the interesting case, and it was

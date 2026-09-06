@@ -32,22 +32,47 @@ async function main(): Promise<void> {
   const verifyCap = Number.parseInt(arg('verify') ?? '400', 10);
   const delayMs = Number.parseInt(arg('delay') ?? '1000', 10);
 
+  const only = arg('provider');
+
   console.log('Reading the Common Crawl URL index…\n');
   const { crawl: used, boards, reports } = await harvestCommonCrawl({
     userAgent: config.userAgent,
     ...(crawl ? { crawl } : {}),
+    // Only this vendor's patterns. Every job in the discovery matrix used to
+    // read the WHOLE index and then discard all but its own provider — eleven
+    // times the load on Common Crawl's query server for one eleventh of the
+    // value, which is what made it start refusing pages.
+    ...(only ? { provider: only as never } : {}),
     onProgress: (m) => console.log(m),
   });
 
   const urls = reports.reduce((n, r) => n + r.urls, 0);
   console.log(`\n${used}: ${urls.toLocaleString()} indexed urls -> ${boards.length} distinct boards`);
 
+  // A refused page is a silent hole in the candidate list, and the silence is
+  // exactly how this went unnoticed: runs reported success while each held a
+  // different partial view of the index, so Greenhouse offered 701 candidates
+  // one run and 44 the next, and boards the size of Airbnb never surfaced.
+  const lost = reports.filter((r) => r.pagesRead < r.pagesTotal);
+  if (lost.length > 0) {
+    const missed = lost.reduce((n, r) => n + (r.pagesTotal - r.pagesRead), 0);
+    console.log(
+      `\n  WARNING: ${missed} index page(s) refused — this harvest saw only part of the index:`,
+    );
+    for (const r of lost) {
+      console.log(`    ${r.pattern}: read ${r.pagesRead} of ${r.pagesTotal} pages`);
+    }
+    console.log('  A candidate missing from this run is not evidence that a board is gone.');
+  }
+
   const known = new Set((await loadBoardsAsync()).map(keyOf));
   // Sliced by vendor rather than by count, so several runs in parallel still
   // give each ATS exactly one request per second. Splitting by count instead
   // would point every runner at every vendor at once, which is how Greenhouse
   // starts dropping connections and live boards get recorded as dead.
-  const only = arg('provider');
+  //
+  // The harvest above already read only this vendor's patterns; this second
+  // filter is belt and braces for a run with no --provider at all.
   const fresh = boards
     .filter((b) => !known.has(keyOf(b)))
     .filter((b) => !only || b.provider === only);
