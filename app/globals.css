@@ -730,3 +730,79 @@ header button.icon {
 .stat b { font-size: 24px; font-weight: 640; }
 .stat span { font-size: 12px; color: var(--text-dim); }
 a.stat:hover b { color: var(--accent); }
+
+
+/* ---------------- quiet roles ----------------
+
+   A separate page, and it should feel like one: wider gutters, more air
+   between cards, and reasons set as a list rather than more chips. The main
+   feed is for scanning hundreds of rows; this is for reading forty of them
+   properly, which is the whole point of the page. */
+
+.navlink {
+  font-size: 13px; color: var(--text-dim); text-decoration: none;
+  border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
+}
+.navlink:hover { color: var(--text); border-color: var(--line-strong); }
+
+.quietpage { max-width: 860px; margin: 0 auto; padding: 0 22px 64px; }
+
+.quietintro { padding: 30px 0 18px; }
+.quietintro h2 { font-size: 25px; font-weight: 650; margin: 0 0 8px; letter-spacing: -0.015em; }
+.quietintro p { margin: 0; color: var(--text-dim); font-size: 14px; max-width: 62ch; line-height: 1.6; }
+
+/* Not sticky here. The main feed's family bar is sticky because that list runs
+   to thousands of rows; this one is short enough to scroll past honestly. */
+.families.quietfams {
+  position: static; padding: 0 0 14px; background: none;
+  backdrop-filter: none; border-bottom: 1px solid var(--line-soft);
+}
+
+.quietnarrow {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 14px 0 6px;
+}
+.quietnarrow .lbl { font-size: 12px; color: var(--text-faint); margin-right: 2px; }
+.quietnarrow button {
+  background: none; border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 12px; font-size: 12.5px; color: var(--text-dim);
+}
+.quietnarrow button:hover { border-color: var(--line-strong); color: var(--text); }
+.quietnarrow button.on {
+  background: var(--hot-dim); border-color: var(--hot-line);
+  color: var(--hot); font-weight: 560;
+}
+
+.quietlist { list-style: none; margin: 14px 0 0; padding: 0; }
+.quietcard {
+  border: 1px solid var(--line-soft); border-radius: 12px;
+  background: var(--surface); padding: 16px 18px; margin-bottom: 10px;
+}
+.quietcard:hover { border-color: var(--line); }
+.quietcard .title { font-size: 15.5px; font-weight: 600; margin: 0; }
+.quietcard .title a { color: var(--text); text-decoration: none; }
+.quietcard .title a:hover { color: var(--accent); }
+
+/* The score is context, not a headline — it sits quietly at the end of the row
+   rather than competing with the job title for attention. */
+.qscore {
+  flex: none; font-size: 12px; color: var(--text-faint);
+  border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px;
+}
+
+.why { list-style: none; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px dashed var(--line-soft); }
+.why li {
+  font-size: 12.5px; color: var(--text-dim); line-height: 1.7;
+  padding-left: 15px; position: relative;
+}
+.why li::before {
+  content: ''; position: absolute; left: 3px; top: 9px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--hot); opacity: 0.55;
+}
+/* The first reason is the one the page exists for. */
+.why li:first-child { color: var(--text); }
+
+@media (max-width: 640px) {
+  .quietpage { padding: 0 14px 48px; }
+  .quietintro h2 { font-size: 21px; }
+}

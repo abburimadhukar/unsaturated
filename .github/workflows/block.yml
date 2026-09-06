@@ -1,0 +1,79 @@
+# Blocks a board from ever being crawled again.
+#
+# The CLI has existed since the first aggregator was found, but it needs the
+# Supabase write key and that key exists only as an Actions secret — so there
+# has never been a way to actually run it. Blocking meant asking someone with
+# the key, which in practice meant not blocking anything.
+#
+# Manual only, and deliberately so: this closes every posting a board has
+# contributed. It is not something that should ever happen on a schedule.
+name: block
+
+on:
+  workflow_dispatch:
+    inputs:
+      boards:
+        description: 'Space-separated provider:token list, e.g. "lever:acme ukg:ABC123"'
+        type: string
+        required: true
+      reason:
+        description: 'Why — recorded alongside the block'
+        type: string
+        required: true
+      unblock:
+        description: 'Remove the block instead of adding it'
+        type: boolean
+        default: false
+
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: block
+      cancel-in-progress: false
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no'
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "Blocking writes to the database and cannot run without it."
+          exit 1
+
+      - name: Apply
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BOARDS: ${{ inputs.boards }}
+          REASON: ${{ inputs.reason }}
+          UNBLOCK: ${{ inputs.unblock }}
+        # One invocation per board: the CLI takes a single target, and a loop
+        # here beats teaching it to parse a list it will never otherwise see.
+        run: |
+          set -e
+          for board in $BOARDS; do
+            echo "--- $board"
+            if [ "$UNBLOCK" = "true" ]; then
+              npm run block -- --unblock "$board"
+            else
+              npm run block -- "$board" --reason "$REASON"
+            fi
+          done
+          echo
+          echo "Currently blocked:"
+          npm run block -- --list

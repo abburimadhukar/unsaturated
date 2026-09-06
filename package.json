@@ -31,7 +31,8 @@
     "block": "tsx src/cli/block.ts",
     "backfill:spec": "tsx src/cli/backfill-spec.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
-    "exclusions": "tsx src/cli/exclusions.ts"
+    "exclusions": "tsx src/cli/exclusions.ts",
+    "quiet:sql": "tsx src/cli/quiet-sql.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",

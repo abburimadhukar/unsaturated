@@ -584,6 +584,13 @@ export default function Page() {
             <span className="tnum">{seen.size.toLocaleString()}</span> seen
           </span>
         )}
+        {/* Quiet roles is a separate page rather than another filter here: it
+            answers "what is nobody looking at?", which wants its own sort and
+            its own defaults. A link is the whole of its footprint on this
+            page — nothing else in this file changes for it. */}
+        <a className="navlink" href="/quiet" title="Roles advertised under titles nobody searches for">
+          Quiet roles
+        </a>
         {/* Resume, theme and sign-out moved to /account: five controls in a
             row is a settings menu pretending to be a toolbar. The applied count
             above stays, because it is also a filter and belongs with the
