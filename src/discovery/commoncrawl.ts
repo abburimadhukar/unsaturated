@@ -88,15 +88,20 @@ const PATTERNS: Pattern[] = [
   },
   // UKG needs BOTH halves of the URL: a company code and a board id. A match
   // that finds only the code is unusable, so the pattern demands both.
+  // Both hosts, and the host is captured. UKG serves boards from
+  // recruiting.ultipro.com AND recruiting2.ultipro.com, and a board on one does
+  // not answer on the other: 618 boards were harvested from recruiting2,
+  // verified against recruiting, and every single one came back 404 and was
+  // recorded as dead.
   {
     provider: 'ukg',
     match: 'recruiting.ultipro.com/*',
-    extract: /ultipro\.com\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
+    extract: /(recruiting2?\.ultipro\.com)\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
   },
   {
     provider: 'ukg',
     match: 'recruiting2.ultipro.com/*',
-    extract: /ultipro\.com\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
+    extract: /(recruiting2?\.ultipro\.com)\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
   },
 ];
 
@@ -159,13 +164,13 @@ function toBoard(p: Pattern, url: string): OpenBoard | null {
     // Same shape as Workday: two identifiers, and a board carrying only one of
     // them cannot be fetched or verified. Storing it would put a row in the
     // registry that fails every crawl forever.
-    const [, code, boardId] = m;
-    if (!code || !boardId) return null;
+    const [, host, code, boardId] = m;
+    if (!host || !code || !boardId) return null;
     return {
       provider: 'ukg',
       token: code,
       company: titleise(code),
-      extra: { board: boardId },
+      extra: { board: boardId, host },
     };
   }
 

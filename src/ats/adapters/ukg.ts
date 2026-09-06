@@ -75,7 +75,7 @@ function locationOf(job: UkgJob): string | undefined {
 export const ukgAdapter: AtsAdapter = {
   provider: 'ukg',
   endpointPattern:
-    'https://recruiting.ultipro.com/{token}/JobBoard/{extra.board}/JobBoardView/LoadSearchResults',
+    'https://{extra.host}/{token}/JobBoard/{extra.board}/JobBoardView/LoadSearchResults',
 
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
     const boardId = board.extra?.board;
@@ -85,8 +85,12 @@ export const ukgAdapter: AtsAdapter = {
       throw new Error(`ukg board ${board.token} has no extra.board id`);
     }
 
+    // UKG serves from two hosts and a board answers on only one of them, so the
+    // host is part of the board's identity rather than a constant. Rows stored
+    // before this default to the original.
+    const host = board.extra?.host ?? 'recruiting.ultipro.com';
     const url =
-      `https://recruiting.ultipro.com/${encodeURIComponent(board.token)}` +
+      `https://${host}/${encodeURIComponent(board.token)}` +
       `/JobBoard/${encodeURIComponent(boardId)}/JobBoardView/LoadSearchResults`;
 
     const out: NormalizedJob[] = [];
@@ -135,8 +139,8 @@ export const ukgAdapter: AtsAdapter = {
           ...(j.JobCategoryName ? { department: j.JobCategoryName } : {}),
           ...(seniority ? { seniority } : {}),
           ...(posted ? { postedAt: posted } : {}),
-          applyUrl: `https://recruiting.ultipro.com/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
-          listingUrl: `https://recruiting.ultipro.com/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
+          applyUrl: `https://${host}/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
+          listingUrl: `https://${host}/${board.token}/JobBoard/${boardId}/OpportunityDetail?opportunityId=${id}`,
           raw: j,
         });
       }

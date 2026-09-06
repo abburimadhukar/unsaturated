@@ -79,8 +79,12 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
       // neither works without the other.
       const boardId = b.extra?.board;
       if (!boardId) return null;
+      // The host is part of the board's identity: a board on recruiting2 does
+      // not answer on recruiting. Older rows carry no host, so the original one
+      // is the default.
+      const host = b.extra?.host ?? 'recruiting.ultipro.com';
       return {
-        url: `https://recruiting.ultipro.com/${b.token}/JobBoard/${boardId}/JobBoardView/LoadSearchResults`,
+        url: `https://${host}/${b.token}/JobBoard/${boardId}/JobBoardView/LoadSearchResults`,
         init: {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

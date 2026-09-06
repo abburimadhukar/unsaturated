@@ -191,6 +191,42 @@ test('UKG reads totalCount once, not on every page', async () => {
 // Wiring
 // ---------------------------------------------------------------------------
 
+test('UKG honours the host a board was found on', async () => {
+  // UKG serves from recruiting.ultipro.com AND recruiting2.ultipro.com, and a
+  // board on one does not answer on the other. 618 boards were harvested from
+  // recruiting2, verified against recruiting, and every one came back 404 and
+  // was recorded as dead — so the host is part of a board's identity, not a
+  // constant.
+  let seen = '';
+  const capture = {
+    userAgent: 'test', timeoutMs: 5000,
+    fetchImpl: async (url: string) => {
+      seen = url;
+      return new Response(JSON.stringify({ opportunities: [{ Id: '1', Title: 'Job' }], totalCount: 1 }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  } as unknown as FetchContext;
+
+  await ukgAdapter.fetchJobs(
+    { provider: 'ukg', token: 'ABC', extra: { board: 'b-1', host: 'recruiting2.ultipro.com' } },
+    capture,
+  );
+  assert.match(seen, /^https:\/\/recruiting2\.ultipro\.com\/ABC\//, `called ${seen}`);
+
+  // A row stored before the host was captured still has to work.
+  await ukgAdapter.fetchJobs({ provider: 'ukg', token: 'ABC', extra: { board: 'b-1' } }, capture);
+  assert.match(seen, /^https:\/\/recruiting\.ultipro\.com\/ABC\//, `called ${seen}`);
+});
+
+test('the apply link points at the host the board lives on', async () => {
+  const jobs = await ukgAdapter.fetchJobs(
+    { provider: 'ukg', token: 'ABC', extra: { board: 'b-1', host: 'recruiting2.ultipro.com' } },
+    ctx(ukgBody([{ Id: '9', Title: 'Engineer' }])),
+  );
+  // An apply link on the wrong host is a 404 for whoever clicks it.
+  assert.match(jobs[0]!.applyUrl!, /recruiting2\.ultipro\.com/);
+});
+
 test('both are registered so the crawler can reach them', () => {
   for (const p of ['bamboohr', 'ukg'] as const) {
     assert.ok(SUPPORTED_PROVIDERS.includes(p), `${p} is not a supported provider`);
