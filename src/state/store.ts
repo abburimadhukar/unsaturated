@@ -29,6 +29,10 @@ export interface Profile {
    */
   firstName: string | null;
   lastName: string | null;
+  /** The uploaded file, when there is one. Null for a pasted resume. */
+  resumeName: string | null;
+  resumeSize: number | null;
+  resumePath: string | null;
 }
 
 interface Cached {
@@ -53,7 +57,10 @@ function slots(): Map<string, Cached> {
   return g[CACHE_KEY]!;
 }
 
-const EMPTY: Profile = { skills: [], resumeChars: 0, updatedAt: null, firstName: null, lastName: null };
+const EMPTY: Profile = {
+  skills: [], resumeChars: 0, updatedAt: null, firstName: null, lastName: null,
+  resumeName: null, resumeSize: null, resumePath: null,
+};
 
 async function load(userId: string): Promise<Cached> {
   const cache = slots();
@@ -64,7 +71,7 @@ async function load(userId: string): Promise<Cached> {
   try {
     const client = db();
     const [{ data: st }, { data: ev }] = await Promise.all([
-      client.from('user_state').select('skills,resume_chars,updated_at,first_name,last_name').eq('user_id', userId).maybeSingle(),
+      client.from('user_state').select('skills,resume_chars,updated_at,first_name,last_name,resume_name,resume_size,resume_path').eq('user_id', userId).maybeSingle(),
       client.from('job_events').select('job_key,seen,applied').eq('user_id', userId),
     ]);
 
@@ -72,6 +79,7 @@ async function load(userId: string): Promise<Cached> {
       const row = st as {
         skills: string[] | null; resume_chars: number | null; updated_at: string | null;
         first_name?: string | null; last_name?: string | null;
+        resume_name?: string | null; resume_size?: number | null; resume_path?: string | null;
       };
       fresh.profile = {
         skills: row.skills ?? [],
@@ -79,6 +87,9 @@ async function load(userId: string): Promise<Cached> {
         updatedAt: row.updated_at,
         firstName: row.first_name ?? null,
         lastName: row.last_name ?? null,
+        resumeName: row.resume_name ?? null,
+        resumeSize: row.resume_size ?? null,
+        resumePath: row.resume_path ?? null,
       };
     }
     for (const e of (ev ?? []) as { job_key: string; seen: boolean; applied: boolean }[]) {
@@ -113,12 +124,15 @@ export async function setProfileFromResume(userId: string, text: string): Promis
   // The name is not part of a resume upload and must survive one. Reading the
   // current profile first is what stops saving a CV wiping it.
   const current = await getProfile(userId);
+  // Spread, not enumerated. Listing every field by hand is how a field gets
+  // silently dropped when a new one is added — each of these functions has to
+  // preserve everything it does not own, and the only way that stays true is
+  // for the default to be "keep it".
   const profile: Profile = {
+    ...current,
     skills: extractSkills(text),
     resumeChars: text.length,
     updatedAt: new Date().toISOString(),
-    firstName: current.firstName,
-    lastName: current.lastName,
   };
   await persistProfile(userId, profile);
   return profile;
@@ -127,10 +141,8 @@ export async function setProfileFromResume(userId: string, text: string): Promis
 export async function setProfileSkills(userId: string, skills: string[]): Promise<Profile> {
   const current = await getProfile(userId);
   const profile: Profile = {
+    ...current,
     skills,
-    firstName: current.firstName,
-    lastName: current.lastName,
-    resumeChars: current.resumeChars,
     updatedAt: new Date().toISOString(),
   };
   await persistProfile(userId, profile);
@@ -157,6 +169,9 @@ async function persistProfile(userId: string, profile: Profile): Promise<void> {
       updated_at: profile.updatedAt,
       first_name: profile.firstName,
       last_name: profile.lastName,
+      resume_name: profile.resumeName,
+      resume_size: profile.resumeSize,
+      resume_path: profile.resumePath,
     },
     { onConflict: 'user_id' },
   );
@@ -184,6 +199,42 @@ export async function setProfileName(
     ...current,
     firstName: firstName.trim() || null,
     lastName: lastName.trim() || null,
+  };
+  await persistProfile(userId, profile);
+  return profile;
+}
+
+/**
+ * Records the uploaded file against the profile.
+ *
+ * Spread over the current profile, like setProfileName, so uploading a file
+ * keeps the skills already extracted and the name already set. The three write
+ * paths — name, resume text, resume file — all touch the same row and none of
+ * them may erase another's work.
+ */
+export async function setResumeFile(
+  userId: string,
+  file: { name: string; size: number; path: string },
+): Promise<Profile> {
+  const current = await getProfile(userId);
+  const profile: Profile = {
+    ...current,
+    resumeName: file.name,
+    resumeSize: file.size,
+    resumePath: file.path,
+  };
+  await persistProfile(userId, profile);
+  return profile;
+}
+
+/** Forgets the file. Skills extracted from it are deliberately left in place. */
+export async function clearResumeFile(userId: string): Promise<Profile> {
+  const current = await getProfile(userId);
+  const profile: Profile = {
+    ...current,
+    resumeName: null,
+    resumeSize: null,
+    resumePath: null,
   };
   await persistProfile(userId, profile);
   return profile;

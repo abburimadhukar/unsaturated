@@ -212,8 +212,33 @@ header {
   background: var(--hot); box-shadow: 0 0 10px var(--hot);
 }
 
-.hstats { display: flex; gap: 16px; font-size: 12.5px; color: var(--text-faint); }
-.hstats b { color: var(--text-dim); font-weight: 600; }
+/* The corpus figures, in the scale's own colours.
+   These were four grey numbers that read as decoration. They are the size of
+   the thing being searched, which is the site's whole claim — so the two that
+   are counts take the accent, and the two that are freshness take the green
+   the rest of the product already uses for "uncontested and current". */
+.hstats {
+  display: flex; align-items: center; gap: 14px;
+  font-size: 12.5px; color: var(--text-faint);
+}
+.hstats span { display: inline-flex; align-items: baseline; gap: 5px; }
+.hstats b { color: var(--accent); font-weight: 640; font-variant-numeric: tabular-nums; }
+.hstats span:nth-child(3), .hstats span:nth-child(4) { color: var(--text-faint); }
+.hstats span:nth-child(4)::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--hot); opacity: 0.85; align-self: center;
+}
+/* A stale corpus should not wear the "fresh" dot. */
+.hstats span.stale::before { background: var(--warm); }
+.hstats .unk { color: var(--warm); }
+
+/* The wordmark carries the product's colour rather than sitting in plain text
+   beside a coloured logo. */
+.brand { color: var(--text); }
+.brand::after {
+  content: ''; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--accent); margin-left: 1px; align-self: center;
+}
 @media (max-width: 720px) { .hstats { display: none; } }
 
 .grow { flex: 1; }
@@ -278,11 +303,19 @@ main { max-width: 1240px; margin: 0 auto; padding: 22px; }
    lower filters reachable. */
 .sidebar {
   position: sticky;
-  top: 78px;
+  /* Clears BOTH sticky layers above it, with room to breathe.
+     header is 56px and the family bar is ~51px on top of that, so the old
+     78px pinned the sidebar underneath the family tabs — and since that bar
+     carries z-index 25 and blur, the search box slid behind it and was
+     unreadable the moment the page scrolled. 118px sits the search field
+     11px clear of the tabs. Guarded by a test that reads these heights back
+     out of this file, because three sticky layers cannot be kept in step by
+     memory. */
+  top: 118px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: calc(100vh - 92px);
+  max-height: calc(100vh - 132px);
   overflow-y: auto;
   /* Room for the scrollbar so it never sits on top of the controls. */
   padding-right: 4px;
@@ -882,4 +915,41 @@ a.stat:hover b { color: var(--accent); }
   .myname { display: none; }
   .person { flex-wrap: wrap; }
   .person .usage { gap: 12px; width: 100%; padding-left: 45px; }
+}
+/* Empty, and saying so. A blank slot beside the initials looked deliberate;
+   this reads as the invitation it is without shouting. */
+.myname.unset { color: var(--text-faint); font-style: italic; font-weight: 500; }
+.me:hover .myname.unset { color: var(--accent); font-style: normal; }
+
+
+/* ---------------- resume file ----------------
+
+   A real <input type="file"> behind a label, not a button that fakes one —
+   the picker opens from the input, and keyboard and screen-reader users get
+   it working for free. */
+
+.filebtn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent); color: var(--on-accent);
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: 7px 14px; font-size: 13px; font-weight: 560; cursor: pointer;
+}
+.filebtn:hover { filter: brightness(1.06); }
+.filebtn input { display: none; }
+.filebtn.busy { opacity: 0.6; pointer-events: none; }
+
+.filerow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 12px; margin: 12px 0; font-size: 13px;
+}
+.filerow .fileicon { font-size: 15px; line-height: 1; }
+.filerow .filename { color: var(--text); font-weight: 550; word-break: break-all; }
+.filerow .muted { font-size: 12px; }
+
+/* A warning, not an error: the file was kept either way, and the row above
+   still shows it. Amber says "read this", red would say "it failed". */
+.filenote {
+  font-size: 12.5px; color: var(--warm); line-height: 1.6;
+  border-left: 2px solid var(--warm); padding-left: 10px; margin: 12px 0 0;
 }

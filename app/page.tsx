@@ -560,7 +560,12 @@ export default function Page() {
             <span><b className="tnum">{data.inScope.toLocaleString()}</b> in corpus</span>
             <span><b className="tnum">{data.total.toLocaleString()}</b> scanned</span>
             <span>last {data.maxAgeDays} days</span>
-            <span>updated {ago(data.refreshedAt)}</span>
+            {/* The dot beside this is green while the corpus is current and
+                amber once it is not — a crawl that has stopped writing used to
+                look identical to one that ran a minute ago. */}
+            <span className={Date.now() - Date.parse(data.refreshedAt) > 3 * 3600_000 ? 'stale' : ''}>
+              updated {ago(data.refreshedAt)}
+            </span>
             {/* A frozen build snapshot used to be indistinguishable from live data. */}
             {data.source === 'snapshot' && <span className="unk">from snapshot</span>}
           </div>
@@ -603,12 +608,20 @@ export default function Page() {
             so signing in looked identical whether you had given a name or not.
             Hidden on narrow screens, where the header has no room for it. */}
         {me?.user && (
-          <a className="me" href="/account" title={`${me.user.email} — your account`}>
-            {(me.profile.firstName || me.profile.lastName) && (
-              <span className="myname">
-                {`${me.profile.firstName ?? ''} ${me.profile.lastName ?? ''}`.trim()}
-              </span>
-            )}
+          <a
+            className="me"
+            href="/account"
+            title={`${me.user.email} — your account`}
+          >
+            {/* The slot invites when it is empty. Anyone whose account predates
+                the name question has none, and until now nothing anywhere said
+                so — the sign-in form asked, discarded the answer for existing
+                accounts, and left a blank space that looked deliberate. */}
+            <span className={`myname${(me.profile.firstName || me.profile.lastName) ? '' : ' unset'}`}>
+              {(me.profile.firstName || me.profile.lastName)
+                ? `${me.profile.firstName ?? ''} ${me.profile.lastName ?? ''}`.trim()
+                : 'Add your name'}
+            </span>
             <span className="avatar">
               {initialsOf(me.profile.firstName, me.profile.lastName, me.user.email)}
             </span>

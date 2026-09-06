@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { applyPendingName, rememberName } from '../../src/ui/pending-name.js';
 
 /**
  * The sign-in page.
@@ -71,6 +72,10 @@ export default function SignIn() {
           setMessage(body.error ?? 'that link did not work');
           return;
         }
+        // There is a session now, so the name typed before the link was sent
+        // finally has somewhere to go. Awaited, so the feed renders with the
+        // name already in place rather than blank for a beat.
+        await applyPendingName();
         goToFeed();
       } catch {
         setPhase('error');
@@ -95,6 +100,9 @@ export default function SignIn() {
         setMessage(body.error ?? 'could not send the link');
         return;
       }
+      // Held until the link comes back. Supabase discards it for anyone who
+      // already has an account, so this is the only copy that survives.
+      rememberName(first.trim(), last.trim());
       setPhase('sent');
       setMessage(body.message ?? 'Check your email.');
     } catch {
