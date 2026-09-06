@@ -23,7 +23,7 @@ on:
       verify:
         description: 'How many newly found boards to verify this run'
         type: string
-        default: '600'
+        default: '3000'
 
 jobs:
   discover:
@@ -56,8 +56,19 @@ jobs:
       cancel-in-progress: false
     # Verification runs at ~1 request/second on purpose — Greenhouse drops
     # bursts from datacenter IPs, and a dropped connection is not a dead board.
-    # 600 boards is therefore ~10 minutes of checking plus the harvest itself.
-    timeout-minutes: 60
+    # A token that failed in a fast batch answered perfectly seconds later with
+    # 730 KB of jobs, so going faster does not merely risk a block: it records
+    # live companies as dead and deletes them.
+    #
+    # The cap is 3,000, not 600. That is 50 minutes of checking at the SAME
+    # request rate — it spends time already allotted rather than pushing any
+    # vendor harder. At 600 a backlog built up the moment five providers were
+    # switched on together: 1,781 BambooHR boards, 867 Personio and 780 UKG left
+    # waiting for a run a week away. Nothing about the politeness changes.
+    #
+    # 50 minutes against a 90-minute ceiling leaves room for the harvest itself
+    # and for a slow vendor, so a full run still cannot be killed mid-write.
+    timeout-minutes: 90
     permissions:
       contents: read
       issues: write
@@ -91,7 +102,7 @@ jobs:
           npm run harvest:cc -- \
             --provider ${{ matrix.provider }} \
             ${{ inputs.crawl && format('--crawl {0}', inputs.crawl) || '' }} \
-            --verify ${{ inputs.verify || '600' }}
+            --verify ${{ inputs.verify || '3000' }}
 
       # Re-checks registered boards so genuinely closed ones drop out instead of
       # failing every crawl forever. A board is retired only after several
