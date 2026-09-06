@@ -80,12 +80,20 @@
      so setting it on a wrapper re-tints the whole page — links, chips, active
      tabs — with no duplicated CSS and nothing to keep in sync.
 
-     The greens are not decoration. The logo's bright ringed dot, the "fresh"
-     chip and the uncontested end of the saturation scale are all already
-     green, so a page about roles nobody is competing for inherits a meaning
-     the product had already established. */
-  --page-quiet: #57c98b;
-  --page-quiet-dim: #57c98b1f;
+     Teal for Quiet, not green. Green was the obvious choice — the logo's
+     bright dot, the "fresh" chip and the uncontested end of the saturation
+     scale are already green, so the meaning was there for free. Measured, it
+     sat 27 apart from --hot in RGB, and a "new" chip beside a "quiet title"
+     chip read as one colour saying two things. Teal keeps the family and
+     clears it by 66.
+
+     Every value below was checked rather than chosen by eye: each clears 4.5:1
+     against its own card surface in its own theme, and each sits far enough
+     from the others — and from --danger — that two of them are never mistaken
+     for one. The first light green tried was 4.10:1, which fails for the chip
+     labels it would have been used on. */
+  --page-quiet: #2ec4b6;
+  --page-quiet-dim: #2ec4b61f;
   --page-inst: #7c9fe8;
   --page-inst-dim: #7c9fe81f;
   --page-account: #c58ad6;
@@ -142,8 +150,8 @@
 
   /* Same three, darkened for a white ground — the dark values are far too
      pale here to read as text or to carry a border. */
-  --page-quiet: #1f8f57;
-  --page-quiet-dim: #1f8f5716;
+  --page-quiet: #0a766c;
+  --page-quiet-dim: #0a766c16;
   --page-inst: #3f66b8;
   --page-inst-dim: #3f66b816;
   --page-account: #8e4aa3;
