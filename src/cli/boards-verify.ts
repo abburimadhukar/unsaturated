@@ -55,7 +55,6 @@ async function main(): Promise<void> {
 
   const live = results.filter((r) => r.verdict === 'live');
   const dead = results.filter((r) => r.verdict === 'dead');
-  const unclear = results.filter((r) => r.verdict === 'unknown');
 
   // Status codes, not just verdicts. This pass is the one that RETIRES boards,
   // so mistaking "we are being blocked" for "these boards are gone" deletes
