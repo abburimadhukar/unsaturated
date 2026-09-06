@@ -130,11 +130,38 @@ async function loadBoard(board: CorpusBoard, now: number) {
       return Math.floor((now - job.postedAt.getTime()) / 86_400_000) <= MAX_AGE_DAYS;
     });
 
-    // Descriptions cost one request per job, so only jobs that already look like
-    // cloud roles are backfilled. Backfilling the whole crawl would be tens of
-    // thousands of requests to make a handful of fit scores work.
+    // Descriptions cost one request each, so this has always fetched them only
+    // for postings that already looked relevant. That was a closed loop: a job
+    // stayed unclassified because nobody read its description, and nobody read
+    // its description because it was unclassified. Workday alone is 14,845 of
+    // the 29,174 postings in the review queue, every one judged on its title.
+    //
+    // So the net widens to include anything the review pile would take. Those
+    // are the postings a description can actually change the answer for —
+    // unlike the 187,000 an hour a rule deliberately rejected, which stay
+    // unread.
+    // Bounded, because the crawl runs hourly and pays this cost every time.
+    // Unbounded it measured at roughly double a shard's runtime — 23 minutes
+    // against a 25-minute ceiling, close enough that one slow vendor kills the
+    // run, and a crawl that times out writes nothing at all.
+    //
+    // So a board with 300 unclassified postings reads twelve of them per run
+    // and works through the rest over the following days, rather than holding
+    // up every board behind it in the shard. The ceiling moved to 40 minutes
+    // alongside this.
+    const REVIEW_DESCRIPTIONS_PER_BOARD = 12;
+
     if (needsBackfill(board.provider)) {
-      const candidates = fresh.filter((job) => classifyRole(job).family !== null);
+      const classified: typeof fresh = [];
+      const review: typeof fresh = [];
+      for (const job of fresh) {
+        const cls = classifyRole(job);
+        if (cls.family !== null) classified.push(job);
+        // Excluded on purpose — a nurse stays a nurse whatever the advert says,
+        // so those 187,000 an hour are never read.
+        else if (!cls.excludedReason && belongsInReviewPile(job)) review.push(job);
+      }
+      const candidates = [...classified, ...review.slice(0, REVIEW_DESCRIPTIONS_PER_BOARD)];
       const ref: BoardRef = {
         provider: board.provider,
         token: board.token,

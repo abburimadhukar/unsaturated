@@ -33,7 +33,11 @@ on:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 40, not 25. Reading a description for unclassified postings roughly
+    # doubles a shard's runtime — measured at 23 minutes against the old
+    # ceiling, which is close enough that one slow vendor would kill the run,
+    # and a crawl that times out writes nothing at all.
+    timeout-minutes: 40
     # Sharded so the crawl stays short as the registry grows. Four parallel jobs
     # each take a quarter of the boards by index, so every board is covered
     # exactly once. Close-detection is already scoped to boards that returned

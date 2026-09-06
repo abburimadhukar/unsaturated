@@ -143,6 +143,35 @@ const HRIS_SKILLS: SkillTerm[] = [
 // that owns the specialization. `ml platform` and `ai infrastructure` stay:
 // those are platform-engineering roles that happen to serve ML.
 /**
+ * "Security" in a title that is not about information security.
+ *
+ * Border, physical, site and corporate security are guarding buildings and
+ * people. 16 such postings sat in the review queue, and a bare "security
+ * engineer" rule would have filed every one of them as cloud.
+ */
+const NOT_INFOSEC =
+  /\b(border|physical|site|corporate|building|campus|retail|event|airport|maritime|port|transit|guard|patrol|officer|loss prevention|surveillance)\s+security\b|\bsecurity\s+(guard|officer|patrol|supervisor|screener)\b/i;
+
+/**
+ * "Architect" outside software.
+ *
+ * The word belongs to buildings first. Project Architect, Landscape Architect
+ * and Safety Case Architect are all real jobs and none of them are ours.
+ */
+const NOT_SOFTWARE_ARCHITECT =
+  /\b(project|landscape|building|interior|urban|naval|safety case|functional safety|structural|electrical|mechanical|civil|design)\s+architect\b|\barchitect\s+(of record|intern|assistant)\b/i;
+
+/**
+ * "Engineering Manager" at a factory.
+ *
+ * The title is identical whether someone runs a software team or a production
+ * line, so the discipline has to be named somewhere in the title for it to be
+ * refused — the same shape as the Production Engineer rule.
+ */
+const NOT_SOFTWARE_ENG_MANAGER =
+  /\b(manufactur\w*|mechanical|electrical|civil|structural|chemical|process|plant|production|quality|field|facilities|maintenance|regional market|construction|packaging|automotive|aerospace)\b/i;
+
+/**
  * Words that mean a cloud term in a title is not about doing the work.
  *
  * Checked before the cloud rules. Teaching GCP, auditing a GCP estate, and
@@ -201,7 +230,7 @@ const CLOUD_TITLE_NOISE =
  * miss one of them.
  */
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b|\b(systems?|sys)\s?admin\w*\b|\b(linux|unix|aix)\s+(administrator|admin)\b|\binfrastructure\s+(engineer|developer|analyst|architect|specialist|lead)\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b|\b(systems?|sys)\s?admin\w*\b|\b(linux|unix|aix)\s+(administrator|admin)\b|\binfrastructure\s+(engineer|developer|analyst|architect|specialist|lead)\b|\b(cyber ?security|information security|infosec|application security|product security|network security|security)\s+(engineer|analyst|architect|specialist|consultant|lead)\b|\b(soc analyst|penetration tester|pen tester|red team|threat (analyst|hunter)|vulnerability (analyst|engineer)|iam engineer|identity (engineer|architect))\b|\b(cloud|azure|aws|gcp)\s+(\w+\s+)?developer\b/i;
 
 /**
  * A platform word and a technical role word, in either order.
@@ -227,7 +256,7 @@ const CLOUD_TITLES_LOOSE =
   /\b(cloud|aws|amazon web services|azure|gcp|google cloud|kubernetes|k8s|openshift|terraform|vmware|datacent(er|re)|active directory)\b[^,]{0,40}\b(engineer|developer|architect|administrator|admin|analyst|specialist|consultant|operations|sre|lead)\b|\b(engineer|developer|architect|administrator|admin|analyst|specialist|consultant)\b[^,]{0,40}\b(cloud|aws|azure|gcp|kubernetes|openshift|vmware)\b/i;
 
 const SOFTWARE_TITLES =
-  /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|ux engineer|growth engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer)\b/i;
+  /\b(software engineer|software developer|software development engineer|\bsde\b|backend|back[- ]end|frontend|front[- ]end|full[- ]?stack|python developer|python engineer|web developer|application developer|applications engineer|api engineer|ux engineer|growth engineer|programmer|ai engineer|llm engineer|genai engineer|applied ai|forward deployed engineer|developer|software architect|application architect|technical architect|enterprise architect|ai architect|data architect|principal architect|lead architect|engineer(ing)? manager|engineer(ing)? director|(director|head|vp),? of engineer(ing)?)\b/i;
 
 const DATA_TITLES =
   /\b(data engineer|data analyst|analytics engineer|data scientist|data architect|database engineer|database administrator|\bdba\b|etl developer|data platform|data warehouse|big data|business intelligence|\bbi\b (developer|analyst|engineer)|reporting analyst|machine learning engineer|ml engineer|machine learning scientist|research scientist|quantitative analyst|decision scientist|data quality|mlops|ml ops)\b/i;
@@ -397,7 +426,11 @@ const HARD_EXCLUSIONS: [RegExp, string][] = [
   // Consultant and manager stay. A Solutions Consultant or Customer Success
   // Manager is an account role, and the title says so.
   [/^(?!.*\b(hris|hcm|hrms|workday|successfactors|peoplesoft|ukg|dayforce|payroll|benefits)\b).*\b(solutions?|sales|customer success|customer reliability|implementation)\s+(consultant|manager)\b/i, 'customer-facing'],
-  [/\bsales\b|\bbusiness development\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
+  // 'business developer' as well as 'business development'. The widened
+  // developer rule would otherwise file 53 salespeople as software engineers,
+  // and "Business Developer / FX Sales Associate" is not a software job in any
+  // reading.
+  [/\bsales\b|\bbusiness develop(ment|er)\b|\b(sdr|bdr)\b|\brepresentative\b|\bquota\b/i, 'sales'],
   [/\b(financial analyst|finance manager|treasury|investor relations)\b/i, 'finance'],
   [/\b(executive assistant|office administrator|receptionist|facilities)\b/i, 'admin'],
 ];
@@ -565,6 +598,25 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
     // roads. The widened cloud pairing rule below is loose on purpose, and this
     // is what keeps it honest.
     if (spec.id === 'cloud' && CLOUD_TITLE_NOISE.test(titleForMatch)) continue;
+
+    // "Security Engineer" is now a cloud title, so the guarding trades have to
+    // be refused explicitly: border, physical, site and campus security are the
+    // same words about watching a building.
+    if (spec.id === 'cloud' && NOT_INFOSEC.test(titleForMatch)) continue;
+
+    // "Architect" belongs to buildings before it belonged to software, and
+    // "Engineering Manager" reads identically whether the team ships code or
+    // runs a production line. Both rules were added to reach ~1,200 postings
+    // the classifier was missing, and both would reach far past them unguarded.
+    if (
+      spec.id === 'software' &&
+      ((/\barchitect\b/i.test(titleForMatch) && NOT_SOFTWARE_ARCHITECT.test(titleForMatch)) ||
+        // engineer(ing)?, because titleForMatch has already had "engineering"
+        // rewritten to "engineer" — a guard spelling it out in full would never
+        // fire, and every factory engineering manager would reach software.
+        (/\bengineer(ing)? (manager|director)\b|\b(director|head|vp),? of engineer(ing)?\b/i.test(titleForMatch) &&
+          NOT_SOFTWARE_ENG_MANAGER.test(titleForMatch)))
+    ) continue;
 
     // "Production Engineer" needs a reason to be a cloud role, because the same
     // two words name a factory job. A manufacturing word in the title settles
