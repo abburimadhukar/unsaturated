@@ -916,10 +916,6 @@ a.stat:hover b { color: var(--accent); }
   .person { flex-wrap: wrap; }
   .person .usage { gap: 12px; width: 100%; padding-left: 45px; }
 }
-/* Empty, and saying so. A blank slot beside the initials looked deliberate;
-   this reads as the invitation it is without shouting. */
-.myname.unset { color: var(--text-faint); font-style: italic; font-weight: 500; }
-.me:hover .myname.unset { color: var(--accent); font-style: normal; }
 
 
 /* ---------------- resume file ----------------

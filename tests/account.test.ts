@@ -154,3 +154,36 @@ test('the sign-in form asks everyone, so it cannot reveal who has an account', (
   assert.ok(!/hasAccount|existingUser|isReturning/.test(form),
     'the form branches on whether the account exists');
 });
+
+// ---------------------------------------------------------------------------
+// Nothing may be prerendered
+// ---------------------------------------------------------------------------
+
+test('no page is prerendered, because cached HTML outlives its own bundles', () => {
+  // OpenNext serves a prerendered page with s-maxage=31536000, so Cloudflare
+  // held each page's HTML for a YEAR — HTML naming the exact hashed script
+  // bundles of the build it came from. The next deploy replaced those bundles,
+  // the cached HTML kept asking for the old ones, they 404'd, and no JavaScript
+  // ran at all.
+  //
+  // That is what took /account down: it served HTML from a build days old
+  // pointing at webpack-4a462cecab786e93.js, while /account?bust=1 — a
+  // different cache key — returned the current build perfectly. Every other
+  // page carried the same header and was waiting its turn.
+  //
+  // Every page here is a client shell that fetches at runtime, so prerendering
+  // saved one render and bought nothing.
+  const layout = readFileSync(new URL('../app/layout.tsx', import.meta.url), 'utf8');
+  assert.match(
+    layout,
+    /export const dynamic = 'force-dynamic';/,
+    'the root layout must force every page dynamic',
+  );
+});
+
+test('the feed API keeps the caching that actually mattered', () => {
+  // Making pages dynamic must not take the API's cache with it. That header is
+  // what stops every page load reaching Supabase.
+  const route = readFileSync(new URL('../app/api/feed/route.ts', import.meta.url), 'utf8');
+  assert.match(route, /s-maxage=60/);
+});

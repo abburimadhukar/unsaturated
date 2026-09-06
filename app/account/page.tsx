@@ -248,10 +248,9 @@ export default function AccountPage() {
 
       <section className="panel">
         <h2>Name</h2>
-        {/* Prompted rather than assumed. Anyone who signed in before names were
-            asked for has none, and showing the part of their address before the
-            @ would look like a filled-in field that nobody filled in. */}
-        {!named && <p className="muted">You signed in before we asked for a name. Add it here.</p>}
+        {/* Only for the handful of accounts that predate the sign-in form
+            capturing a name. New sign-ins arrive already named. */}
+        {!named && <p className="muted">Set the name shown across the site.</p>}
         <div className="namerow">
           <label>
             First name

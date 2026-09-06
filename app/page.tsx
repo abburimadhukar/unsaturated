@@ -613,15 +613,15 @@ export default function Page() {
             href="/account"
             title={`${me.user.email} — your account`}
           >
-            {/* The slot invites when it is empty. Anyone whose account predates
-                the name question has none, and until now nothing anywhere said
-                so — the sign-in form asked, discarded the answer for existing
-                accounts, and left a blank space that looked deliberate. */}
-            <span className={`myname${(me.profile.firstName || me.profile.lastName) ? '' : ' unset'}`}>
-              {(me.profile.firstName || me.profile.lastName)
-                ? `${me.profile.firstName ?? ''} ${me.profile.lastName ?? ''}`.trim()
-                : 'Add your name'}
-            </span>
+            {/* The name, plainly. No prompt when it is missing: the sign-in
+                form now captures it and the account page still edits it, so a
+                nag in the header would be shouting about a gap that closes
+                itself the next time someone signs in. */}
+            {(me.profile.firstName || me.profile.lastName) && (
+              <span className="myname">
+                {`${me.profile.firstName ?? ''} ${me.profile.lastName ?? ''}`.trim()}
+              </span>
+            )}
             <span className="avatar">
               {initialsOf(me.profile.firstName, me.profile.lastName, me.user.email)}
             </span>
