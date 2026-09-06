@@ -13,7 +13,7 @@
  */
 import { config } from '../config.js';
 import { harvestCommonCrawl } from '../discovery/commoncrawl.js';
-import { verifyBoards } from '../discovery/verify.js';
+import { summariseVerification, verifyBoards } from '../discovery/verify.js';
 import { loadBoardsAsync } from '../corpus/boards.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
@@ -73,10 +73,10 @@ async function main(): Promise<void> {
   });
 
   const live = results.filter((r) => r.verdict === 'live');
-  const unclear = results.filter((r) => r.verdict === 'unknown');
-  console.log(
-    `\n\n  live ${live.length} · dead ${results.length - live.length - unclear.length} · unclear ${unclear.length}`,
-  );
+  // The status codes, not just the verdicts — see summariseVerification. This
+  // run reporting "dead 701" told us nothing about whether those boards were
+  // gone or whether we were being turned away.
+  console.log('\n' + summariseVerification(results));
   console.log(`  jobs behind them: ${live.reduce((n, r) => n + r.jobs, 0).toLocaleString()}`);
 
   if (dryRun) {

@@ -10,7 +10,7 @@
  * failures, since one failure is far more often a rate limit than a closure.
  */
 import { config } from '../config.js';
-import { verifyBoards } from '../discovery/verify.js';
+import { summariseVerification, verifyBoards } from '../discovery/verify.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
 const arg = (n: string) => {
@@ -57,7 +57,11 @@ async function main(): Promise<void> {
   const dead = results.filter((r) => r.verdict === 'dead');
   const unclear = results.filter((r) => r.verdict === 'unknown');
 
-  console.log(`\n\n  live ${live.length} · dead ${dead.length} · unclear ${unclear.length}`);
+  // Status codes, not just verdicts. This pass is the one that RETIRES boards,
+  // so mistaking "we are being blocked" for "these boards are gone" deletes
+  // working companies from the registry — the same blindness that let discovery
+  // reject Airbnb, Adyen and Affirm for five runs without anyone able to say why.
+  console.log('\n' + summariseVerification(results));
   if (dead.length > 0) {
     console.log('\n  no longer answering:');
     for (const d of dead.slice(0, 15)) {

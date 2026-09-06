@@ -156,6 +156,75 @@ export interface VerifyOptions {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * What the vendor actually said, printed after every verification pass.
+ *
+ * Added because a real failure was invisible for five consecutive runs.
+ * Greenhouse discovery reported `live 0 · dead 701 · unclear 0` and stored
+ * nothing, four runs in a row — 1,677 candidates, all rejected. Checked by hand
+ * from a laptop, 9 of 30 of those same tokens answered HTTP 200 with real jobs:
+ * Airbnb (168), Adyen (231), Affirm (204), Airtable (16), Abnormal Security
+ * (68), Alarm.com (86). None of them are in the registry. Ashby shows the same
+ * pattern.
+ *
+ * The reason nobody could say WHY is that the verdict was all we ever recorded.
+ * "Dead" covers 404 (the board really is gone), 403 (we are being blocked),
+ * 401, and 451 — completely different situations that demand opposite
+ * responses, and the log flattened them into one word.
+ *
+ * So this prints the status codes. If the answers are 404, those boards are
+ * genuinely gone and the registry is simply well saturated. If they are 403 or
+ * 429, we are being turned away from a datacenter IP and the verdicts are
+ * worthless — and the warning below says so rather than leaving it to be
+ * noticed.
+ */
+export function summariseVerification(results: VerifyResult[]): string {
+  const live = results.filter((r) => r.verdict === 'live').length;
+  const unclear = results.filter((r) => r.verdict === 'unknown').length;
+  const dead = results.length - live - unclear;
+
+  const byStatus = new Map<string, number>();
+  for (const r of results) {
+    const key = r.status === null ? 'transport error (no response)' : `HTTP ${r.status}`;
+    byStatus.set(key, (byStatus.get(key) ?? 0) + 1);
+  }
+
+  const lines = [
+    `\n  live ${live} · dead ${dead} · unclear ${unclear}`,
+    '  what the vendor answered:',
+    ...[...byStatus]
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `    ${String(n).padStart(5)}  ${k}`),
+  ];
+
+  // A handful of the rejected tokens by name, so a claim of "all dead" can be
+  // checked by hand in seconds instead of being taken on trust.
+  const rejected = results.filter((r) => r.verdict === 'dead').slice(0, 8);
+  if (rejected.length > 0) {
+    lines.push('  a sample of the rejected, to spot-check:');
+    for (const r of rejected) {
+      lines.push(`    ${r.board.provider}:${r.board.token} → HTTP ${r.status}`);
+    }
+  }
+
+  // The signature of being blocked rather than of finding dead boards.
+  //
+  // Some genuinely-dead residue is normal — the registry already holds the live
+  // ones, so what is left over is enriched for the gone. A whole batch with not
+  // one survivor is not that.
+  const BLOCK_SUSPICION_MIN = 20;
+  if (results.length >= BLOCK_SUSPICION_MIN && live === 0) {
+    const worst = [...byStatus].sort((a, b) => b[1] - a[1])[0];
+    lines.push(
+      `\n  WARNING: not one of ${results.length} boards answered. That is the shape of`,
+      `  being blocked, not of finding dead boards. Dominant answer: ${worst?.[0]}.`,
+      '  Check that status by hand before trusting this run.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
 export async function verifyBoards(
   boards: OpenBoard[],
   opts: VerifyOptions,

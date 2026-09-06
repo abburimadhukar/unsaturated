@@ -3,7 +3,7 @@ import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
 import { parseSalary } from '../ats/salary.js';
-import type { AtsProvider, BoardRef } from '../ats/types.js';
+import type { AtsProvider, BoardRef, NormalizedJob } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
@@ -125,10 +125,11 @@ async function loadBoard(board: CorpusBoard, now: number) {
 
     // Retention cutoff first. Unknown dates are kept: dropping them would
     // silently remove whole providers whose feeds omit a publish date.
-    const fresh = jobs.filter((job) => {
+    const withinRetention = (job: NormalizedJob) => {
       if (!job.postedAt) return true;
       return Math.floor((now - job.postedAt.getTime()) / 86_400_000) <= MAX_AGE_DAYS;
-    });
+    };
+    let fresh = jobs.filter(withinRetention);
 
     // Descriptions cost one request each, so this has always fetched them only
     // for postings that already looked relevant. That was a closed loop: a job
@@ -171,6 +172,18 @@ async function loadBoard(board: CorpusBoard, now: number) {
         userAgent: config.userAgent,
         timeoutMs: config.timeoutMs,
       });
+
+      // Apply the cutoff AGAIN, because the backfill can supply a date where
+      // the listing had none — and for BambooHR it nearly always does.
+      //
+      // Its listing carries no date at all, so every posting passed the filter
+      // above as "unknown, keep it". A sample of 40 came back from the detail
+      // page with 33 older than the window and the oldest dated December 2024.
+      // Without this second pass we would fetch the real date, learn the
+      // posting is a year old, and store it anyway — visible to nobody, since
+      // the feed applies the same cutoff when reading, but paid for on every
+      // crawl. Undated rows are still kept, exactly as before.
+      fresh = fresh.filter(withinRetention);
     }
 
     for (const job of fresh) {
@@ -321,6 +334,44 @@ function sliceForShard<T>(items: T[], shard?: Shard): T[] {
   return items.filter((_, i) => i % shard.of === shard.index);
 }
 
+/**
+ * Spreads every vendor evenly across the run instead of crawling them in blocks.
+ *
+ * The registry comes back ordered by (provider, token), and the worker pool
+ * walks that order — so all eight workers sat on ONE vendor at a time, times
+ * four shards, which is up to 32 simultaneous requests at a single company.
+ * Measured result: 42% of Workable boards and 66% of Recruitee boards were
+ * carrying HTTP 429 at any moment, yielding 0.26 and 0.25 jobs per board
+ * against Workday's 9.00. We were storing 3,014 Workable boards and reading
+ * almost none of them.
+ *
+ * Each board is placed at its fractional position within its own provider, and
+ * the whole list is sorted by that. A provider with 5,271 boards and one with
+ * 525 both end up smeared across the entire run, so consecutive boards are
+ * nearly always different vendors and no vendor ever sees a burst. Plain
+ * round-robin would not do this: it drains the small providers early and leaves
+ * a long single-vendor tail, which is the same problem again at the end.
+ *
+ * Deterministic — same input, same order — so a shard still covers exactly the
+ * boards it covered before, and the split stays reproducible.
+ */
+export function interleaveByProvider<T extends { provider: string }>(boards: T[]): T[] {
+  const seen = new Map<string, number>();
+  const sizes = new Map<string, number>();
+  for (const b of boards) sizes.set(b.provider, (sizes.get(b.provider) ?? 0) + 1);
+
+  return boards
+    .map((board) => {
+      const i = seen.get(board.provider) ?? 0;
+      seen.set(board.provider, i + 1);
+      // +0.5 centres each board in its slot, so two providers of the same size
+      // interleave rather than colliding on identical positions.
+      return { board, at: (i + 0.5) / (sizes.get(board.provider) ?? 1) };
+    })
+    .sort((a, b) => a.at - b.at)
+    .map((x) => x.board);
+}
+
 export async function refreshFeed(shard?: Shard): Promise<Feed> {
   const c = cache();
   // Collapse concurrent refreshes so multiple tabs don't multiply upstream load.
@@ -330,7 +381,11 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
 
   const run = (async () => {
     const now = Date.now();
-    const boards = sliceForShard(await loadBoardsAsync(), shard);
+    // Interleave BEFORE sharding: the shard slice is round-robin by index, so
+    // it preserves whatever ordering it is handed. Interleaving after would
+    // only fix the order within one shard while the four shards still pointed
+    // at the same vendor at the same moment.
+    const boards = sliceForShard(interleaveByProvider(await loadBoardsAsync()), shard);
 
     // Bounded pool — firing 200+ simultaneous requests at these vendors would be
     // abusive and would get the crawler rate-limited within a single refresh.

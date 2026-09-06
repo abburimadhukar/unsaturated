@@ -43,6 +43,33 @@ export interface JobRow {
 /** Supabase caps a single select at 1000 rows, so reads are paged. */
 const PAGE = 1000;
 
+/**
+ * How many keys may go into one `.in(...)` filter.
+ *
+ * An upsert sends its rows in the request BODY, so 500 at a time is fine there.
+ * A filter is different: PostgREST puts `key=in.(...)` in the query string, and
+ * the request line has a hard 16 KB ceiling. Job keys average 51 characters, so
+ * 500 of them build a ~29 KB URL and the server answers 400 Bad Request.
+ *
+ * That is not hypothetical. Every close pass on every shard failed this way,
+ * every hour: "close failed for 500 jobs: Bad Request", four times per crawl.
+ * The measured boundary from those logs is between 210 keys (~12 KB, succeeded)
+ * and 341 (~20 KB, failed).
+ *
+ * The damage was worse than a retry would suggest, because the stale list is
+ * ordered by key: the SAME leading 500 failed on every run forever, so those
+ * postings could never close, however many times the crawl ran. Only the short
+ * final chunk ever got through.
+ *
+ * 150, sized against the WORST case rather than the average. Keys average 51
+ * characters, but the longest in the corpus is 69 and each carries two colons
+ * that percent-encode to three bytes apiece. At 200 the pessimistic bound lands
+ * at ~16.5 KB — over the line, and only the average kept it working. 150 leaves
+ * ~12.4 KB even if every key is the longest one, and the extra round trips cost
+ * nothing: a run closes a few hundred postings, not a few hundred thousand.
+ */
+const FILTER_CHUNK = 150;
+
 /** Closed jobs older than this are deleted outright. */
 const PURGE_AFTER_DAYS = 45;
 
@@ -329,8 +356,9 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
       .filter((r) => !seenKeys.has(r.key))
       .map((r) => r.key);
 
-    for (let i = 0; i < stale.length; i += CHUNK) {
-      const chunk = stale.slice(i, i + CHUNK);
+    // FILTER_CHUNK, not CHUNK: these keys travel in the URL, not the body.
+    for (let i = 0; i < stale.length; i += FILTER_CHUNK) {
+      const chunk = stale.slice(i, i + FILTER_CHUNK);
       const { error } = await client
         .from('jobs')
         .update({ closed_at: new Date().toISOString() })
