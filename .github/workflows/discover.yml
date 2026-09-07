@@ -34,6 +34,21 @@ jobs:
     # connections and live boards get recorded as dead.
     strategy:
       fail-fast: false
+      # Two at a time, not eleven.
+      #
+      # Every shard reads Common Crawl's query server, and eleven arriving
+      # together is more than it will take: one run logged CDX 502, 503 and 504
+      # across most patterns, three vendors read zero urls, and the same pattern
+      # returned 2,388, 2,410, 9,154 and 12,110 urls in four different jobs of
+      # that one run. Cutting each shard to its own vendor removed ~85% of the
+      # load and was still not enough, because the problem is simultaneity
+      # rather than volume.
+      #
+      # Two keeps a little parallelism for the verification phase — which talks
+      # to the ATS vendors, not to Common Crawl — while the index sees a queue
+      # instead of a stampede. The ceiling below has room for the longer wall
+      # clock this implies.
+      max-parallel: 2
       matrix:
         # smartrecruiters and workable were already being READ from the index —
         # their patterns have always been in commoncrawl.ts — and then discarded,
@@ -68,7 +83,7 @@ jobs:
     #
     # 50 minutes against a 90-minute ceiling leaves room for the harvest itself
     # and for a slow vendor, so a full run still cannot be killed mid-write.
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
       issues: write

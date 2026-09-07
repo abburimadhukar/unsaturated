@@ -98,6 +98,14 @@ export interface BoardHealth {
   described?: number;
   ms: number;
   error?: string;
+  /**
+   * Whether the failure says anything about the board.
+   *
+   * 'gone' is a 404 or 410 and counts toward retirement. 'refused' is a rate
+   * limit, a 5xx or a timeout, says nothing about the board, and must never
+   * retire one — 2,185 of 2,263 retirements were 429s before this existed.
+   */
+  failure?: 'gone' | 'refused';
 }
 
 export interface Feed {

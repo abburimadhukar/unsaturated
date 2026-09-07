@@ -189,14 +189,27 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
  * limit than a closed board.
  */
 export async function recordCrawlOutcomes(
-  outcomes: { provider: string; token: string; ok: boolean; jobs: number; error?: string }[],
+  outcomes: {
+    provider: string;
+    token: string;
+    ok: boolean;
+    jobs: number;
+    error?: string;
+    /**
+     * Whether the failure says anything about the board. Only 'gone' counts
+     * toward retirement; 'refused' — a rate limit, a 5xx, a timeout — is a
+     * fact about the vendor's mood and is recorded without penalty.
+     */
+    failure?: 'gone' | 'refused';
+  }[],
   maxFailures: number,
-): Promise<{ recorded: number; deactivated: number }> {
-  if (outcomes.length === 0) return { recorded: 0, deactivated: 0 };
+): Promise<{ recorded: number; deactivated: number; spared: number }> {
+  if (outcomes.length === 0) return { recorded: 0, deactivated: 0, spared: 0 };
   const client = dbWrite();
   const now = new Date().toISOString();
   let deactivated = 0;
   let recorded = 0;
+  let spared = 0;
 
   // Tokens are only unique within a provider, so every statement is scoped by
   // one. Chunked because these become query-string parameters.
@@ -223,7 +236,37 @@ export async function recordCrawlOutcomes(
       else recorded += count ?? 0;
     }
 
-    const failed = list.filter((o) => !o.ok);
+    // THE RULE THIS FILE EXISTS FOR.
+    //
+    // A board that refused us is not a board that is gone. Before this split,
+    // `ok: false` covered both, and a vendor rate-limiting us walked live
+    // companies to deactivation five strikes at a time: 2,185 of 2,263 retired
+    // boards carried an HTTP 429 against 16 that were genuinely 404, and every
+    // one sampled afterwards answered 200 with jobs still on it.
+    //
+    // Refusals get their timestamp and their error text recorded, so the run is
+    // still honest about what happened — they simply do not advance the counter
+    // that ends in deactivation.
+    const refused = list.filter((o) => !o.ok && o.failure !== 'gone');
+    for (let i = 0; i < refused.length; i += CHUNK) {
+      const slice = refused.slice(i, i + CHUNK).map((o) => o.token);
+      const { error, count } = await client
+        .from('boards')
+        .update(
+          {
+            last_crawled_at: now,
+            last_error: refused[i]?.error?.slice(0, 300) ?? 'refused',
+          },
+          { count: 'exact' },
+        )
+        .eq('provider', provider)
+        .in('token', slice);
+      if (error) { console.error('board refusal write failed:', error.message); continue; }
+      recorded += count ?? 0;
+      spared += count ?? 0;
+    }
+
+    const failed = list.filter((o) => !o.ok && o.failure === 'gone');
     if (failed.length === 0) continue;
 
     // Read the current counts first rather than blindly incrementing: PostgREST
@@ -284,5 +327,5 @@ export async function recordCrawlOutcomes(
     }
   }
 
-  return { recorded, deactivated };
+  return { recorded, deactivated, spared };
 }

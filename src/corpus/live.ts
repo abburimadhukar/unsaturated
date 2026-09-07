@@ -3,13 +3,14 @@ import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
 import { parseSalary } from '../ats/salary.js';
-import type { AtsProvider, BoardRef, NormalizedJob } from '../ats/types.js';
+import { AtsFetchError, type AtsProvider, type BoardRef, type NormalizedJob } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
 import { classifyAdjacent, FORCE_ADJACENT } from '../taxonomy/adjacent.js';
 import { classifySector } from '../taxonomy/sector.js';
+import { ProviderLimiter } from './rate-limit.js';
 import { belongsInReviewPile } from '../taxonomy/unsorted.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
@@ -328,6 +329,10 @@ async function loadBoard(board: CorpusBoard, now: number) {
     health.kept = out.length;
   } catch (err) {
     health.error = err instanceof Error ? err.message : String(err);
+    // Carried out so recordCrawlOutcomes can tell a dead board from a vendor
+    // that simply would not serve us. Anything we cannot classify is 'refused',
+    // which is the answer that never costs a live board.
+    health.failure = err instanceof AtsFetchError ? err.failure : 'refused';
   }
 
   health.ms = Date.now() - started;
@@ -410,6 +415,18 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
 
     // Bounded pool — firing 200+ simultaneous requests at these vendors would be
     // abusive and would get the crawler rate-limited within a single refresh.
+    //
+    // The pool is global; the LIMITER is per vendor. A worker that picks up a
+    // Workable board waits for Workable's budget, and one that picks up a
+    // Greenhouse board does not — which is the whole point. One global speed
+    // can only be tuned for the slowest vendor or the fastest, and tuning it
+    // for the fastest is what retired 2,157 live Workable boards.
+    const limiter = new ProviderLimiter({
+      startConcurrency: Math.max(2, Math.floor(config.concurrency / 2)),
+      maxConcurrency: config.concurrency,
+      startGapMs: config.delayMs,
+    });
+
     const results: { jobs: FeedJob[]; health: BoardHealth }[] = [];
     let cursor = 0;
     // config.concurrency, not a hardcoded 8: setting CRAWLER_CONCURRENCY in the
@@ -418,10 +435,28 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
       while (cursor < boards.length) {
         const board = boards[cursor++];
         if (!board) break;
-        results.push(await loadBoard(board, now));
+        await limiter.acquire(board.provider);
+        try {
+          const result = await loadBoard(board, now);
+          // Teach the limiter what this vendor just did. A refusal slows every
+          // subsequent request to it; nothing else changes speed at all.
+          if (result.health.failure === 'refused') limiter.refused(board.provider);
+          else limiter.succeeded(board.provider);
+          results.push(result);
+        } finally {
+          limiter.release(board.provider);
+        }
       }
     });
     await Promise.all(workers);
+
+    // Only vendors that actually pushed back appear here, so a clean run says
+    // nothing and a throttled one names the vendor and the speed it settled at.
+    for (const r of limiter.report()) {
+      console.log(
+        `  ${r.provider}: backed off to ${r.concurrency} at a time, ${r.gapMs}ms apart (${r.refusals} refusals)`,
+      );
+    }
 
     const feed: Feed = {
       jobs: results.flatMap((r) => r.jobs).sort((a, b) => b.saturation - a.saturation),

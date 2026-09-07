@@ -200,11 +200,11 @@ test('the harvest reads only the requested vendor', async () => {
   assert.match(src, /const patterns = opts\.provider \? PATTERNS\.filter/);
   assert.equal(typeof harvestCommonCrawl, 'function');
 
-  // And a provider with no pattern must say so rather than silently reading all.
-  await assert.rejects(
-    () => harvestCommonCrawl({ userAgent: 'test', crawl: 'x', provider: 'lever' }),
-    /no Common Crawl pattern/,
-  );
+  // A provider with no pattern returns nothing and does not throw. Throwing
+  // took the whole discovery workflow red on every run — see resilience.test.ts.
+  const none = await harvestCommonCrawl({ userAgent: 'test', crawl: 'x', provider: 'lever' });
+  assert.deepEqual(none.boards, []);
+  assert.deepEqual(none.reports, []);
 });
 
 test('a refused index page is counted, not swallowed', () => {

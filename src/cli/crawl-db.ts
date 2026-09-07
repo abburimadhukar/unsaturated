@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   // from crawl failures, however many times it failed.
   let boardNote = '';
   try {
-    const { recorded, deactivated } = await recordCrawlOutcomes(
+    const { recorded, deactivated, spared } = await recordCrawlOutcomes(
       feed.boards
         .filter((b) => b.token)
         .map((b) => ({
@@ -109,10 +109,18 @@ async function main(): Promise<void> {
           ok: !b.error,
           jobs: b.jobs,
           ...(b.error ? { error: b.error } : {}),
+          // Only 'gone' may retire a board. Everything else is the vendor
+          // having a bad day and is recorded without penalty.
+          ...(b.failure ? { failure: b.failure } : {}),
         })),
       config.maxConsecutiveFailures,
     );
-    boardNote = ` · ${recorded} boards recorded${deactivated ? `, ${deactivated} retired` : ''}`;
+    boardNote =
+      ` · ${recorded} boards recorded` +
+      (deactivated ? `, ${deactivated} retired` : '') +
+      // Named out loud: this number is the one that used to be silent
+      // deactivations, and it should be watched rather than assumed.
+      (spared ? `, ${spared} refused but kept` : '');
   } catch (err) {
     console.error('board outcomes not recorded:', err instanceof Error ? err.message : err);
   }

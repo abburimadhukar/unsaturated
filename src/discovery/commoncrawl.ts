@@ -25,6 +25,8 @@ import type { OpenBoard } from './opendata.js';
 
 const INDEX_HOST = 'https://index.commoncrawl.org';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 interface Pattern {
   provider: AtsProvider;
   /** CDX url pattern. */
@@ -122,14 +124,38 @@ const PATTERNS: Pattern[] = [
 const NOT_A_TOKEN =
   /^(embed|api|jobs?|search|apply|login|home|about|robots\.txt|sitemap\.xml|assets|static|images?|css|js|wday|en|en-us)$/i;
 
-async function cdx(url: string, userAgent: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: { 'user-agent': userAgent },
-    signal: AbortSignal.timeout(180_000),
-  });
-  if (res.status === 404) return '';
-  if (!res.ok) throw new Error(`CDX ${res.status}`);
-  return res.text();
+/**
+ * One page of the index, with patience.
+ *
+ * Common Crawl's query server sheds load under pressure — 502, 503 and 504 all
+ * appear — and a lost page is a silent hole in the candidate list, which is how
+ * boards the size of Airbnb went missing for weeks. A refusal is temporary, so
+ * it is worth waiting out: three attempts, doubling, rather than one and a
+ * shrug.
+ *
+ * A 404 still returns empty immediately. That is the index saying it holds
+ * nothing for this pattern, which no amount of retrying changes.
+ */
+async function cdx(url: string, userAgent: string, attempts = 3): Promise<string> {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(2_000 * 2 ** (attempt - 1));
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: { 'user-agent': userAgent },
+        signal: AbortSignal.timeout(180_000),
+      });
+    } catch {
+      continue;
+    }
+    if (res.status === 404) return '';
+    if (res.ok) return res.text();
+    lastStatus = res.status;
+    // 4xx other than 404 will not improve by asking again.
+    if (res.status < 500 && res.status !== 429) throw new Error(`CDX ${res.status}`);
+  }
+  throw new Error(`CDX ${lastStatus || 'unreachable'} after ${attempts} attempts`);
 }
 
 /** The most recent crawl collection, e.g. "CC-MAIN-2026-34". */
@@ -202,8 +228,6 @@ export interface HarvestReport {
   pagesRead: number;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /**
  * Reads every page of the index for each pattern.
  *
@@ -243,10 +267,15 @@ export async function harvestCommonCrawl(opts: {
   const seen = new Map<string, OpenBoard>();
   const reports: HarvestReport[] = [];
 
+  // A provider with no pattern is a fact, not an error. Lever is the case:
+  // jobs.lever.co/robots.txt carries `User-agent: CCBot / Disallow: /`, so the
+  // index holds 62 URLs for it and every one is the robots file. Its tokens
+  // come from the open dataset instead.
+  //
+  // This threw until now, which took the whole discovery workflow red on every
+  // single run — and a failure signal that fires every time is one nobody
+  // reads. Returning nothing lets the caller say so and move on.
   const patterns = opts.provider ? PATTERNS.filter((p) => p.provider === opts.provider) : PATTERNS;
-  if (opts.provider && patterns.length === 0) {
-    throw new Error(`no Common Crawl pattern for provider "${opts.provider}"`);
-  }
 
   for (const p of patterns) {
     const base = `${INDEX_HOST}/${crawl}-index?url=${encodeURIComponent(p.match)}&output=json`;

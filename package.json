@@ -32,7 +32,8 @@
     "backfill:spec": "tsx src/cli/backfill-spec.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
     "exclusions": "tsx src/cli/exclusions.ts",
-    "quiet:sql": "tsx src/cli/quiet-sql.ts"
+    "quiet:sql": "tsx src/cli/quiet-sql.ts",
+    "boards:revive": "tsx src/cli/boards-revive.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",

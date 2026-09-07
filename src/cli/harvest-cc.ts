@@ -46,6 +46,14 @@ async function main(): Promise<void> {
     onProgress: (m) => console.log(m),
   });
 
+  if (only && reports.length === 0) {
+    console.log(
+      `${only} has no Common Crawl pattern — its tokens come from the open dataset, ` +
+        'not the index. Nothing to harvest, and that is expected.',
+    );
+    return;
+  }
+
   const urls = reports.reduce((n, r) => n + r.urls, 0);
   console.log(`\n${used}: ${urls.toLocaleString()} indexed urls -> ${boards.length} distinct boards`);
 

@@ -146,28 +146,18 @@ test('interleaving is deterministic, so a shard still covers the same boards', (
   assert.deepEqual(first, second);
 });
 
-test('a rate limit is waited out once, not recorded as a failure', async () => {
-  // Nothing handled 429 anywhere in the crawler: a throttled board simply
-  // yielded nothing that run and recorded an error, which is how two providers
-  // came to be mostly missing from every crawl.
-  let calls = 0;
-  const ctx: FetchContext = {
-    userAgent: 'test',
-    timeoutMs: 5000,
-    fetchImpl: (async () => {
-      calls++;
-      return calls === 1
-        ? new Response('slow down', { status: 429, headers: { 'retry-after': '0' } })
-        : new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as unknown as typeof fetch,
-  };
-
-  const body = await getJson<{ ok: boolean }>('https://example.test/x', 'workable', 't', ctx);
-  assert.deepEqual(body, { ok: true });
-  assert.equal(calls, 2, 'should have retried exactly once');
-});
-
-test('a second rate limit is reported rather than retried forever', async () => {
+test('a rate limit costs exactly one request, never two', async () => {
+  // This test asserted the opposite this morning, and the opposite was wrong.
+  //
+  // Retrying once on 429 looked like the polite fix. Across three thousand
+  // Workable boards it sent a second request to the vendor that had just asked
+  // us to slow down: failures went from 42% to 90%, and because the crawler
+  // could not then tell a refusal from a death, 2,157 live companies were
+  // retired for it. Six sampled afterwards answered 200 with jobs still on them.
+  //
+  // Backing off is what a rate limit asks for, and that now lives in the
+  // per-provider limiter — which slows every LATER request to that vendor
+  // rather than hurrying this one.
   let calls = 0;
   const ctx: FetchContext = {
     userAgent: 'test',
@@ -178,7 +168,7 @@ test('a second rate limit is reported rather than retried forever', async () => 
     }) as unknown as typeof fetch,
   };
   await assert.rejects(() => getJson('https://example.test/x', 'workable', 't', ctx), /HTTP 429/);
-  assert.equal(calls, 2, 'one retry, then give up — eight workers looping is a retry storm');
+  assert.equal(calls, 1, 'a 429 must not be retried — that is what amplified the throttle');
 });
 
 test('a 404 is still answered immediately, with no rate-limit wait', async () => {

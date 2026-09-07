@@ -1,4 +1,4 @@
-import { AtsFetchError, type AtsProvider, type FetchContext } from './types.js';
+import { AtsFetchError, failureKindFor, type AtsProvider, type FetchContext } from './types.js';
 
 /**
  * Shared fetch wrapper for public ATS endpoints.
@@ -9,35 +9,33 @@ import { AtsFetchError, type AtsProvider, type FetchContext } from './types.js';
  * does exactly this), so that case is reported distinctly to keep the resolver
  * from marking a live board dead.
  */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 /**
- * How long to wait out a rate limit before the single retry.
+ * No retry here, deliberately — and this is a correction, not an omission.
  *
- * A 429 is the vendor asking us to slow down, not saying the board is gone —
- * but nothing here treated it that way, so a throttled board simply yielded
- * nothing for that hour and recorded a failure. Combined with crawling each
- * vendor in one contiguous block (see interleaveByProvider in corpus/live.ts),
- * that lost most of two entire providers every run.
+ * A retry-once on 429 was added this morning and made things measurably worse.
+ * Across three thousand Workable boards it sent a second request to the one
+ * vendor that had just asked us to slow down, so failures went from 42% to
+ * 90%, and the boards then walked into retirement five failures at a time.
+ * 2,157 live companies were switched off that way in an afternoon.
  *
- * One retry, not a loop: eight workers retrying forever is how polite polling
- * turns into a retry storm, and the crawl runs again in an hour anyway.
+ * Retrying is the right instinct for ONE unlucky request and exactly the wrong
+ * one at scale: it converts a rate limit into a load problem. Backing off is
+ * what a rate limit asks for, so the response lives in the per-provider limiter
+ * (src/corpus/rate-limit.ts) which slows every subsequent request to that
+ * vendor instead of hurrying this one.
+ *
+ * The crawl runs again in an hour. A board skipped now is read then, and
+ * nothing about it is recorded as a failure in the meantime.
  */
-const RATE_LIMIT_WAIT_MS = 2_000;
-const RATE_LIMIT_WAIT_MAX_MS = 10_000;
 
-/** `Retry-After` is either seconds or an HTTP date. Both appear in the wild. */
-function retryAfterMs(header: string | null): number {
-  if (!header) return RATE_LIMIT_WAIT_MS;
+/** How long the vendor asked us to wait, when it says. */
+export function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
   const secs = Number(header);
-  if (Number.isFinite(secs) && secs > 0) {
-    return Math.min(secs * 1000, RATE_LIMIT_WAIT_MAX_MS);
-  }
+  if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 60_000);
   const at = Date.parse(header);
-  if (!Number.isNaN(at)) {
-    return Math.min(Math.max(at - Date.now(), 0), RATE_LIMIT_WAIT_MAX_MS);
-  }
-  return RATE_LIMIT_WAIT_MS;
+  if (!Number.isNaN(at)) return Math.min(Math.max(at - Date.now(), 0), 60_000);
+  return null;
 }
 
 async function request(
@@ -48,35 +46,24 @@ async function request(
   init?: RequestInit,
 ): Promise<Response> {
   const doFetch = ctx.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ctx.timeoutMs);
 
-  for (let attempt = 0; ; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ctx.timeoutMs);
-
-    try {
-      const res = await doFetch(url, {
-        ...init,
-        signal: controller.signal,
-        headers: {
-          'user-agent': ctx.userAgent,
-          accept: 'application/json, text/xml;q=0.9, */*;q=0.8',
-          ...(init?.headers ?? {}),
-        },
-      });
-
-      // Wait it out once, then take whatever the second answer is.
-      if (res.status === 429 && attempt === 0) {
-        clearTimeout(timer);
-        await sleep(retryAfterMs(res.headers.get('retry-after')));
-        continue;
-      }
-
-      return handleStatus(res, provider, token);
-    } catch (err) {
-      throw asFetchError(err, provider, token, ctx);
-    } finally {
-      clearTimeout(timer);
-    }
+  try {
+    const res = await doFetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'user-agent': ctx.userAgent,
+        accept: 'application/json, text/xml;q=0.9, */*;q=0.8',
+        ...(init?.headers ?? {}),
+      },
+    });
+    return handleStatus(res, provider, token);
+  } catch (err) {
+    throw asFetchError(err, provider, token, ctx);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -95,7 +82,8 @@ function handleStatus(res: Response, provider: AtsProvider, token: string): Resp
       provider,
       token,
       res.status,
-    );
+      failureKindFor(res.status),
+      );
   }
   return res;
 }
@@ -107,17 +95,24 @@ function asFetchError(
   ctx: FetchContext,
 ): AtsFetchError {
   if (err instanceof AtsFetchError) return err;
+  // A timeout or a dropped connection tells us about the network, never about
+  // the board — so both default to 'refused' and neither counts toward
+  // retirement.
   if (err instanceof Error && err.name === 'AbortError') {
     return new AtsFetchError(
       `${provider}/${token}: timed out after ${ctx.timeoutMs}ms`,
       provider,
       token,
+      undefined,
+      'refused',
     );
   }
   return new AtsFetchError(
     `${provider}/${token}: ${err instanceof Error ? err.message : String(err)}`,
     provider,
     token,
+    undefined,
+    'refused',
   );
 }
 

@@ -1,0 +1,60 @@
+# Brings back boards that were retired for refusing us rather than for dying.
+#
+# On 6 September 2026 the crawler retired 2,263 boards in an afternoon. 2,185
+# carried an HTTP 429 — a rate limit — against 16 that were genuinely 404. Six
+# sampled at random answered 200 with between 3 and 86 live jobs still on them.
+#
+# The cause is fixed in the crawler: a refusal no longer advances the counter
+# that ends in deactivation. This undoes the damage already done.
+#
+# Manual only. Reviving boards is a repair, not routine work, and if it ever
+# needs running twice something upstream is still wrong.
+name: revive
+
+on:
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Report what would come back, without writing'
+        type: boolean
+        default: true
+
+jobs:
+  revive:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: revive
+      cancel-in-progress: false
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no'
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          exit 1
+
+      - name: Revive
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ "${{ inputs.dryRun }}" = "true" ]; then
+            npm run boards:revive -- --dry-run
+          else
+            npm run boards:revive
+          fi
