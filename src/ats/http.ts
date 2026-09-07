@@ -83,11 +83,19 @@ async function request(
 async function refusalDetail(res: Response): Promise<RefusalDetail> {
   const limitHeaders: Record<string, string> = {};
   for (const [k, v] of res.headers) {
+    // Rate-limit headers say how much budget is left. The others say WHO is
+    // refusing — an API's own limiter and a CDN's bot protection look identical
+    // from a status code and want completely different responses.
     if (/^(x-)?rate-?limit|^retry-after$|^x-ratelimit/i.test(k)) limitHeaders[k.toLowerCase()] = v;
+    else if (/^(server|cf-ray|cf-mitigated|x-served-by|via|x-cache)$/i.test(k)) {
+      limitHeaders[k.toLowerCase()] = v;
+    }
   }
   let body: string | undefined;
   try {
-    body = (await res.text()).slice(0, 200).replace(/\s+/g, ' ').trim() || undefined;
+    // Enough to reach the <title>, which is usually where a block page names
+    // itself. 200 characters stopped inside the <head> and told us nothing.
+    body = (await res.text()).slice(0, 700).replace(/\s+/g, ' ').trim() || undefined;
   } catch {
     // A body we cannot read is not worth failing over.
   }
