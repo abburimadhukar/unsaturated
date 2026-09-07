@@ -134,8 +134,18 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
 
   // Deduplicate before writing: Postgres rejects an upsert that touches the same
   // row twice in one statement, and a company can appear in two source files.
+  //
+  // CASE-INSENSITIVELY, because that is what a board's identity is here — these
+  // APIs return the same jobs for `cleric` and `Cleric`. This key was case
+  // sensitive, and the seed file happens to contain both spellings of ten
+  // companies, so adopting it inserted `cleric` AND `Cleric` as separate active
+  // boards: two rows, two crawls, and every posting stored twice under two job
+  // keys. Twelve pairs were created in one run before this was folded.
+  //
+  // The last spelling wins, which is arbitrary and fine — they address the same
+  // board. What matters is that only one is written.
   const byKey = new Map<string, StoredBoard>();
-  for (const b of boards) byKey.set(`${b.provider}:${b.token}`, b);
+  for (const b of boards) byKey.set(`${b.provider}:${b.token.toLowerCase()}`, b);
 
   const rows = [...byKey.values()].map((b) => ({
     provider: b.provider,

@@ -38,6 +38,35 @@ const DEFAULT_MAX_JOBS = 300;
  * at any time, and the crawl only ever gains boards. The database wins on
  * conflict, since it carries verification state the file does not.
  */
+/**
+ * The crawl list: the seed file and the registry, as one set of boards.
+ *
+ * KEYED CASE-INSENSITIVELY, because these APIs are and the two sources disagree.
+ *
+ * The file holds `vultr`, the registry holds `Vultr`, and a case-sensitive key
+ * kept both — so the crawler fetched one board twice under two names. A job key
+ * is provider:token:id, so both copies stored the SAME posting under different
+ * keys and both reached the site. Measured 7 Sep 2026: Snowflake listed twice
+ * with 81 jobs each, Canva twice with 44, TogetherAI twice with 10, across 89
+ * such pairs.
+ *
+ * boards-dedupe could never catch this one. It compares rows in the `boards`
+ * table, and the duplicate half was never a row — it came from the file.
+ *
+ * The database entry is applied second and therefore wins, which is what we
+ * want: it is the copy carrying verification, health and retirement.
+ *
+ * Pure and exported so the rule can be tested without a database.
+ */
+export function mergeBoards(fromFile: CorpusBoard[], fromDb: CorpusBoard[]): Map<string, CorpusBoard> {
+  const key = (b: { provider: string; token: string }) =>
+    `${b.provider}:${b.token.toLowerCase()}`;
+  const merged = new Map<string, CorpusBoard>();
+  for (const b of fromFile) merged.set(key(b), b);
+  for (const b of fromDb) merged.set(key(b), { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });
+  return merged;
+}
+
 export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
   const fromFile = loadBoards();
 
@@ -50,11 +79,7 @@ export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
   }
   if (!fromDb || fromDb.length === 0) return fromFile;
 
-  const merged = new Map<string, CorpusBoard>();
-  for (const b of fromFile) merged.set(`${b.provider}:${b.token}`, b);
-  for (const b of fromDb) {
-    merged.set(`${b.provider}:${b.token}`, { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });
-  }
+  const merged = mergeBoards(fromFile, fromDb);
 
   // Applied after the merge, not before. Deactivating a board in the database is
   // not enough on its own: the file is merged in too, so a blocked board that
@@ -64,7 +89,8 @@ export async function loadBoardsAsync(): Promise<CorpusBoard[]> {
     const { loadBlocklist, blockKey } = await import('./blocklist.js');
     const blocked = await loadBlocklist();
     if (blocked.size > 0) {
-      for (const key of merged.keys()) if (blocked.has(key)) merged.delete(key);
+      // blockKey folds case as well, so both sides of this comparison agree.
+      for (const k of merged.keys()) if (blocked.has(k)) merged.delete(k);
     }
   } catch (err) {
     // An unreadable blocklist must not stop the crawl.

@@ -61,7 +61,8 @@ async function main(): Promise<void> {
   const dupes = [...groups].filter(([, tokens]) => tokens.length > 1);
 
   if (dupes.length === 0) {
-    console.log('No case-variant duplicates. Nothing to merge.');
+    console.log('No case-variant duplicates to merge.');
+    await closeUnregisteredSpellings(client, dryRun);
     return;
   }
 
@@ -139,6 +140,86 @@ async function main(): Promise<void> {
     return;
   }
   console.log(`\nMerged ${merged} duplicate boards and closed ${closed} duplicate postings.`);
+
+  await closeUnregisteredSpellings(client, dryRun);
+}
+
+
+/**
+ * Closes postings stored under a spelling that is not a registered board.
+ *
+ * The pass above compares rows in `boards`. This one catches the duplicate that
+ * never had a row at all: the seed file spelled a company `vultr` while the
+ * registry spelled it `Vultr`, the crawl list kept both because its merge key
+ * was case sensitive, and the crawler fetched one board twice. A job key is
+ * provider:token:id, so each posting was stored under two keys and shown twice
+ * — Snowflake with 81 jobs twice, Canva with 44, TogetherAI with 10, across 89
+ * pairs.
+ *
+ * mergeBoards folds case now, so no new ones appear. These are the ones already
+ * made, and they need closing explicitly: the losing spelling stops being
+ * crawled entirely, and writeFeed only closes postings on boards it actually
+ * read, so nothing else would ever touch them.
+ *
+ * A token with no registered board of ANY spelling is left alone — that is a
+ * retired board, and closing its postings is retirement's job.
+ */
+async function closeUnregisteredSpellings(
+  client: ReturnType<typeof dbWrite>,
+  dryRun: boolean,
+): Promise<void> {
+  const active = new Map<string, string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from('boards').select('provider,token').eq('active', true)
+      .order('provider', { ascending: true }).order('token', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error('could not read boards: ' + error.message);
+    const rows = (data ?? []) as unknown as { provider: string; token: string }[];
+    for (const b of rows) active.set(b.provider + ':' + b.token.toLowerCase(), b.token);
+    if (rows.length < PAGE) break;
+  }
+
+  const pairs = new Set<string>();
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await client
+      .from('jobs').select('provider,board_token').is('closed_at', null)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error('could not read jobs: ' + error.message);
+    const rows = (data ?? []) as unknown as { provider: string; board_token: string }[];
+    for (const j of rows) pairs.add(j.provider + '|' + j.board_token);
+    if (rows.length < PAGE) break;
+  }
+
+  const orphans: { provider: string; token: string; keep: string }[] = [];
+  for (const pair of pairs) {
+    const at = pair.indexOf('|');
+    const provider = pair.slice(0, at);
+    const token = pair.slice(at + 1);
+    const keep = active.get(provider + ':' + token.toLowerCase());
+    if (keep && keep !== token) orphans.push({ provider, token, keep });
+  }
+
+  if (orphans.length === 0) {
+    console.log('No postings under an unregistered spelling.');
+    return;
+  }
+  console.log(orphans.length + ' spelling(s) hold postings the registry does not carry:');
+  for (const o of orphans.slice(0, 12)) console.log('  ' + o.provider + '/' + o.token + ' -> ' + o.keep);
+  if (dryRun) {
+    console.log('--dry-run: nothing closed.');
+    return;
+  }
+  let n = 0;
+  for (const o of orphans) {
+    const { error, count } = await client
+      .from('jobs')
+      .update({ closed_at: new Date().toISOString() }, { count: 'exact' })
+      .eq('provider', o.provider).eq('board_token', o.token).is('closed_at', null);
+    if (error) console.error('could not close ' + o.provider + '/' + o.token + ': ' + error.message);
+    else n += count ?? 0;
+  }
+  console.log('Closed ' + n + ' duplicate posting(s).');
 }
 
 main().catch((err) => {

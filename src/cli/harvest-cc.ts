@@ -14,7 +14,6 @@
 import { config } from '../config.js';
 import { harvestCommonCrawl } from '../discovery/commoncrawl.js';
 import { summariseVerification, verifyBoards } from '../discovery/verify.js';
-import { loadBoardsAsync } from '../corpus/boards.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
 function arg(name: string): string | undefined {
@@ -94,7 +93,30 @@ async function main(): Promise<void> {
     console.log('  A candidate missing from this run is not evidence that a board is gone.');
   }
 
-  const known = new Set((await loadBoardsAsync()).map(keyOf));
+  // THE REGISTRY, NOT THE CRAWL LIST.
+  //
+  // This used to ask for the merged crawl list, which folds the seed file into the
+  // database. 1,287 of the file's 1,437 entries had no row in `boards`, and
+  // every one of them was therefore reported as "already registered" and
+  // skipped before verification — every run, for a week. They were crawled (the
+  // crawler merges the same file) so no jobs were lost, but nothing could
+  // retire them, re-verify them or dedupe them, because all of that keys off a
+  // row in `boards`.
+  //
+  // "Already registered" has to mean "in the registry". Asking the thing we are
+  // about to write to is the only definition that cannot drift.
+  const { readActiveBoards } = await import('../corpus/board-store.js');
+  const registered = await readActiveBoards();
+  // null means the registry could not be read. Carrying on would treat every
+  // board on earth as new, re-verify twenty thousand of them, and re-add the
+  // ones deliberately retired. Stop instead — discovery has to write to this
+  // same database a minute later anyway.
+  if (registered === null) {
+    console.error('Could not read the board registry. Refusing to harvest against an unknown registry.');
+    process.exitCode = 1;
+    return;
+  }
+  const known = new Set(registered.map(keyOf));
   // Sliced by vendor rather than by count, so several runs in parallel still
   // give each ATS exactly one request per second. Splitting by count instead
   // would point every runner at every vendor at once, which is how Greenhouse

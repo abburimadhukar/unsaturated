@@ -38,7 +38,20 @@ function slot(): Slot {
   return g[CACHE_KEY]!;
 }
 
-export const blockKey = (provider: string, token: string) => `${provider}:${token}`;
+/**
+ * The key a block is matched on. LOWERCASED, for two reasons.
+ *
+ * These ATS APIs are case-insensitive — greenhouse/babylist and
+ * greenhouse/Babylist return the same 46 jobs — so a case-sensitive block was a
+ * block anyone could walk around by spelling the token differently, and the web
+ * archive supplies both spellings routinely.
+ *
+ * It also has to agree with loadBoardsAsync, which now folds case when it
+ * merges the file with the registry. A block compared against a folded key
+ * would simply never match.
+ */
+export const blockKey = (provider: string, token: string) =>
+  `${provider}:${token.toLowerCase()}`;
 
 /**
  * The blocked set, or an empty set if it cannot be read.
