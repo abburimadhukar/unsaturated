@@ -1,4 +1,4 @@
-import type { AtsProvider } from '../ats/types.js';
+import type { AtsProvider, RefusalDetail } from '../ats/types.js';
 
 /**
  * How fast we may poll each vendor, learned during the run.
@@ -35,6 +35,43 @@ import type { AtsProvider } from '../ats/types.js';
  * limits is never held to yesterday's guess.
  */
 
+/**
+ * What we already know about a vendor, so we stop learning it by overshooting.
+ *
+ * The limiter finds a vendor's ceiling by exceeding it and retreating. That is
+ * the right algorithm when nothing is known and the wrong one when something
+ * is: opening at 8 requests in flight 120ms apart is roughly 60 a second, and
+ * against Workable's published 10-per-10-seconds that is sixty times over. We
+ * blew the budget in the first second of every crawl and then spent the rest of
+ * it being refused — 2,480 boards an hour, all of that allowance spent on being
+ * told no rather than on answers.
+ *
+ * A published limit is data. Starting AT it costs one line and buys the whole
+ * budget back.
+ *
+ * Measured 6 Sep 2026: from a residential IP, Workable served 120 requests at
+ * 8 in flight — 40 a second — with not one refusal, at forty times its own
+ * documented rate. From GitHub's runners the same boards refuse constantly. So
+ * the budget follows the IP range, not the request pattern, and the number here
+ * is deliberately conservative: it is sized so the lane finishes inside the
+ * crawl window even if the real allowance is far tighter than the documentation
+ * claims.
+ *
+ *   3,019 Workable boards ÷ 4 shards = 755 per runner
+ *   at 1 request a second        = 12.6 minutes
+ *   crawl budget                 = 40 minutes
+ */
+export const KNOWN_BUDGETS: Record<string, { concurrency: number; gapMs: number }> = {
+  // https://workable.readme.io/reference/rate-limits — 10 requests / 10 seconds.
+  // One at a time, one second apart: exactly the documented rate, and nothing
+  // is gained by arriving faster than a vendor will answer.
+  workable: { concurrency: 1, gapMs: 1000 },
+  // Refused 66% of its boards before the crawl order was fixed, and 0% after —
+  // so it is not tight, but it is not Greenhouse either.
+  recruitee: { concurrency: 3, gapMs: 200 },
+  personio: { concurrency: 3, gapMs: 200 },
+};
+
 export interface LimiterOptions {
   /** Workers a provider may hold at once before anything is learned. */
   startConcurrency?: number;
@@ -57,6 +94,10 @@ interface ProviderState {
   refusals: number;
   /** Set when a vendor sent Retry-After; nothing is sent until it passes. */
   pausedUntil: number;
+  /** The floor this vendor may not be eased back above. */
+  ceiling: number;
+  /** What the vendor said the first time it refused. Logged once. */
+  firstRefusal?: RefusalDetail;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -79,14 +120,20 @@ export class ProviderLimiter {
   private for(provider: string): ProviderState {
     let s = this.state.get(provider);
     if (!s) {
+      // A published limit beats a discovered one. Only vendors we know nothing
+      // about start at the general pace and find their own ceiling.
+      const known = KNOWN_BUDGETS[provider];
       s = {
-        concurrency: this.opt.startConcurrency,
-        gapMs: this.opt.startGapMs,
+        concurrency: known?.concurrency ?? this.opt.startConcurrency,
+        gapMs: known?.gapMs ?? this.opt.startGapMs,
         inFlight: 0,
         nextFreeAt: 0,
         cleanRun: 0,
         refusals: 0,
         pausedUntil: 0,
+        // Recovery never climbs past a vendor's own published rate — easing a
+        // known limit upward is how we got here.
+        ceiling: known?.concurrency ?? this.opt.maxConcurrency,
       };
       this.state.set(provider, s);
     }
@@ -128,9 +175,16 @@ export class ProviderLimiter {
    * beats a guessed one — capped, so a vendor asking for an hour does not park
    * the whole crawl.
    */
-  refused(provider: AtsProvider | string, retryAfterMs?: number | null): void {
+  refused(
+    provider: AtsProvider | string,
+    retryAfterMs?: number | null,
+    detail?: RefusalDetail,
+  ): void {
     const s = this.for(provider);
     s.refusals++;
+    // Kept from the FIRST refusal only. After that the vendor is repeating
+    // itself and a thousand copies of the same header teach nothing.
+    if (!s.firstRefusal && detail) s.firstRefusal = detail;
     s.cleanRun = 0;
     s.concurrency = Math.max(this.opt.minConcurrency, Math.floor(s.concurrency / 2));
     s.gapMs = Math.min(this.opt.maxGapMs, Math.max(this.opt.startGapMs, s.gapMs * 2));
@@ -145,20 +199,27 @@ export class ProviderLimiter {
     s.cleanRun++;
     if (s.cleanRun < this.opt.recoverAfter) return;
     s.cleanRun = 0;
-    if (s.concurrency < this.opt.maxConcurrency) s.concurrency++;
+    if (s.concurrency < s.ceiling) s.concurrency++;
     if (s.gapMs > this.opt.startGapMs) {
       s.gapMs = Math.max(this.opt.startGapMs, Math.round(s.gapMs * 0.7));
     }
   }
 
   /** What each vendor taught us, for the run summary. */
-  report(): { provider: string; concurrency: number; gapMs: number; refusals: number }[] {
+  report(): {
+    provider: string;
+    concurrency: number;
+    gapMs: number;
+    refusals: number;
+    firstRefusal?: RefusalDetail;
+  }[] {
     return [...this.state]
       .map(([provider, s]) => ({
         provider,
         concurrency: s.concurrency,
         gapMs: s.gapMs,
         refusals: s.refusals,
+        ...(s.firstRefusal ? { firstRefusal: s.firstRefusal } : {}),
       }))
       .filter((r) => r.refusals > 0 || r.gapMs > this.opt.startGapMs)
       .sort((a, b) => b.refusals - a.refusals);

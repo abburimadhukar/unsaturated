@@ -1,4 +1,5 @@
 import { getAdapter } from '../ats/adapters/index.js';
+import { retryAfterMs } from '../ats/http.js';
 import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
@@ -333,6 +334,8 @@ async function loadBoard(board: CorpusBoard, now: number) {
     // that simply would not serve us. Anything we cannot classify is 'refused',
     // which is the answer that never costs a live board.
     health.failure = err instanceof AtsFetchError ? err.failure : 'refused';
+    // Carried so the limiter can print, once per vendor, exactly what it said.
+    if (err instanceof AtsFetchError && err.detail) health.refusal = err.detail;
   }
 
   health.ms = Date.now() - started;
@@ -413,48 +416,98 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
     // at the same vendor at the same moment.
     const boards = sliceForShard(interleaveByProvider(await loadBoardsAsync()), shard);
 
-    // Bounded pool — firing 200+ simultaneous requests at these vendors would be
-    // abusive and would get the crawler rate-limited within a single refresh.
+    // ONE LANE PER VENDOR, ALL RUNNING AT ONCE.
     //
-    // The pool is global; the LIMITER is per vendor. A worker that picks up a
-    // Workable board waits for Workable's budget, and one that picks up a
-    // Greenhouse board does not — which is the whole point. One global speed
-    // can only be tuned for the slowest vendor or the fastest, and tuning it
-    // for the fastest is what retired 2,157 live Workable boards.
+    // There used to be a single pool of eight workers walking one interleaved
+    // list. That made every vendor share one speed: a worker waiting on
+    // Workable's one-request-a-second could not serve Greenhouse in the
+    // meantime, so the slowest vendor set the pace for all of them and
+    // Workable's 3,019 boards queued behind twenty thousand others.
+    //
+    // Lanes remove the contention entirely. Greenhouse runs flat out and
+    // finishes in minutes; Workable takes its own steady pace ALONGSIDE it
+    // rather than afterwards. Nothing is skipped and nothing waits its turn —
+    // the run simply lasts as long as its slowest lane, not as long as the sum.
+    //
+    //   3,019 Workable boards ÷ 4 shards = 755 per runner
+    //   at one a second                  = 12.6 minutes
+    //   crawl budget                     = 40 minutes
     const limiter = new ProviderLimiter({
       startConcurrency: Math.max(2, Math.floor(config.concurrency / 2)),
       maxConcurrency: config.concurrency,
       startGapMs: config.delayMs,
     });
 
+    const lanes = new Map<string, CorpusBoard[]>();
+    for (const board of boards) {
+      const lane = lanes.get(board.provider) ?? [];
+      lane.push(board);
+      lanes.set(board.provider, lane);
+    }
+
     const results: { jobs: FeedJob[]; health: BoardHealth }[] = [];
-    let cursor = 0;
-    // config.concurrency, not a hardcoded 8: setting CRAWLER_CONCURRENCY in the
-    // workflow had no effect at all on the path that workflow actually runs.
-    const workers = Array.from({ length: Math.min(config.concurrency, boards.length) }, async () => {
-      while (cursor < boards.length) {
-        const board = boards[cursor++];
-        if (!board) break;
-        await limiter.acquire(board.provider);
-        try {
-          const result = await loadBoard(board, now);
-          // Teach the limiter what this vendor just did. A refusal slows every
-          // subsequent request to it; nothing else changes speed at all.
-          if (result.health.failure === 'refused') limiter.refused(board.provider);
-          else limiter.succeeded(board.provider);
-          results.push(result);
-        } finally {
-          limiter.release(board.provider);
-        }
-      }
-    });
-    await Promise.all(workers);
+    /** Lanes that ran out of time rather than out of boards. */
+    const unfinished: { provider: string; done: number; total: number }[] = [];
+
+    await Promise.all(
+      [...lanes].map(async ([provider, list]) => {
+        let cursor = 0;
+        // Sized to what this vendor tolerates. A lane never needs more workers
+        // than the limiter will let it hold at once.
+        const width = Math.min(config.concurrency, list.length);
+        await Promise.all(
+          Array.from({ length: width }, async () => {
+            while (cursor < list.length) {
+              const board = list[cursor++];
+              if (!board) break;
+              await limiter.acquire(provider);
+              try {
+                const result = await loadBoard(board, now);
+                // Teach the limiter what this vendor just did. A refusal slows
+                // every subsequent request to it; nothing else changes speed.
+                if (result.health.failure === 'refused') {
+                  limiter.refused(
+                    provider,
+                    retryAfterMs(result.health.refusal?.retryAfter ?? null),
+                    result.health.refusal,
+                  );
+                }
+                else limiter.succeeded(provider);
+                results.push(result);
+              } finally {
+                limiter.release(provider);
+              }
+            }
+          }),
+        );
+        if (cursor < list.length) unfinished.push({ provider, done: cursor, total: list.length });
+      }),
+    );
 
     // Only vendors that actually pushed back appear here, so a clean run says
-    // nothing and a throttled one names the vendor and the speed it settled at.
+    // nothing and a throttled one names the vendor, the speed it settled at,
+    // and — the part we spent a day guessing at — what the vendor itself said.
     for (const r of limiter.report()) {
       console.log(
-        `  ${r.provider}: backed off to ${r.concurrency} at a time, ${r.gapMs}ms apart (${r.refusals} refusals)`,
+        `  ${r.provider}: settled at ${r.concurrency} at a time, ${r.gapMs}ms apart (${r.refusals} refusals)`,
+      );
+      if (r.firstRefusal) {
+        const d = r.firstRefusal;
+        const parts = [
+          `status ${d.status}`,
+          ...(d.retryAfter ? [`retry-after: ${d.retryAfter}`] : []),
+          ...(d.limitHeaders ? [JSON.stringify(d.limitHeaders)] : []),
+          ...(d.body ? [`body: ${d.body}`] : []),
+        ];
+        console.log(`    what ${r.provider} actually said — ${parts.join(' · ')}`);
+      }
+    }
+
+    // A lane that did not reach the end of its list read fewer boards than the
+    // registry holds, and a run that under-covers must never look complete.
+    for (const u of unfinished) {
+      console.log(
+        `  WARNING: ${u.provider} read ${u.done} of ${u.total} boards before the run ended`,
       );
     }
 

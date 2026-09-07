@@ -106,6 +106,8 @@ export interface BoardHealth {
    * retire one — 2,185 of 2,263 retirements were 429s before this existed.
    */
   failure?: 'gone' | 'refused';
+  /** What the vendor said when it refused. Reported once per vendor per run. */
+  refusal?: import('../ats/types.js').RefusalDetail;
 }
 
 export interface Feed {

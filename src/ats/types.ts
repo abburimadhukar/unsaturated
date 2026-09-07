@@ -104,6 +104,25 @@ export interface FetchContext {
  */
 export type FetchFailure = 'gone' | 'refused';
 
+/**
+ * What the vendor said when it turned us away.
+ *
+ * Captured because we have spent a day guessing. Workable refuses 2,480 boards
+ * an hour from GitHub's runners and refuses nothing at all from a laptop, at
+ * forty times its own documented rate — so the budget is attached to the IP
+ * range, not the request pattern, and no amount of local testing can size it.
+ * The vendor is the only one who knows, and it usually says in a header.
+ */
+export interface RefusalDetail {
+  status?: number;
+  /** Seconds the vendor asked us to wait, verbatim. */
+  retryAfter?: string;
+  /** Any header naming a limit, a remaining budget or a reset time. */
+  limitHeaders?: Record<string, string>;
+  /** The first of the body, which sometimes explains what a status cannot. */
+  body?: string;
+}
+
 export class AtsFetchError extends Error {
   constructor(
     message: string,
@@ -112,6 +131,8 @@ export class AtsFetchError extends Error {
     readonly status?: number,
     /** Defaults to 'refused': the safe answer when we cannot tell. */
     readonly failure: FetchFailure = 'refused',
+    /** Only populated for refusals, and only worth reading once per vendor. */
+    readonly detail?: RefusalDetail,
   ) {
     super(message);
     this.name = 'AtsFetchError';

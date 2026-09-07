@@ -1,4 +1,10 @@
-import { AtsFetchError, failureKindFor, type AtsProvider, type FetchContext } from './types.js';
+import {
+  AtsFetchError,
+  failureKindFor,
+  type AtsProvider,
+  type FetchContext,
+  type RefusalDetail,
+} from './types.js';
 
 /**
  * Shared fetch wrapper for public ATS endpoints.
@@ -59,7 +65,7 @@ async function request(
         ...(init?.headers ?? {}),
       },
     });
-    return handleStatus(res, provider, token);
+    return await handleStatus(res, provider, token);
   } catch (err) {
     throw asFetchError(err, provider, token, ctx);
   } finally {
@@ -67,7 +73,37 @@ async function request(
   }
 }
 
-function handleStatus(res: Response, provider: AtsProvider, token: string): Response {
+/**
+ * Reads a refusal for what it actually says.
+ *
+ * Only on the error path, so it costs nothing on a healthy crawl — and error
+ * bodies are small. This exists because a status code alone has not been enough
+ * to explain why one vendor refuses from a datacenter and not from a laptop.
+ */
+async function refusalDetail(res: Response): Promise<RefusalDetail> {
+  const limitHeaders: Record<string, string> = {};
+  for (const [k, v] of res.headers) {
+    if (/^(x-)?rate-?limit|^retry-after$|^x-ratelimit/i.test(k)) limitHeaders[k.toLowerCase()] = v;
+  }
+  let body: string | undefined;
+  try {
+    body = (await res.text()).slice(0, 200).replace(/\s+/g, ' ').trim() || undefined;
+  } catch {
+    // A body we cannot read is not worth failing over.
+  }
+  return {
+    status: res.status,
+    ...(res.headers.get('retry-after') ? { retryAfter: res.headers.get('retry-after')! } : {}),
+    ...(Object.keys(limitHeaders).length ? { limitHeaders } : {}),
+    ...(body ? { body } : {}),
+  };
+}
+
+async function handleStatus(
+  res: Response,
+  provider: AtsProvider,
+  token: string,
+): Promise<Response> {
   if (!res.ok) {
     const hint =
       res.status === 403
@@ -77,13 +113,16 @@ function handleStatus(res: Response, provider: AtsProvider, token: string): Resp
           : res.status === 429
             ? ' (429 is rate limiting — the board is fine, we asked too fast)'
             : '';
+    const kind = failureKindFor(res.status);
     throw new AtsFetchError(
       `${provider}/${token}: HTTP ${res.status}${hint}`,
       provider,
       token,
       res.status,
-      failureKindFor(res.status),
-      );
+      kind,
+      // Only for refusals. A 404 has nothing to explain.
+      kind === 'refused' ? await refusalDetail(res) : undefined,
+    );
   }
   return res;
 }
