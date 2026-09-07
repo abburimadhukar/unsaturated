@@ -198,7 +198,18 @@ async function main(): Promise<void> {
         verified_at: new Date().toISOString(),
         last_error: `adopted from the seed file, verified gone ${today} (HTTP ${r.status ?? '?'})`,
       }));
-      const { error } = await client.from('boards').upsert(rows, { onConflict: 'provider,token' });
+      // (provider, token, site) — the identity the 2026-09-07 migration
+      // installed. This still said (provider, token), which no longer exists as
+      // a constraint, so recording a dead board failed with "no unique or
+      // exclusion constraint matching the ON CONFLICT specification" and the
+      // board was silently not written down.
+      //
+      // Falls back for a database where the migration has not been applied yet,
+      // the same way upsertBoards does, so this works either side of it.
+      let { error } = await client.from('boards').upsert(rows, { onConflict: 'provider,token,site' });
+      if (error && /site|constraint/i.test(error.message)) {
+        ({ error } = await client.from('boards').upsert(rows, { onConflict: 'provider,token' }));
+      }
       if (error) console.error(`could not record dead boards: ${error.message}`);
       else recorded += rows.length;
     }

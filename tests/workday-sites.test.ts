@@ -209,3 +209,25 @@ test('every migration on disk is listable', async () => {
   assert.ok(files.length >= 10, `expected the migration folder to be populated, saw ${files.length}`);
   assert.ok(files.includes('2026-09-07-workday-sites.sql'));
 });
+
+test('every write path conflicts on the identity the table actually has', () => {
+  // The migration replaced unique (provider, token) with (provider, token,
+  // site). A write still naming the old target fails with "no unique or
+  // exclusion constraint matching the ON CONFLICT specification" — which is
+  // exactly what happened to boards-adopt's dead-board path, so a board that
+  // had gone was silently never written down.
+  for (const file of ['../src/corpus/board-store.ts', '../src/cli/boards-adopt.ts']) {
+    const src = read(file);
+    // Matched on the target string itself, not on `onConflict:` — board-store
+    // assigns it to a variable so it can fall back.
+    assert.ok(
+      src.includes("'provider,token,site'"),
+      `${file} must conflict on provider,token,site`,
+    );
+    // A bare (provider, token) is allowed ONLY as the documented fallback for a
+    // database where the migration has not landed yet.
+    if (/'provider,token'/.test(src)) {
+      assert.match(src, /fall(s|ing)? ?back/i, `${file} uses the old target without saying it is a fallback`);
+    }
+  }
+});
