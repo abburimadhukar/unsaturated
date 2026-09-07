@@ -54,6 +54,57 @@ be a few hundred boards or a few thousand.
 
 ---
 
+## 0b. Workable is a Cloudflare challenge — settled, do not reopen
+
+**7 September 2026. This one is closed. The evidence is here so nobody spends
+another day on it.**
+
+Workable refused 2,480–2,721 boards an hour, every hour, and the pacing work did
+not touch it. Slowing to the limiter's floor — one request every four seconds —
+still drew ~700 refusals per shard, while a laptop at forty requests a second
+drew none at all.
+
+The crawler now captures what a vendor says when it refuses, and Workable named
+itself:
+
+```
+status 429 · cf-mitigated: challenge · server: cloudflare
+             <title>Security challenge</title>
+```
+
+`cf-mitigated: challenge` is **Cloudflare bot management**, not a rate limiter.
+Workable's API documents `X-Rate-Limit-Remaining` and `X-Rate-Limit-Reset`; none
+were present, and the body is an HTML challenge page carrying `noindex`. This is
+Cloudflare deciding that GitHub's Azure ranges are a bot, and it cannot be
+passed by an HTTP client — that is the entire purpose of it.
+
+**Why there is no fix worth taking:**
+
+- Sending a browser `User-Agent` to look like something we are not contradicts
+  this project's own rule (honest user-agent, good citizen) and is an arms race
+  against a company whose business is winning it.
+- Workable's official API issues tokens **per employer**, granted by each
+  company. There is no key that covers 3,000 of them.
+- Running the lane from a different IP means running it off GitHub Actions,
+  which is the only infrastructure this project has.
+
+**Why it barely matters anyway.** Measured 7 Sep:
+
+```
+smartrecruiters   607 boards →  5,594 jobs   9.22 per board
+greenhouse      5,268 boards → 13,272 jobs   2.52 per board
+ashby           3,003 boards →  6,382 jobs   2.13 per board
+workable        3,019 boards →  1,940 jobs   0.64 per board
+```
+
+Workable is 13% of the registry and about 3% of the jobs, and it is one of the
+weakest providers we have even when read perfectly. The boards stay registered,
+the few hundred that get through each hour still update, and nothing degrades.
+
+**Leave it.**
+
+---
+
 ## 1. Free wins — adapter exists, discovery never wired
 
 Four providers have working adapters and **no Common Crawl pattern at all**, so
@@ -93,6 +144,37 @@ Worth a deeper look at page 2 before spending time on it.
 
 Not multi-tenant. One US federal API and one NYC open-data feed. Their adapters
 are correct as they are.
+
+---
+
+## 1b. SmartRecruiters has a second domain too — and it is the best board-for-board
+
+**Measured 7 Sep 2026. This is the highest-value pattern available.**
+
+We harvest `jobs.smartrecruiters.com`. SmartRecruiters also serves boards from
+**`careers.smartrecruiters.com`**, and no pattern covers it.
+
+```
+tokens on careers.smartrecruiters.com   424
+not already registered                  234
+verified live, sampled 18 of them        18 of 18
+jobs behind that sample of 18           501
+```
+
+Every single one answered. Extrapolated across all 234, that is roughly
+**6,500 jobs** — more than the entire Workable provider contributes, from a
+provider that is already the richest we have at 9.22 jobs per board against
+Greenhouse's 2.52.
+
+There is no company directory to enumerate, incidentally — `/v1/companies`,
+`/v1/companies/search` and `/sr-api/companies` all 404, which is consistent with
+the rule at the bottom of this file.
+
+Common Crawl's coverage of SmartRecruiters is thin either way (2–3 blocks per
+pattern against Greenhouse's 22), so this second domain is most of what is left
+to find there.
+
+**One pattern in `commoncrawl.ts`. The adapter and verifier already exist.**
 
 ---
 
@@ -187,11 +269,16 @@ Cheapest test: run one provider against one older collection with
 
 ## Order of work
 
-1. **Wait for the run in flight.** It changes every number above.
-2. **Rippling pattern** — an hour, against an adapter that already runs.
-3. **Workday's second domain** — same adapter, ~168 employers, recognisable names.
+1. **SmartRecruiters' `careers.` domain** — ~234 live boards, ~6,500 jobs, one
+   pattern, richest provider we have. Verified 18/18 live.
+2. **Workday's second domain** — same adapter, ~168 employers including Clorox
+   and Fidelity.
+3. **Rippling pattern** — an hour, against an adapter that already runs.
 4. **Two or three older snapshots** — now affordable, and the widest net available.
 5. **Oracle Cloud adapter** — the only large build, and it feeds Institutions.
 
-Steps 2–4 are pattern work against code that already exists. Step 5 is the only
+Steps 1–4 are pattern work against code that already exists. Step 5 is the only
 real integration.
+
+Workable is deliberately absent — see §0b. It is a Cloudflare challenge, not a
+tuning problem, and it is closed.
