@@ -143,15 +143,143 @@ title on the Quiet page.
 
 ---
 
-## 4. Skills gap — AI and resume matching
+## 4. AI match score — designed, measured, parked before any code
 
-**Parked earlier in the session, planned as a later piece of work.**
+**Parked by the owner, 7 Sep, after the analysis below. Nothing is built.**
 
-The intent was to show what a person is missing for a role, not only what they
-match. The resume side now exists — pasted text and uploaded PDF/DOCX both
-extract skills — so the input half is built.
+The ask: with a resume on file, score every job against it with an AI and show a
+small badge on the card. Remove the Newest / Best match / Salary selector.
 
-Not started. No measurements taken.
+### Two blockers you would hit on the first day
+
+**Job descriptions are not stored, and never have been.** The crawler reads each
+one, classifies the role from it, and discards it. There is no `description`
+column — `2026-09-06-sector.sql` says so out loud. So today there is literally
+nothing for an AI to read.
+
+**Resume text is not stored either**, deliberately: only the extracted skills
+and a character count. The uploaded file exists as of 7 Sep, but the text does
+not.
+
+Both are fixable cheaply. Neither is optional.
+
+### Why the current "Best match" deserves replacing
+
+It is a set overlap between the person's skills and skills pulled from the job.
+Measured 7 Sep on the live corpus:
+
+```
+60,413  open jobs
+39,471  of them (65%) have an EMPTY matched_skills array
+32,669  open and in a real family — the browsable feed
+76,688  rows in `jobs` altogether
+10,841  new jobs arrived in a single day
+```
+
+So "Best match" silently cannot rank two thirds of the corpus, and nothing on
+the page says so.
+
+### The constraint everything bends around
+
+Matching is per PERSON × JOB. 32,669 browsable jobs across 4 seats is ~130,000
+combinations, growing by ~10,000 jobs a day.
+
+OpenRouter's free models allow roughly **20 requests a minute and 50 a day**,
+rising to about **1,000 a day** once $10 of credits has been bought once.
+**Confirm this against the account before building** — 50/day and 1,000/day are
+different products.
+
+That is a budget of 50–1,000 AI calls per day for everybody. Scoring every job
+for every person is off by four orders of magnitude.
+
+**The whole design follows from one rule: never call the AI per job. Call it
+per screenful, and never for the same job twice.**
+
+### The architecture, in three parts
+
+**1. Give the AI something to read.** One new column, `match_digest` — ~500
+characters of requirements distilled from the description DURING THE CRAWL,
+which is the only moment the text exists. The crawler already holds it and
+already trims to 4,000 characters to classify, so this is nearly free.
+
+Two things make it cheap: ~30 MB across the open corpus, and — the useful part —
+**it backfills itself**. The crawler re-reads every board every hour and upserts
+every job it finds (see `toJobRow`), so the live corpus fills in within about
+two hours of shipping. No backfill job, no migration script.
+
+**2. Give it something to compare against.** ONE AI call when a resume is saved,
+producing an ~800-character profile: level, years, core skills, domains, tools.
+Stored on `user_state`.
+
+This keeps the existing privacy rule intact — still no CV text in the database,
+only a summary — and makes every later call small, because the resume travels as
+800 characters rather than 9,522.
+
+**3. Score a screenful, cache it forever.** A new table:
+
+```
+job_match (user_id, job_key, score, note, model, scored_at)
+```
+
+The feed renders 50 jobs, looks up the cache, and for whatever is missing makes
+ONE call carrying the resume profile plus up to 50 job digests, answering with
+50 scores and a short reason each. Valid until the resume changes — bump a
+`resume_version` and the cache invalidates.
+
+The budget works out comfortably. One call per 50 unscored jobs: at 1,000
+calls/day that is 50,000 job-scorings a day against a browsable corpus of
+32,669, so **one day's budget covers everything, permanently.** At 50 calls/day
+it is 2,500 a day — slower, still accumulating.
+
+Budget spent, model down, or a 429: the card falls back to the existing skill
+number and says "not scored yet". The feed never blocks on the AI and never
+shows an invented figure — the same rule the rest of this product follows.
+
+### The limitation, which must be said out loud
+
+**The score can only rank jobs already loaded.** It cannot sort all 32,669 by
+fit, because that would mean scoring all of them first. What it gives is a
+trustworthy number on every job someone looks at — NOT "show me my best matches
+across the whole site".
+
+Corpus-wide ranking is a different technique: embeddings, one vector per job
+computed once, cheap similarity against the resume, zero per-user AI calls.
+**OpenRouter is chat-only and serves no embeddings endpoint**, so that would
+need a second provider. Worth knowing before anyone promises it.
+
+### Build order
+
+Stopping after step 1 leaves the site working exactly as it does now, which is
+why it goes first.
+
+1. Plumbing, no AI — the table, the route, the badge, falling back to the local
+   score. Proves the display and the caching before a token is spent.
+2. The `match_digest` column. Ship it, watch it fill.
+3. Resume profile on upload.
+4. Turn the AI call on.
+5. Remove the sort selector.
+
+### Decisions still open
+
+- **The OpenRouter key must go in as a Worker secret**, the way
+  `SUPABASE_SECRET_KEY` does in `deploy-cloudflare.yml`. Not in the repo, and
+  not pasted into a chat.
+- **Credits bought or not** — decides 50/day vs 1,000/day.
+- **Which free model.** Availability rotates, so this should be a config value
+  with a fallback list rather than a hard-coded name.
+- **What the score means.** Proposed: 0–100 for fit, plus a five-word reason.
+- **The "minimum match" dropdown.** It is built on the old overlap calculation.
+  Re-point it at the AI score rather than delete it — a "70%+ only" filter is
+  worth much more with a real number behind it.
+- **Newest stays** as the fixed order when the selector goes. It is the database
+  default and freshness is the product.
+
+### The older intent, still unbuilt
+
+The original idea here was a SKILLS GAP: showing what a person is missing for a
+role, not only what they match. The scoring work above produces exactly the
+evidence that needs, so it is the natural second feature rather than a separate
+one.
 
 ---
 
@@ -176,6 +304,7 @@ These have no decision attached. They are simply outstanding.
 | **`/api/feed` returned 503** while `/quiet` and `/institutions` answered 200 in the same second | Found 7 Sep, uninvestigated. It is the only one going through the `feed_page` RPC rather than reading the table directly, so it is the slowest and likeliest to hit a statement timeout. **User-facing — the homepage showing no jobs.** |
 | **96 boards at 3+ consecutive failures** | Harmless now that refusals cannot retire anything, but the reason is unknown. |
 | **A crawl shard died on `canceling statement due to statement timeout`** during a job upsert, once, 6 Sep | Possibly the same root cause as the 503. |
+| **The name and resume fix is on `main`, undeployed** | `ebdcf59`, 7 Sep. `user_state.updated_at` is NOT NULL and three writers sent it as an explicit NULL, so every name and every resume record was rejected for anyone without a row. Verified fixed against production; **the live site still has the bug until someone deploys.** Two of the owner's resumes are still sitting orphaned in the `resumes` bucket, uploaded 6 and 7 Sep, with nothing pointing at them. |
 | ~~**The `resumes` storage bucket**~~ | **Answered 7 Sep: it exists and is correctly private.** An anonymous upload to `resumes/` is refused with `new row violates row-level security policy`, where a bucket that did not exist answers `Bucket not found`. Uploads were failing for an unrelated reason — see `userStateRow` in `src/state/store.ts`. |
 
 ---
