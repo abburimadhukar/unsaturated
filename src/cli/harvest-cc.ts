@@ -23,8 +23,29 @@ function arg(name: string): string | undefined {
 }
 const has = (name: string) => process.argv.includes(`--${name}`);
 
-const keyOf = (b: { provider: string; token: string; extra?: Record<string, string> }) =>
-  b.provider === 'workday' ? `workday:${b.token}:${b.extra?.site ?? ''}` : `${b.provider}:${b.token}`;
+/**
+ * The identity of a board, for deciding whether we already have it.
+ *
+ * LOWERCASED, because these APIs are. Verified 7 Sep 2026: ashby/accord and
+ * ashby/Accord both return the same 4 jobs, greenhouse/babylist and
+ * greenhouse/Babylist the same 46, smartrecruiters/bluescope and
+ * smartrecruiters/BlueScope the same 37. The web archive holds both spellings
+ * of the same company, so a case-sensitive key stored each as a new board.
+ *
+ * It already had: 317 case-variant pairs sit in the registry, and because a job
+ * key is provider:token:id, both copies stored the same posting under different
+ * keys — AbbVie appears twice with 41 jobs each, and a Staff Software Engineer
+ * at Accord is listed twice on the site today.
+ *
+ * The stored token keeps its original case, because that is what the vendor
+ * printed and it costs nothing to be faithful. Only the comparison folds.
+ */
+const keyOf = (b: { provider: string; token: string; extra?: Record<string, string> }) => {
+  const token = b.token.toLowerCase();
+  return b.provider === 'workday'
+    ? `workday:${token}:${(b.extra?.site ?? '').toLowerCase()}`
+    : `${b.provider}:${token}`;
+};
 
 async function main(): Promise<void> {
   const dryRun = has('dry-run');

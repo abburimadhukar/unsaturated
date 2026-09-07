@@ -1,4 +1,8 @@
-# Brings back boards that were retired for refusing us rather than for dying.
+# Registry repairs. Manual only, and both of them undo damage the registry did
+# to itself rather than routine work.
+#
+#   revive  — boards retired for refusing us rather than for dying
+#   dedupe  — one company registered under two spellings of its own name
 #
 # On 6 September 2026 the crawler retired 2,263 boards in an afternoon. 2,185
 # carried an HTTP 429 — a rate limit — against 16 that were genuinely 404. Six
@@ -14,8 +18,15 @@ name: revive
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: 'Which repair to run'
+        type: choice
+        options:
+          - revive
+          - dedupe
+        default: revive
       dryRun:
-        description: 'Report what would come back, without writing'
+        description: 'Report what would change, without writing'
         type: boolean
         default: true
 
@@ -48,13 +59,17 @@ jobs:
           echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
           exit 1
 
-      - name: Revive
+      - name: Repair
         env:
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        # Two repairs, one place. Both undo damage the registry did to itself:
+        # revive brings back boards retired for refusing us, dedupe merges
+        # companies registered under two spellings of the same name.
         run: |
-          if [ "${{ inputs.dryRun }}" = "true" ]; then
-            npm run boards:revive -- --dry-run
-          else
-            npm run boards:revive
-          fi
+          FLAG=""
+          if [ "${{ inputs.dryRun }}" = "true" ]; then FLAG="-- --dry-run"; fi
+          case "${{ inputs.action }}" in
+            dedupe) npm run boards:dedupe $FLAG ;;
+            *)      npm run boards:revive $FLAG ;;
+          esac

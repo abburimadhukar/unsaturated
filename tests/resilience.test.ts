@@ -350,3 +350,66 @@ test('the run prints what a refusing vendor said', () => {
   assert.match(src, /what \$\{r\.provider\} actually said/);
   assert.match(src, /retry-after/);
 });
+
+// ---------------------------------------------------------------------------
+// One company, one board — however the archive spells it
+// ---------------------------------------------------------------------------
+
+test('a board is the same board whatever case the archive used', async () => {
+  // These APIs are case-insensitive. Verified 7 Sep 2026: ashby/accord and
+  // ashby/Accord both return the same 4 jobs, greenhouse/babylist and
+  // greenhouse/Babylist the same 46, smartrecruiters/bluescope and
+  // smartrecruiters/BlueScope the same 37.
+  //
+  // The dedup key was not, so the archive holding both spellings stored each as
+  // a separate board — and because a job key is provider:token:id, both copies
+  // stored the SAME posting twice and both reached the site. 317 such pairs
+  // exist today; AbbVie appears twice with 41 jobs each.
+  const cli = readFileSync(new URL('../src/cli/harvest-cc.ts', import.meta.url), 'utf8');
+  const fn = cli.slice(cli.indexOf('const keyOf ='), cli.indexOf('async function main'));
+  assert.match(fn, /b\.token\.toLowerCase\(\)/);
+  // Workday's identity is tenant AND site, so both halves have to fold.
+  assert.match(fn, /\(b\.extra\?\.site \?\? ''\)\.toLowerCase\(\)/);
+});
+
+test('the stored token keeps the case the vendor printed', () => {
+  // Only the COMPARISON folds. SmartRecruiters tokens are mixed-case by nature
+  // — "ATParchitekteningenieure" — and rewriting what a vendor published buys
+  // nothing.
+  const cc = readFileSync(new URL('../src/discovery/commoncrawl.ts', import.meta.url), 'utf8');
+  const toBoard = cc.slice(cc.indexOf('function toBoard'), cc.indexOf('export interface HarvestReport'));
+  assert.doesNotMatch(toBoard, /token: m\[1\]\.toLowerCase\(\)/);
+  assert.doesNotMatch(toBoard, /token\.toLowerCase\(\)/);
+});
+
+test('SmartRecruiters’ second domain is harvested', () => {
+  // 424 tokens on careers.smartrecruiters.com, 234 unregistered, 18 of 18
+  // sampled live with 501 jobs between them — on the richest provider in the
+  // registry at 9.22 jobs per board against Greenhouse's 2.52.
+  const cc = readFileSync(new URL('../src/discovery/commoncrawl.ts', import.meta.url), 'utf8');
+  assert.match(cc, /match: 'careers\.smartrecruiters\.com\/\*'/);
+  assert.match(cc, /match: 'jobs\.smartrecruiters\.com\/\*'/);
+
+  // And the extraction takes the first path segment, as the sample shows.
+  const rx = /careers\.smartrecruiters\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/;
+  assert.equal(
+    rx.exec('https://careers.smartrecruiters.com/ATParchitekteningenieure')?.[1],
+    'ATParchitekteningenieure',
+  );
+  assert.equal(rx.exec('https://careers.smartrecruiters.com/A2Design/')?.[1], 'A2Design');
+  // The bare search URL has no company in it and must yield nothing.
+  assert.equal(rx.exec('https://careers.smartrecruiters.com/?search=&page=0'), null);
+});
+
+test('dedupe keeps the copy the site is already showing, and closes the other', () => {
+  const src = readFileSync(new URL('../src/cli/boards-dedupe.ts', import.meta.url), 'utf8');
+  // Most stored jobs wins, with the token breaking ties so two runs agree.
+  assert.match(src, /b\.jobs - a\.jobs \|\| a\.token\.localeCompare\(b\.token\)/);
+  // Closing the loser's postings matters more than deactivating it —
+  // deactivating alone leaves the duplicates on the site for the full
+  // retention window, which is the entire problem.
+  assert.match(src, /closed_at: new Date\(\)\.toISOString\(\)/);
+  assert.match(src, /active: false/);
+  // And it must be runnable without writing anything.
+  assert.match(src, /--dry-run/);
+});

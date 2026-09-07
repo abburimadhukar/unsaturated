@@ -61,6 +61,21 @@ const PATTERNS: Pattern[] = [
     match: 'jobs.smartrecruiters.com/*',
     extract: /jobs\.smartrecruiters\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/,
   },
+  // SmartRecruiters serves boards from TWO hosts and we only ever read one.
+  //
+  // Measured 7 Sep 2026: careers.smartrecruiters.com holds 424 distinct tokens,
+  // 234 of them unregistered, and 18 of 18 sampled answered live with 501 jobs
+  // between them. It lands on the richest provider in the registry — 9.22 jobs
+  // per board against Greenhouse's 2.52 — and we hold the fewest of them.
+  //
+  // Tokens here are mixed-case ("ATParchitekteningenieure"), unlike Greenhouse's
+  // lowercase slugs, which is why the extraction keeps case and the dedup key
+  // does not.
+  {
+    provider: 'smartrecruiters',
+    match: 'careers.smartrecruiters.com/*',
+    extract: /careers\.smartrecruiters\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/,
+  },
   {
     provider: 'workable',
     match: 'apply.workable.com/*',
