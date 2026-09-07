@@ -35,7 +35,8 @@
     "quiet:sql": "tsx src/cli/quiet-sql.ts",
     "boards:revive": "tsx src/cli/boards-revive.ts",
     "boards:dedupe": "tsx src/cli/boards-dedupe.ts",
-    "boards:adopt": "tsx src/cli/boards-adopt.ts"
+    "boards:adopt": "tsx src/cli/boards-adopt.ts",
+    "migrate": "tsx src/cli/migrate.ts"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",

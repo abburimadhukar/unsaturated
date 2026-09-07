@@ -177,3 +177,35 @@ test('every stage agrees on what a board is', () => {
     assert.match(src.slice(at, at + 700), /site/, `${where} in ${file} must account for the site`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// The migration runner
+// ---------------------------------------------------------------------------
+
+test('the runner refuses to guess which database it is talking to', () => {
+  // config.databaseUrl falls back to a localhost Postgres that does not exist.
+  // A migration that appears to succeed against a phantom database is worse
+  // than one that fails, because the code then assumes a schema it has not got.
+  const src = read('../src/cli/migrate.ts');
+  const guard = src.slice(src.indexOf('if (!process.env.DATABASE_URL)'));
+  assert.match(guard, /process\.exitCode = 1/);
+  assert.ok(
+    guard.indexOf('process.exitCode = 1') < guard.indexOf("import('../db/client.js')"),
+    'it must refuse BEFORE opening a connection',
+  );
+});
+
+test('the runner says plainly that the API key is not the database password', () => {
+  // Worth spelling out: SUPABASE_SECRET_KEY grants every data operation in this
+  // repo and none of the schema ones, because PostgREST has no DDL at all.
+  const src = read('../src/cli/migrate.ts');
+  assert.match(src, /NOT SUPABASE_SECRET_KEY/);
+});
+
+test('every migration on disk is listable', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const files = (await readdir(new URL('../src/db/migrations/', import.meta.url)))
+    .filter((f) => f.endsWith('.sql'));
+  assert.ok(files.length >= 10, `expected the migration folder to be populated, saw ${files.length}`);
+  assert.ok(files.includes('2026-09-07-workday-sites.sql'));
+});
