@@ -48,7 +48,9 @@ test('a board only the file knows is still crawled', () => {
   // until every entry is adopted the file is still load-bearing.
   const merged = mergeBoards([board('greenhouse', 'cloudflare')], [board('ashby', 'linear')]);
   assert.equal(merged.size, 2);
-  assert.ok([...merged.keys()].includes('greenhouse:cloudflare'));
+  // The key now carries the Workday site as a third part, empty for everyone
+  // else — see boardIdentity.
+  assert.ok([...merged.keys()].some((k) => k.startsWith('greenhouse:cloudflare')));
 });
 
 // ---------------------------------------------------------------------------
@@ -95,16 +97,19 @@ test('an unreadable registry stops the harvest rather than flooding it', () => {
   assert.match(guard, /return;/);
 });
 
-test('adoption identifies a board the way the table does', () => {
-  // `boards` carries unique (provider, token). harvest-cc's key also folds in
-  // the Workday site, which describes what a board IS rather than what the
-  // table can HOLD — using it here found 15 extra "missing" boards that were
-  // really existing rows, and adopting them would have upserted onto those rows
-  // and replaced the site of four live Workday boards.
+test('adoption uses the one shared definition of a board', () => {
+  // This originally had to key on provider:token alone, because the table
+  // carried unique (provider, token) and a site-aware key would have upserted
+  // onto existing rows and replaced the site of four live Workday boards.
+  //
+  // The 2026-09-07 migration made the site part of the table's own identity, so
+  // that hazard is gone and a second site is now an INSERT rather than an
+  // overwrite. What matters instead is that adoption cannot drift from the rest
+  // of the system: it must use boardIdentity, not a copy of it.
   const src = read('../src/cli/boards-adopt.ts');
+  assert.match(src, /import \{ boardIdentity \}/);
   const fn = src.slice(src.indexOf('const keyOf'), src.indexOf('const registeredSite'));
-  assert.ok(!/extra\?\.site/.test(fn), 'adoption must key on provider:token alone');
-  assert.match(fn, /toLowerCase\(\)/);
+  assert.match(fn, /boardIdentity\(b\)/, 'adoption must not define its own key');
 });
 
 test('adoption paces itself even when no delay is given', () => {

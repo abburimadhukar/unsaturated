@@ -346,6 +346,41 @@ export async function upsertInChunks<T>(
   return written;
 }
 
+/**
+ * Which boards this run is allowed to close postings on.
+ *
+ * A posting is closed when its board was read successfully and the posting was
+ * not in what came back. The scope is `provider:token`, because that is what a
+ * job row records — `toJobRow` takes board_token from the job key.
+ *
+ * ALL-OR-NOTHING PER TOKEN, and that is the whole point of this function.
+ *
+ * A Workday token is a TENANT, and a tenant can run several career sites. Once
+ * the registry could hold more than one, two boards began sharing a token: both
+ * of the Nevada System of Higher Education's campuses write board_token `nshe`.
+ * If one campus were read and the other refused, the successful one would
+ * authorise closing, the refused one's postings would be missing from what came
+ * back, and all 133 of them would be closed as withdrawn.
+ *
+ * That is the same wipe the provider+token scoping already exists to prevent,
+ * one level further down. So a token is closable only when EVERY board under it
+ * came back with jobs. The cost is that a withdrawn posting waits for the next
+ * clean run; the alternative is deleting live jobs, which is not a trade.
+ *
+ * For a token with one board — every provider but Workday, and most of Workday
+ * too — this is exactly the old behaviour.
+ */
+export function closableBoards(boards: { provider: string; token?: string; jobs: number; error?: unknown }[]): Set<string> {
+  const byToken = new Map<string, boolean>();
+  for (const b of boards) {
+    if (!b.token) continue;
+    const key = `${b.provider}:${b.token}`;
+    const healthy = !b.error && b.jobs > 0;
+    byToken.set(key, (byToken.get(key) ?? true) && healthy);
+  }
+  return new Set([...byToken].filter(([, ok]) => ok).map(([key]) => key));
+}
+
 export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed: number }> {
   const client = dbWrite();
   // crawl_runs.started_at defaulted to now() at INSERT time, which is stamped
@@ -410,11 +445,7 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
   // board list run two boards each, so matching on the name alone let a healthy
   // Greenhouse board authorise closing every job from the same company's failing
   // Ashby board — the exact wipe this scoping exists to prevent.
-  const healthyBoards = new Set(
-    feed.boards
-      .filter((b) => !b.error && b.jobs > 0 && b.token)
-      .map((b) => `${b.provider}:${b.token}`),
-  );
+  const healthyBoards = closableBoards(feed.boards);
   const seenKeys = new Set(feed.jobs.map((j) => j.key));
   let closed = 0;
 

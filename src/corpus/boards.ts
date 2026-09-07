@@ -59,8 +59,13 @@ const DEFAULT_MAX_JOBS = 300;
  * Pure and exported so the rule can be tested without a database.
  */
 export function mergeBoards(fromFile: CorpusBoard[], fromDb: CorpusBoard[]): Map<string, CorpusBoard> {
-  const key = (b: { provider: string; token: string }) =>
-    `${b.provider}:${b.token.toLowerCase()}`;
+  // The Workday site is part of the key, or this collapses the very boards the
+  // registry now exists to hold. A tenant runs a career site per campus —
+  // nshe/GBC-external and nshe/UNR-external share no job ids — and folding them
+  // to one entry here would mean the crawler only ever fetched one of them,
+  // making the whole multi-site registry pointless.
+  const key = (b: { provider: string; token: string; extra?: Record<string, string> }) =>
+    `${b.provider}:${b.token.toLowerCase()}:${(b.extra?.site ?? '').toLowerCase()}`;
   const merged = new Map<string, CorpusBoard>();
   for (const b of fromFile) merged.set(key(b), b);
   for (const b of fromDb) merged.set(key(b), { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });

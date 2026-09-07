@@ -31,6 +31,7 @@ interface Board {
   provider: string;
   token: string;
   active: boolean;
+  extra?: Record<string, string> | null;
 }
 
 async function main(): Promise<void> {
@@ -41,7 +42,7 @@ async function main(): Promise<void> {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await client
       .from('boards')
-      .select('provider,token,active')
+      .select('provider,token,active,extra')
       .eq('active', true)
       .order('provider', { ascending: true })
       .order('token', { ascending: true })
@@ -53,9 +54,20 @@ async function main(): Promise<void> {
   }
 
   // Group by what the vendor actually treats as one identity.
+  //
+  // THE SITE IS PART OF IT. A Workday token is a TENANT, and one tenant runs a
+  // career site per campus or division: `nshe` is the Nevada System of Higher
+  // Education, whose GBC-external and UNR-external portals share no job ids at
+  // all. Grouping on the token alone would call them the same company and merge
+  // them — closing 133 live University of Nevada postings as duplicates of
+  // Great Basin College's 18. They are different boards that happen to bill to
+  // the same account.
+  //
+  // Empty for every other provider, so their grouping is unchanged.
   const groups = new Map<string, string[]>();
   for (const b of boards) {
-    const key = `${b.provider}:${b.token.toLowerCase()}`;
+    const site = (b.extra?.site ?? '').toLowerCase();
+    const key = `${b.provider}:${b.token.toLowerCase()}:${site}`;
     groups.set(key, (groups.get(key) ?? []).concat(b.token));
   }
   const dupes = [...groups].filter(([, tokens]) => tokens.length > 1);

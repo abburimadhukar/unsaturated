@@ -115,6 +115,29 @@ export async function readStalestBoards(limit: number): Promise<CorpusBoard[]> {
 }
 
 /** Adds or refreshes boards. Only ever called by CLIs holding the secret key. */
+/**
+ * What makes two board records the same board.
+ *
+ * Provider and token, folded to lower case because these APIs are — greenhouse
+ * `babylist` and `Babylist` return the same 46 jobs — PLUS the Workday site.
+ *
+ * The site matters because a Workday token is a TENANT, not a board. The Nevada
+ * System of Higher Education is one tenant running a portal per campus, and
+ * those portals share no job ids at all: `GBC-external` is Great Basin College
+ * with 18 jobs, `UNR-external` is the University of Nevada, Reno with 133.
+ *
+ * Leaving the site out of this key is what discarded them. Across three
+ * discovery runs, 765 live boards found and 352 stored, 843 and 414, 906 and
+ * 442 — roughly 430 verified-live Workday boards collapsed onto an existing
+ * tenant every run. Discovery had been finding them correctly the whole time.
+ *
+ * Empty for every other provider, so their identity is unchanged.
+ */
+export function boardIdentity(b: { provider: string; token: string; extra?: Record<string, string> }): string {
+  const site = (b.extra?.site ?? '').toLowerCase();
+  return `${b.provider}:${b.token.toLowerCase()}:${site}`;
+}
+
 export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
   if (boards.length === 0) return 0;
 
@@ -145,7 +168,7 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
   // The last spelling wins, which is arbitrary and fine — they address the same
   // board. What matters is that only one is written.
   const byKey = new Map<string, StoredBoard>();
-  for (const b of boards) byKey.set(`${b.provider}:${b.token.toLowerCase()}`, b);
+  for (const b of boards) byKey.set(boardIdentity(b), b);
 
   const rows = [...byKey.values()].map((b) => ({
     provider: b.provider,
@@ -163,11 +186,28 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
 
   let written = 0;
   const CHUNK = 500;
+  // Conflict on the site as well, so one Workday tenant can hold every one of
+  // its career sites. Migrations here are applied by hand, so the code and the
+  // schema are briefly out of step by design: if `site` is not there yet, fall
+  // back to the old target and say so, rather than failing every run in between.
+  let target = 'provider,token,site';
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK);
-    const { error, count } = await client
+    let { error, count } = await client
       .from('boards')
-      .upsert(chunk, { onConflict: 'provider,token', count: 'exact' });
+      .upsert(chunk, { onConflict: target, count: 'exact' });
+
+    if (error && target !== 'provider,token' && /site/.test(error.message)) {
+      console.error(
+        'boards.site does not exist yet — conflicting on (provider, token) instead. ' +
+          'Apply src/db/migrations/2026-09-07-workday-sites.sql, or a Workday tenant ' +
+          'keeps only one of its career sites.',
+      );
+      target = 'provider,token';
+      ({ error, count } = await client
+        .from('boards')
+        .upsert(chunk, { onConflict: target, count: 'exact' }));
+    }
     if (error) throw new Error(`board upsert failed: ${error.message}`);
     written += count ?? chunk.length;
   }

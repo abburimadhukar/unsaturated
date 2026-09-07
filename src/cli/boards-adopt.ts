@@ -42,6 +42,7 @@ import { config } from '../config.js';
 import { verifyBoards, summariseVerification } from '../discovery/verify.js';
 import { loadBoards } from '../corpus/boards.js';
 import { dbWrite } from '../db/supabase.js';
+import { boardIdentity } from '../corpus/board-store.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
 const PAGE = 1000;
@@ -61,8 +62,8 @@ const PAGE = 1000;
  * address the crawler actually fetches. A migration that silently repoints
  * working boards is worse than the problem it fixes, so they are reported.
  */
-const keyOf = (b: { provider: string; token: string }) =>
-  `${b.provider}:${b.token.toLowerCase()}`;
+const keyOf = (b: { provider: string; token: string; extra?: Record<string, string> }) =>
+  boardIdentity(b);
 
 /** The Workday site each registered token currently carries, for the report. */
 const registeredSite = new Map<string, string>();
