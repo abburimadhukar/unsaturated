@@ -265,6 +265,87 @@ export function toJobRow(j: FeedJob, now: string = new Date().toISOString()) {
  * appearing. Closing is scoped to boards that actually returned results, so a
  * board erroring out never marks its whole catalogue as gone.
  */
+
+/**
+ * Errors worth retrying smaller rather than giving up on.
+ *
+ * A statement timeout is not a bad row — it is one statement that asked for
+ * more than the database would give it in the time allowed. Four shards upsert
+ * into `jobs` at once, and the table carries a stored generated column plus
+ * several indexes, so a 500-row statement can genuinely run long under
+ * contention while a 250-row one sails through.
+ *
+ * Matched narrowly. A constraint violation or a missing column is a real fault
+ * and must still fail loudly on the first attempt.
+ */
+export function isTransientWriteError(message: string): boolean {
+  return /statement timeout|canceling statement|deadlock detected|ECONNRESET|socket hang up/i.test(
+    message,
+  );
+}
+
+/**
+ * Writes rows in chunks, halving the chunk whenever the database says it ran
+ * out of time.
+ *
+ * THE BUG THIS EXISTS FOR
+ *
+ * A shard that had crawled 5,608 boards and collected 15,746 roles threw all of
+ * it away because one 500-row statement timed out:
+ *
+ *   crawl failed: supabase upsert failed: canceling statement due to statement
+ *   timeout
+ *
+ * Twice in thirty runs, 6 and 7 September. The crawl itself was fine both
+ * times; only the write failed, and the run had no smaller thing to try.
+ *
+ * Halving is the right response because the failure is about statement SIZE
+ * under contention, not about the data. Anything that still fails at the floor
+ * throws, so a genuine fault is never swallowed — and nothing is skipped, ever:
+ * a chunk is either written or the run fails.
+ *
+ * `write` is injected so this can be tested without a database.
+ */
+export async function upsertInChunks<T>(
+  rows: T[],
+  write: (chunk: T[]) => Promise<{ error: { message: string } | null; count: number | null }>,
+  opts: {
+    chunk?: number;
+    /** Below this, a timeout is the database's problem, not the batch size. */
+    floor?: number;
+    onRetry?: (size: number, next: number, message: string) => void;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<number> {
+  const start = opts.chunk ?? 500;
+  const floor = opts.floor ?? 25;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  let written = 0;
+  for (let i = 0; i < rows.length; ) {
+    let size = Math.min(start, rows.length - i);
+    for (;;) {
+      const slice = rows.slice(i, i + size);
+      const { error, count } = await write(slice);
+      if (!error) {
+        written += count ?? slice.length;
+        i += size;
+        break;
+      }
+      if (!isTransientWriteError(error.message) || size <= floor) {
+        throw new Error(`supabase upsert failed: ${error.message}`);
+      }
+      const next = Math.max(floor, Math.floor(size / 2));
+      opts.onRetry?.(size, next, error.message);
+      // A short pause as well as a smaller statement: the other three shards are
+      // writing to this same table, and retrying instantly just collides again.
+      await wait(250);
+      size = next;
+    }
+  }
+  return written;
+}
+
 export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed: number }> {
   const client = dbWrite();
   // crawl_runs.started_at defaulted to now() at INSERT time, which is stamped
@@ -281,10 +362,10 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
 
   const rows = [...byKey.values()].map((j) => toJobRow(j));
 
-  let upserted = 0;
-  const CHUNK = 500;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
+  // Chunked, and halved again whenever the database says a statement ran out of
+  // time. This used to be a plain 500-at-a-time loop that threw on the first
+  // error, so a whole shard's crawl was discarded because one write ran long.
+  const upserted = await upsertInChunks(rows, async (chunk) => {
     // count:'exact' so jobs_upserted records rows actually written rather than
     // rows attempted — the old counter reported the input size unconditionally,
     // which would read as a full success even if nothing changed.
@@ -316,9 +397,11 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
         .upsert(stripped as typeof chunk, { onConflict: 'key', count: 'exact' }));
     }
 
-    if (error) throw new Error(`supabase upsert failed: ${error.message}`);
-    upserted += count ?? chunk.length;
-  }
+    return { error, count };
+  }, {
+    onRetry: (size, next, message) =>
+      console.warn(`  upsert of ${size} rows timed out, retrying ${next} at a time — ${message}`),
+  });
 
   // Close postings that vanished, but only on boards that returned data this
   // run — otherwise one failing board would wipe its entire history.

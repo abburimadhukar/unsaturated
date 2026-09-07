@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { mergeBoards } from '../src/corpus/boards.js';
 import { blockKey } from '../src/corpus/blocklist.js';
+import { isTransientWriteError, upsertInChunks } from '../src/corpus/db-feed.js';
 import type { CorpusBoard } from '../src/corpus/types.js';
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -114,4 +115,92 @@ test('adoption paces itself even when no delay is given', () => {
   const block = src.slice(src.indexOf('const delayFlag'), src.indexOf('const file ='));
   assert.match(block, /Number\.isFinite/);
   assert.match(block, /1000/);
+});
+
+// ---------------------------------------------------------------------------
+// The job upsert
+//
+// A shard that had crawled 5,608 boards and collected 15,746 roles threw all of
+// it away because one 500-row statement timed out. Twice in thirty runs, 6 and
+// 7 September. The crawl was fine both times; only the write failed, and the
+// run had nothing smaller to try.
+// ---------------------------------------------------------------------------
+
+const TIMEOUT = 'canceling statement due to statement timeout';
+
+test('a statement timeout is retryable; a real fault is not', () => {
+  assert.equal(isTransientWriteError(TIMEOUT), true);
+  assert.equal(isTransientWriteError('deadlock detected'), true);
+  assert.equal(isTransientWriteError('socket hang up'), true);
+  // These must still fail on the first attempt rather than being retried
+  // smaller — a smaller batch will not fix either of them.
+  assert.equal(isTransientWriteError('column "sector" does not exist'), false);
+  assert.equal(isTransientWriteError('duplicate key value violates unique constraint'), false);
+  assert.equal(isTransientWriteError('new row violates row-level security policy'), false);
+});
+
+const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ key: `k${i}` }));
+const noWait = async () => {};
+
+test('every row is written when nothing goes wrong', async () => {
+  const seen: number[] = [];
+  const n = await upsertInChunks(rows(1200), async (c) => { seen.push(c.length); return { error: null, count: c.length }; }, { wait: noWait });
+  assert.equal(n, 1200);
+  assert.deepEqual(seen, [500, 500, 200]);
+});
+
+test('a timeout halves the statement instead of failing the run', async () => {
+  // The real shape of the failure: the database will take 250 rows but not 500.
+  const written: number[] = [];
+  const n = await upsertInChunks(rows(1000), async (c) => {
+    if (c.length > 250) return { error: { message: TIMEOUT }, count: null };
+    written.push(c.length);
+    return { error: null, count: c.length };
+  }, { wait: noWait });
+
+  assert.equal(n, 1000, 'no row may be lost to a retry');
+  assert.equal(written.reduce((a, b) => a + b, 0), 1000);
+  assert.ok(written.every((s) => s <= 250));
+});
+
+test('nothing is skipped when only the first chunk is slow', async () => {
+  let first = true;
+  const got: string[] = [];
+  const n = await upsertInChunks(rows(600), async (c) => {
+    if (first && c.length === 500) { first = false; return { error: { message: TIMEOUT }, count: null }; }
+    for (const r of c) got.push(r.key);
+    return { error: null, count: c.length };
+  }, { wait: noWait });
+  assert.equal(n, 600);
+  assert.equal(new Set(got).size, 600, 'every distinct row written exactly once');
+});
+
+test('a fault that is not a timeout fails immediately', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => upsertInChunks(rows(600), async () => {
+      calls++;
+      return { error: { message: 'column "sector" does not exist' }, count: null };
+    }, { wait: noWait }),
+    /column "sector" does not exist/,
+  );
+  assert.equal(calls, 1, 'a real fault must not be retried smaller');
+});
+
+test('a database that times out on everything still fails loudly', async () => {
+  // Halving must bottom out. Silently giving up would lose a shard's crawl
+  // while reporting success, which is worse than the crash it replaced.
+  await assert.rejects(
+    () => upsertInChunks(rows(600), async () => ({ error: { message: TIMEOUT }, count: null }), { wait: noWait }),
+    /statement timeout/,
+  );
+});
+
+test('the retry is reported, never silent', async () => {
+  const notes: string[] = [];
+  await upsertInChunks(rows(300), async (c) =>
+    c.length > 100 ? { error: { message: TIMEOUT }, count: null } : { error: null, count: c.length },
+  { wait: noWait, onRetry: (size, next) => notes.push(`${size}->${next}`) });
+  assert.ok(notes.length > 0, 'a run that had to back off must say so');
+  assert.match(notes[0]!, /->/);
 });
