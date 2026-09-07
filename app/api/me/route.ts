@@ -45,7 +45,13 @@ export async function GET(request: Request) {
     // State is a convenience, not the product: an empty profile still renders a
     // working feed, so this degrades rather than failing the page.
     console.error('visitor state load failed:', err);
-    profile = { skills: [], resumeChars: 0, updatedAt: null, firstName: null, lastName: null };
+    // The WHOLE shape, not the half of it this route happened to think about.
+    // The account page reads resumeName off this, and a fallback that omits it
+    // renders an upload panel that disagrees with the database.
+    profile = {
+      skills: [], resumeChars: 0, updatedAt: null, firstName: null, lastName: null,
+      resumeName: null, resumeSize: null, resumePath: null,
+    };
     state = { seen: [], applied: [] };
   }
 

@@ -176,7 +176,7 @@ These have no decision attached. They are simply outstanding.
 | **`/api/feed` returned 503** while `/quiet` and `/institutions` answered 200 in the same second | Found 7 Sep, uninvestigated. It is the only one going through the `feed_page` RPC rather than reading the table directly, so it is the slowest and likeliest to hit a statement timeout. **User-facing — the homepage showing no jobs.** |
 | **96 boards at 3+ consecutive failures** | Harmless now that refusals cannot retire anything, but the reason is unknown. |
 | **A crawl shard died on `canceling statement due to statement timeout`** during a job upsert, once, 6 Sep | Possibly the same root cause as the 503. |
-| **The `resumes` storage bucket** | Never confirmed to exist. Resume uploads stay off until it does. Check with: `select id, public from storage.buckets where id = 'resumes';` |
+| ~~**The `resumes` storage bucket**~~ | **Answered 7 Sep: it exists and is correctly private.** An anonymous upload to `resumes/` is refused with `new row violates row-level security policy`, where a bucket that did not exist answers `Bucket not found`. Uploads were failing for an unrelated reason — see `userStateRow` in `src/state/store.ts`. |
 
 ---
 

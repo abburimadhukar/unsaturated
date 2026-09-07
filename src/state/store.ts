@@ -57,7 +57,14 @@ function slots(): Map<string, Cached> {
   return g[CACHE_KEY]!;
 }
 
-const EMPTY: Profile = {
+/**
+ * Someone the database has never seen.
+ *
+ * Exported because it is the shape every write starts from for a new person,
+ * and that is precisely the case that broke — a test that builds its own
+ * stand-in would not have caught it.
+ */
+export const EMPTY_PROFILE: Profile = {
   skills: [], resumeChars: 0, updatedAt: null, firstName: null, lastName: null,
   resumeName: null, resumeSize: null, resumePath: null,
 };
@@ -67,7 +74,7 @@ async function load(userId: string): Promise<Cached> {
   const hit = cache.get(userId);
   if (hit && Date.now() - hit.loadedAt < CACHE_MS) return hit;
 
-  const fresh: Cached = { profile: EMPTY, seen: new Set(), applied: new Set(), loadedAt: Date.now() };
+  const fresh: Cached = { profile: EMPTY_PROFILE, seen: new Set(), applied: new Set(), loadedAt: Date.now() };
   try {
     const client = db();
     const [{ data: st }, { data: ev }] = await Promise.all([
@@ -128,14 +135,14 @@ export async function setProfileFromResume(userId: string, text: string): Promis
   // silently dropped when a new one is added — each of these functions has to
   // preserve everything it does not own, and the only way that stays true is
   // for the default to be "keep it".
+  // updatedAt is deliberately not set here. persistProfile stamps it, so there
+  // is exactly one place that can get it wrong — see userStateRow.
   const profile: Profile = {
     ...current,
     skills: extractSkills(text),
     resumeChars: text.length,
-    updatedAt: new Date().toISOString(),
   };
-  await persistProfile(userId, profile);
-  return profile;
+  return await persistProfile(userId, profile);
 }
 
 export async function setProfileSkills(userId: string, skills: string[]): Promise<Profile> {
@@ -143,14 +150,69 @@ export async function setProfileSkills(userId: string, skills: string[]): Promis
   const profile: Profile = {
     ...current,
     skills,
-    updatedAt: new Date().toISOString(),
   };
-  await persistProfile(userId, profile);
-  return profile;
+  return await persistProfile(userId, profile);
+}
+
+/** The row `user_state` actually stores. */
+export interface UserStateRow {
+  user_id: string;
+  skills: string[];
+  resume_chars: number;
+  /** Never null. See userStateRow. */
+  updated_at: string;
+  first_name: string | null;
+  last_name: string | null;
+  resume_name: string | null;
+  resume_size: number | null;
+  resume_path: string | null;
 }
 
 /**
- * Saves the profile, or throws.
+ * A profile as the row it is written to — and the one place that stamps the time.
+ *
+ * THE BUG THIS EXISTS FOR
+ *
+ * `updated_at` is `not null default now()`, and a column DEFAULT applies only
+ * when a statement OMITS the column. Supplying an explicit NULL is not the same
+ * as leaving it out: Postgres stores the NULL, hits the constraint, and rejects
+ * the whole row.
+ *
+ * Every writer here spreads the current profile, and a person who has no row
+ * yet starts from EMPTY_PROFILE, where updatedAt is null. setProfileFromResume and
+ * setProfileSkills each happened to overwrite it; setProfileName, setResumeFile
+ * and clearResumeFile did not. So those three sent `updated_at: null` and every
+ * one of them failed outright for anyone who did not already have a row:
+ *
+ *   null value in column "updated_at" of relation "user_state"
+ *   violates not-null constraint
+ *
+ * Which is exactly the people it had to work for. Someone signing up is named
+ * before they have a row, so /api/me could never store the name from their
+ * sign-up form — and that failure is deliberately swallowed there, because a
+ * name must not break the page, so it was invisible. Their first resume upload
+ * failed the same way, after the file had already been put in storage.
+ *
+ * Fixed by making this the only place a timestamp is set, so no writer can
+ * forget again. A write IS an update, so the row is stamped now — which also
+ * makes the admin view's "last active" honest about names and uploads.
+ */
+export function userStateRow(userId: string, profile: Profile, now = new Date()): UserStateRow {
+  return {
+    user_id: userId,
+    skills: profile.skills,
+    resume_chars: profile.resumeChars,
+    updated_at: now.toISOString(),
+    first_name: profile.firstName,
+    last_name: profile.lastName,
+    resume_name: profile.resumeName,
+    resume_size: profile.resumeSize,
+    resume_path: profile.resumePath,
+  };
+}
+
+/**
+ * Saves the profile and returns what was stored, or throws.
  *
  * This used to wrap the call in try/catch and carry on — but supabase-js does
  * not throw on a database error, it RETURNS one, so the catch never ran and the
@@ -159,27 +221,19 @@ export async function setProfileSkills(userId: string, skills: string[]): Promis
  * misconfigured key went unnoticed: the UI said saved, the row never changed.
  *
  * The error is destructured and thrown, so the route can answer honestly.
+ *
+ * Returns the stored profile rather than void, so a caller never hands back a
+ * timestamp that disagrees with the row.
  */
-async function persistProfile(userId: string, profile: Profile): Promise<void> {
-  const { error } = await dbWrite().from('user_state').upsert(
-    {
-      user_id: userId,
-      skills: profile.skills,
-      resume_chars: profile.resumeChars,
-      updated_at: profile.updatedAt,
-      first_name: profile.firstName,
-      last_name: profile.lastName,
-      resume_name: profile.resumeName,
-      resume_size: profile.resumeSize,
-      resume_path: profile.resumePath,
-    },
-    { onConflict: 'user_id' },
-  );
+async function persistProfile(userId: string, profile: Profile): Promise<Profile> {
+  const row = userStateRow(userId, profile);
+  const { error } = await dbWrite().from('user_state').upsert(row, { onConflict: 'user_id' });
   if (error) {
     console.error('profile save failed:', error.message);
     throw new Error(`could not save profile: ${error.message}`);
   }
   invalidate(userId);
+  return { ...profile, updatedAt: row.updated_at };
 }
 
 /**
@@ -200,8 +254,7 @@ export async function setProfileName(
     firstName: firstName.trim() || null,
     lastName: lastName.trim() || null,
   };
-  await persistProfile(userId, profile);
-  return profile;
+  return await persistProfile(userId, profile);
 }
 
 /**
@@ -223,8 +276,7 @@ export async function setResumeFile(
     resumeSize: file.size,
     resumePath: file.path,
   };
-  await persistProfile(userId, profile);
-  return profile;
+  return await persistProfile(userId, profile);
 }
 
 /** Forgets the file. Skills extracted from it are deliberately left in place. */
@@ -236,8 +288,7 @@ export async function clearResumeFile(userId: string): Promise<Profile> {
     resumeSize: null,
     resumePath: null,
   };
-  await persistProfile(userId, profile);
-  return profile;
+  return await persistProfile(userId, profile);
 }
 
 export async function markSeen(userId: string, key: string): Promise<void> {

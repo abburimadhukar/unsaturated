@@ -173,3 +173,26 @@ test('the sign-in page stores on send and applies on landing', () => {
     'the name must be saved before the redirect',
   );
 });
+
+test('a name stranded by a failed save is retried on the next visit', () => {
+  // applyPendingName keeps what it could not store, and for a while it could
+  // store nothing at all — every write was rejected by a not-null constraint on
+  // user_state (see userStateRow). So names typed days ago are still sitting in
+  // people's browsers. Retrying on load is what finally lands them, without
+  // making anyone sign in again or find the field on /account.
+  const feed = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
+  const loadMe = feed.slice(feed.indexOf('const loadMe ='), feed.indexOf('Send signed-out visitors'));
+
+  assert.match(loadMe, /applyPendingName/);
+
+  // Only for someone signed in who has no name. Running it for everyone would
+  // add a request to every page load for a value almost nobody has.
+  assert.match(loadMe, /body\.user && !body\.profile\.firstName && !body\.profile\.lastName/);
+
+  // Re-read after a successful save, or the header keeps showing the profile
+  // fetched a moment before the name existed.
+  assert.ok(
+    loadMe.indexOf("=== 'saved'") < loadMe.lastIndexOf("fetch('/api/me')"),
+    'a saved name must be followed by a fresh read',
+  );
+});

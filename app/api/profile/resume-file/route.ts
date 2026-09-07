@@ -78,6 +78,12 @@ export async function POST(request: Request) {
   }
 
   const path = pathFor(visitor.id, ext);
+
+  // Read BEFORE the upload, so a failure afterwards can tell whether this
+  // object is one nothing points at yet. See the catch below.
+  const { getProfile } = await import('../../../../src/state/store.js');
+  const previous = await getProfile(visitor.id).catch(() => null);
+
   const { error } = await dbWrite()
     .storage.from(BUCKET)
     .upload(path, await file.arrayBuffer(), {
@@ -111,7 +117,20 @@ export async function POST(request: Request) {
     return attachSession(attachVisitor(res, visitor), session);
   } catch (err) {
     console.error('resume file record failed:', err);
-    return NextResponse.json({ error: 'stored the file but could not record it' }, { status: 503 });
+    // The file is in storage and nothing in the database points at it. Nobody
+    // can see it, nobody can download it, and nobody can ask us to delete it —
+    // so it does not get to stay. Someone's CV is not litter to leave lying in
+    // a bucket.
+    //
+    // Only when this path is not already spoken for. Uploading a replacement
+    // with the same extension overwrites the old object at the same key, and
+    // the existing row still points there; removing it then would destroy a
+    // file the person can still see listed.
+    if (previous?.resumePath !== path) {
+      const { error: rmErr } = await dbWrite().storage.from(BUCKET).remove([path]);
+      if (rmErr) console.error('could not clean up the orphan:', path, rmErr.message);
+    }
+    return NextResponse.json({ error: 'could not save that file — try again' }, { status: 503 });
   }
 }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { initialsOf } from '../src/ui/initials.js';
+import { EMPTY_PROFILE, userStateRow } from '../src/state/store.js';
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const css = read('../app/globals.css');
@@ -186,4 +187,82 @@ test('the feed API keeps the caching that actually mattered', () => {
   // what stops every page load reaching Supabase.
   const route = readFileSync(new URL('../app/api/feed/route.ts', import.meta.url), 'utf8');
   assert.match(route, /s-maxage=60/);
+});
+
+// ---------------------------------------------------------------------------
+// The row user_state actually stores
+//
+// Both bugs reported on 7 September were one bug: a name typed at sign-up never
+// appeared, and an uploaded resume was visible neither on the page nor in the
+// database. `updated_at` is NOT NULL with a default of now(), and a DEFAULT is
+// only applied when a statement OMITS the column — sending an explicit NULL
+// stores the NULL and the constraint rejects the row.
+//
+// setProfileName, setResumeFile and clearResumeFile all spread the current
+// profile without touching updatedAt, so for anybody who had no row yet they
+// sent null and failed every single time. Which is exactly who they existed
+// for: you are named, and you upload your first CV, before you have a row.
+// ---------------------------------------------------------------------------
+
+test('a brand-new person still gets a timestamp, never a null', () => {
+  const row = userStateRow('u:brand-new', EMPTY_PROFILE);
+
+  assert.equal(EMPTY_PROFILE.updatedAt, null, 'the starting profile has no timestamp — that is the trap');
+  assert.notEqual(row.updated_at, null);
+  assert.ok(
+    !Number.isNaN(Date.parse(row.updated_at)),
+    `updated_at must be a real timestamp, got ${JSON.stringify(row.updated_at)}`,
+  );
+});
+
+test('every NOT NULL column is given a value', () => {
+  // The columns the schema declares `not null`. A null in any of them is
+  // rejected outright, and the row never lands.
+  const row = userStateRow('u:brand-new', EMPTY_PROFILE) as unknown as Record<string, unknown>;
+  for (const col of ['user_id', 'skills', 'resume_chars', 'updated_at']) {
+    assert.notEqual(row[col], null, `${col} is NOT NULL and cannot be sent as null`);
+    assert.notEqual(row[col], undefined, `${col} is NOT NULL and cannot be omitted`);
+  }
+});
+
+test('the row carries the name and the file, not just the skills', () => {
+  const row = userStateRow('u:someone', {
+    ...EMPTY_PROFILE,
+    firstName: 'Ada',
+    lastName: 'Lovelace',
+    skills: ['python'],
+    resumeChars: 4200,
+    resumeName: 'ada.pdf',
+    resumeSize: 91_000,
+    resumePath: 'u:someone/resume.pdf',
+  });
+
+  assert.equal(row.user_id, 'u:someone');
+  assert.equal(row.first_name, 'Ada');
+  assert.equal(row.last_name, 'Lovelace');
+  assert.deepEqual(row.skills, ['python']);
+  assert.equal(row.resume_chars, 4200);
+  assert.equal(row.resume_name, 'ada.pdf');
+  assert.equal(row.resume_size, 91_000);
+  assert.equal(row.resume_path, 'u:someone/resume.pdf');
+});
+
+test('a write is an update, so the stored time is the time of the write', () => {
+  // Not the timestamp the caller happened to be carrying. The admin view shows
+  // this as "last active", and a name change or an upload is activity.
+  const stale = { ...EMPTY_PROFILE, updatedAt: '2020-01-01T00:00:00.000Z' };
+  const row = userStateRow('u:someone', stale, new Date('2026-09-07T12:00:00.000Z'));
+  assert.equal(row.updated_at, '2026-09-07T12:00:00.000Z');
+});
+
+test('no writer stamps its own timestamp — there is one place that does', () => {
+  // The bug was that five writers each had to remember, and three forgot. If a
+  // new one starts setting updatedAt itself, the invariant is back to being a
+  // convention rather than a fact.
+  const store = read('../src/state/store.ts');
+  const body = store.slice(store.indexOf('export async function setProfileFromResume'));
+  assert.ok(
+    !/updatedAt:\s*new Date\(\)/.test(body),
+    'a writer is setting updatedAt itself again; userStateRow is the only place that should',
+  );
 });

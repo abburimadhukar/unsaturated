@@ -244,7 +244,30 @@ export default function Page() {
   const loadMe = useCallback(async () => {
     try {
       const res = await fetch('/api/me');
-      if (res.ok) setMe((await res.json()) as Me);
+      if (res.ok) {
+        const body = (await res.json()) as Me;
+        setMe(body);
+
+        // The name typed at sign-up, applied late.
+        //
+        // applyPendingName runs when the magic link lands, but it deliberately
+        // KEEPS anything it could not save — and for a while it could not save
+        // any of them, because the write itself was rejected. So a name someone
+        // typed days ago is still sitting in their browser with nowhere to go.
+        //
+        // Retrying on load means it lands the next time they open the site,
+        // rather than waiting for them to sign in again or to notice the field
+        // on /account. It costs nothing when there is nothing pending: it reads
+        // localStorage before it makes a request, and only runs at all for
+        // somebody signed in who still has no name.
+        if (body.user && !body.profile.firstName && !body.profile.lastName) {
+          const { applyPendingName } = await import('../src/ui/pending-name.js');
+          if ((await applyPendingName()) === 'saved') {
+            const again = await fetch('/api/me');
+            if (again.ok) setMe((await again.json()) as Me);
+          }
+        }
+      }
     } catch {
       // Network trouble: leave the gate closed rather than guessing, but do not
       // redirect either — a blip should not throw someone out of the app.
