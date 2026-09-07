@@ -413,3 +413,15 @@ test('dedupe keeps the copy the site is already showing, and closes the other', 
   // And it must be runnable without writing anything.
   assert.match(src, /--dry-run/);
 });
+
+test('the weekly re-check can still retire a board that is genuinely gone', () => {
+  // Retirement counts only 'gone', and this pass passed `ok: false` with no
+  // kind at all — so every dead verdict read as "refused" and the one job this
+  // pass exists for quietly stopped working. Nothing failed; it just never
+  // retired anything again.
+  const src = readFileSync(new URL('../src/cli/boards-verify.ts', import.meta.url), 'utf8');
+  assert.match(src, /failure: failureKindFor\(r\.status \?\? undefined\)/);
+  // Classified by status, not assumed — a 403 is user-agent filtering and must
+  // not retire a live board here either.
+  assert.match(src, /import \{ failureKindFor \}/);
+});

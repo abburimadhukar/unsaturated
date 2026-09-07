@@ -10,6 +10,7 @@
  * failures, since one failure is far more often a rate limit than a closure.
  */
 import { config } from '../config.js';
+import { failureKindFor } from '../ats/types.js';
 import { summariseVerification, verifyBoards } from '../discovery/verify.js';
 import type { OpenBoard } from '../discovery/opendata.js';
 
@@ -79,7 +80,20 @@ async function main(): Promise<void> {
   const { deactivated } = await recordCrawlOutcomes(
     [
       ...live.map((r) => ({ provider: r.board.provider, token: r.board.token, ok: true, jobs: r.jobs })),
-      ...dead.map((r) => ({ provider: r.board.provider, token: r.board.token, ok: false, jobs: 0 })),
+      // The failure KIND, not just the fact of it. Retirement now counts only
+      // boards that are gone, so omitting this made every dead verdict here
+      // read as "refused" and this pass — the one whose entire job is retiring
+      // dead boards — quietly stopped being able to retire anything.
+      //
+      // Classified by status through the same function the crawler uses, so a
+      // 403 stays a door held shut rather than a building demolished.
+      ...dead.map((r) => ({
+        provider: r.board.provider,
+        token: r.board.token,
+        ok: false,
+        jobs: 0,
+        failure: failureKindFor(r.status ?? undefined),
+      })),
     ],
     config.maxConsecutiveFailures,
   );
