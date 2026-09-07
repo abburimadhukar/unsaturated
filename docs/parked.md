@@ -283,7 +283,49 @@ one.
 
 ---
 
-## 5. Colour and profile detail
+## 5. Crawl cadence — the crawl runs a third as often as it should
+
+**Parked by the owner, 7 Sep.** Measured, not fixed.
+
+`crawl.yml` declares six slots an hour — 144 a day. Over the three days to
+7 Sep it fired **24 times, about 6% of declared slots**:
+
+```
+12:22  ← 7 Sep
+06:03    6.3h gap     ← nothing crawled all morning
+01:05    5.0h gap
+23:13    1.9h gap
+21:42    1.5h gap
+...
+average gap 2.8h, worst 6.3h
+```
+
+GitHub's scheduler is the cause, and the workflow comment already documents an
+earlier measurement of 1 slot in 66. Declaring more slots has improved it from
+1.5% to 6% and cannot do better — the ceiling is GitHub's, not ours.
+
+**Why it matters more than it looks.** The stated principle for this product is
+that the one job posted in that hour is the one that counts. Per-vendor lanes
+fixed postings being missed to BUGS; nothing addresses postings missed because
+no crawl ran. A typical blind spot is now ~3 hours and the worst is over 6.
+
+### Directions, none tried
+
+- An external scheduler that calls `workflow_dispatch` (cron-job.org, a
+  Cloudflare Worker cron, any always-on host). GitHub honours dispatch
+  immediately — every reliable run in the history above was dispatched.
+- Cloudflare Cron Triggers, which the site already has an account for, firing
+  the same dispatch.
+- A self-rescheduling run: the last step sleeps and re-dispatches, so the chain
+  does not depend on the scheduler at all.
+
+The crawler already refuses to run twice inside 45 minutes, so over-triggering
+is safe — extra invocations exit in seconds. The repo is public and Actions
+minutes are unmetered, so cost is not the constraint.
+
+---
+
+## 6. Colour and profile detail
 
 **Both parked earlier**, after the specific problems were fixed.
 
