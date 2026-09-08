@@ -226,28 +226,24 @@ test('discovery no longer sends eleven clients at the index at once', () => {
 // Reviving what was already lost
 // ---------------------------------------------------------------------------
 
-test('revive brings back refusals and leaves the genuinely dead alone', () => {
+test('revive asks the board rather than reading a message about it', () => {
   const src = readFileSync(new URL('../src/cli/boards-revive.ts', import.meta.url), 'utf8');
-  const m = /const REFUSAL = (\/.*\/[a-z]*);/.exec(src);
-  assert.ok(m, 'expected a REFUSAL pattern');
-  const re = new RegExp(m[1]!.slice(1, m[1]!.lastIndexOf('/')), 'i');
 
-  for (const err of [
-    'workable/acme: HTTP 429 (429 is rate limiting)',
-    'workday/x: HTTP 503',
-    'ashby/y: timed out after 20000ms',
-    'lever/z: fetch failed',
-    'bamboohr/q: HTTP 403 (403 is usually user-agent filtering)',
-  ]) {
-    assert.ok(re.test(err), `should revive: ${err}`);
-  }
-  // A 404 really is gone, and must stay retired.
-  assert.equal(re.test('greenhouse/trails: HTTP 404 (wrong tenant token)'), false);
+  // The REFUSAL pattern is deliberately gone. It could only recognise refusals
+  // somebody had already met: Workday's HTML challenge page matched nothing in
+  // it, so 44 live companies holding 7,871 jobs stayed retired and the tool
+  // built to rescue them could see 3 of the 411. Widening the pattern would fix
+  // those 44 and be equally blind to the next shape. The board is asked instead.
+  assert.doesNotMatch(src, /const REFUSAL =/, 'the text pattern must not come back');
+  assert.match(src, /verifyBoards/, 'the board is fetched from its vendor');
+  assert.match(src, /delayMs: 1000/, 'at one request a second, like the verification pass');
 
   // Reactivating without clearing the counter would retire them again within
   // the hour — that is the loop this breaks.
   assert.match(src, /consecutive_failures: 0/);
   assert.match(src, /active: true/);
+
+  // The behaviour of the rules themselves is covered in tests/retirement.test.ts.
 });
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,17 @@ export interface VerifyResult {
   verdict: Verdict;
   jobs: number;
   status: number | null;
+  /**
+   * Whether the body could be read as the format the endpoint promises.
+   *
+   * A 200 is not proof of a board. `teamtailor:app`, `discover` and
+   * `integrations` are Teamtailor's OWN marketing subdomains, swept in from the
+   * URL index; they answer 200 to `/jobs.json` with a landing page, so they look
+   * live and count zero jobs — exactly like a real board with nothing open.
+   * Only the parse separates them, which matters because boards-revive uses this
+   * to decide what comes back.
+   */
+  parsed?: boolean;
   /** Corporate domain, where the board's own payload reveals it. */
   domain?: string;
 }
@@ -279,6 +290,10 @@ export async function verifyBoards(
           verdict: 'live',
           jobs: countJobs(board.provider, body),
           status: res.status,
+          // null is what the `.catch(() => null)` above leaves behind when the
+          // body is not the format this endpoint promised — an HTML page where
+          // JSON belongs. Recorded rather than flattened into "0 jobs".
+          parsed: body !== null,
           ...(domain ? { domain } : {}),
         };
         break;

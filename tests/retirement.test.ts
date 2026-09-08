@@ -9,6 +9,8 @@ import {
   recordCrawlOutcomes,
   type FailureWrite,
 } from '../src/corpus/board-store.js';
+import { isDeliberateRetirement, shouldRevive } from '../src/corpus/revival.js';
+import type { VerifyResult } from '../src/discovery/verify.js';
 import { workdayAdapter } from '../src/ats/adapters/workday.js';
 import { getAdapter } from '../src/ats/adapters/index.js';
 import { AtsFetchError } from '../src/ats/types.js';
@@ -661,6 +663,82 @@ test('WORKDAY CANNOT REPORT A DEATH AT ALL — and that is a bug, recorded here'
   const wd = { provider: 'workday', token: 't', extra: { host: 'h.wd1.myworkdayjobs.com', site: 's' } };
   assert.equal(await kindFor(wd, 404), 'refused', 'a Workday 404 reads as a refusal');
   assert.equal(await kindFor(wd, 410), 'refused', 'and so does a 410');
+});
+
+// ---------------------------------------------------------------------------
+// What comes back, and what must not
+// ---------------------------------------------------------------------------
+
+const verified = (over: Partial<VerifyResult>): VerifyResult => ({
+  board: { provider: 'workday', token: 't', company: 'T' },
+  verdict: 'live',
+  jobs: 0,
+  status: 200,
+  parsed: true,
+  ...over,
+});
+
+test('a board that answers with a readable payload comes back', () => {
+  assert.equal(shouldRevive(verified({ jobs: 1118 })), true);
+});
+
+test('a live employer with nothing open right now still comes back', () => {
+  // childrensplace and rangersmlb both answered 200 with total=0 on 8 Sep. They
+  // are real companies between vacancies, not dead boards, and dropping them for
+  // having an empty week is how a registry quietly shrinks.
+  assert.equal(shouldRevive(verified({ jobs: 0 })), true);
+});
+
+test('TEAMTAILOR\'S OWN MARKETING PAGES STAY OFF, though they answer 200', () => {
+  // teamtailor:app, :discover and :integrations are Teamtailor's own subdomains,
+  // swept in from the URL index. They serve a landing page to /jobs.json — 200,
+  // zero jobs, and identical to a real empty board unless the parse is checked.
+  // A rule of "it answered" would resurrect all three to fail forever.
+  assert.equal(shouldRevive(verified({ jobs: 0, parsed: false })), false);
+  assert.equal(shouldRevive(verified({ jobs: 12, parsed: false })), false);
+});
+
+test('a board that did not answer is left exactly as it is', () => {
+  assert.equal(shouldRevive(verified({ verdict: 'dead', status: 404, parsed: undefined })), false);
+  assert.equal(shouldRevive(verified({ verdict: 'unknown', status: null, parsed: undefined })), false);
+  // 'unknown' is a rate limit or a dropped connection. Not evidence either way,
+  // so it changes nothing — the board stays retired and is asked again next run.
+  assert.equal(shouldRevive(verified({ verdict: 'unknown', status: 429, parsed: undefined })), false);
+});
+
+test('a missing parse flag is never treated as a yes', () => {
+  // An older VerifyResult, or a provider path that forgot to set it. The absent
+  // answer must not be the permissive one.
+  assert.equal(shouldRevive({ verdict: 'live' }), false);
+});
+
+test('a duplicate spelling is a decision, and is never reconsidered', () => {
+  // All 330 of these point at a board that is still active, verified 8 Sep.
+  // Reviving one means crawling the company twice and storing every posting
+  // under two job keys — the exact bug boards-dedupe exists to prevent.
+  assert.equal(isDeliberateRetirement('duplicate spelling of shiftkey'), true);
+  assert.equal(isDeliberateRetirement('  duplicate spelling of goventi'), true);
+  assert.equal(isDeliberateRetirement('Duplicate spelling of Cleric'), true);
+});
+
+test('an ordinary failure is not a decision', () => {
+  assert.equal(isDeliberateRetirement("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"), false);
+  assert.equal(isDeliberateRetirement('HTTP 404'), false);
+  assert.equal(isDeliberateRetirement(null), false);
+  assert.equal(isDeliberateRetirement(''), false);
+  // Not a prefix match on the whole string: a message that merely mentions it.
+  assert.equal(isDeliberateRetirement('HTTP 500 — duplicate spelling of x'), false);
+});
+
+test('the blocklist is consulted, and the aggregators answer 200', () => {
+  // lever:jobgether answers with 4,534 jobs. Answering is not the question —
+  // somebody removed it on purpose because it republishes other people's
+  // postings. shouldRevive alone would bring it straight back, so the caller
+  // must filter first; this pins that the filter exists.
+  const src = read('../src/cli/boards-revive.ts');
+  assert.match(src, /loadBlocklist/);
+  assert.match(src, /blocked\.has\(blockKey\(b\.provider, b\.token\)\)/);
+  assert.match(src, /isDeliberateRetirement/);
 });
 
 // ---------------------------------------------------------------------------
