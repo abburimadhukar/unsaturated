@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   // from crawl failures, however many times it failed.
   let boardNote = '';
   try {
-    const { recorded, deactivated, spared } = await recordCrawlOutcomes(
+    const { recorded, deactivated, spared, looksGone } = await recordCrawlOutcomes(
       feed.boards
         .filter((b) => b.token)
         .map((b) => ({
@@ -109,18 +109,26 @@ async function main(): Promise<void> {
           ok: !b.error,
           jobs: b.jobs,
           ...(b.error ? { error: b.error } : {}),
-          // Only 'gone' may retire a board. Everything else is the vendor
-          // having a bad day and is recorded without penalty.
+          // Carried for the log below. The crawl no longer acts on it.
           ...(b.failure ? { failure: b.failure } : {}),
         })),
       config.maxConsecutiveFailures,
+      // THE CRAWL DOES NOT RETIRE. It reads 25,000 boards an hour under vendor
+      // rate limits and is the pass least able to tell a closed company from a
+      // bad afternoon; it has been wrong twice, at a cost of 2,185 boards and
+      // then 44 more. It records what it saw and leaves the verdict to
+      // `npm run boards:verify`, which asks once a second and believes only a
+      // real HTTP status.
+      { mayRetire: false },
     );
     boardNote =
       ` · ${recorded} boards recorded` +
-      (deactivated ? `, ${deactivated} retired` : '') +
-      // Named out loud: this number is the one that used to be silent
-      // deactivations, and it should be watched rather than assumed.
-      (spared ? `, ${spared} refused but kept` : '');
+      // Kept in the string so a future regression is visible in the log rather
+      // than silent. It should always be zero here.
+      (deactivated ? `, ${deactivated} RETIRED — the crawl should never retire` : '') +
+      (spared ? `, ${spared} failed but kept` : '') +
+      // The number that used to be silent deactivations. Watched, not assumed.
+      (looksGone ? ` (${looksGone} looked gone — boards:verify decides)` : '');
   } catch (err) {
     console.error('board outcomes not recorded:', err instanceof Error ? err.message : err);
   }

@@ -96,6 +96,11 @@ async function main(): Promise<void> {
       })),
     ],
     config.maxConsecutiveFailures,
+    // This pass, and only this pass, may retire. It asks once a second, accepts
+    // nothing but a real HTTP status as a verdict, and retries before calling
+    // anything dead — so it is the one place a permanent decision belongs. The
+    // hourly crawl passes mayRetire: false for the opposite reasons.
+    { mayRetire: true },
   );
   console.log(`\nRecorded. ${deactivated} board(s) retired after ${config.maxConsecutiveFailures} consecutive failures.`);
 }

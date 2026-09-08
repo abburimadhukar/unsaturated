@@ -85,12 +85,22 @@ test('no status at all still cannot retire a board', async () => {
   );
 });
 
-test('retirement counts only boards that are gone', () => {
+test('retirement counts only boards that are gone, and only for a caller allowed to retire', () => {
   const src = readFileSync(new URL('../src/corpus/board-store.ts', import.meta.url), 'utf8');
-  // The failing set that advances the counter must be filtered to 'gone'.
-  assert.match(src, /const failed = list\.filter\(\(o\) => !o\.ok && o\.failure === 'gone'\)/);
-  // And refusals must still be recorded, so a run stays honest about them.
-  assert.match(src, /const refused = list\.filter\(\(o\) => !o\.ok && o\.failure !== 'gone'\)/);
+  // Two conditions now, not one. The set that advances the counter is filtered
+  // to 'gone' AND to a caller that asked for the power — the hourly crawl does
+  // not, because reading 25,000 boards under rate limits is not the place a
+  // permanent decision belongs. Behaviour is covered in tests/retirement.test.ts;
+  // the shape is asserted here so it stays beside the refusal rules it belongs with.
+  assert.match(
+    src,
+    /const counted = mayRetire \? list\.filter\(\(o\) => !o\.ok && o\.failure === 'gone'\) : \[\]/,
+  );
+  // And every other failure is still recorded, so a run stays honest about them.
+  assert.match(
+    src,
+    /const refused = list\.filter\(\(o\) => !o\.ok && !\(mayRetire && o\.failure === 'gone'\)\)/,
+  );
   assert.match(src, /spared/);
 });
 

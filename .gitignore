@@ -12,3 +12,7 @@ data/feed-snapshot.json
 .open-next
 .dev.vars
 .wrangler
+
+# Point-in-time copies of the boards table, taken before anything that writes.
+# 13MB each and regenerable from the database; useful locally, pointless in git.
+backups/

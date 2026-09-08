@@ -236,8 +236,73 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
  *
  * Deactivation is deliberately slow — a board is retired only after failing
  * several runs in a row, because a single failure is far more often a rate
- * limit than a closed board.
+ * limit than a closed board — and deliberately narrow: the caller must ask for
+ * the power with `mayRetire`, and only `boards:verify` does. See the rule beside
+ * `counted` below for why the hourly crawl no longer gets a vote.
  */
+/** One UPDATE: the boards landing on this failure count, and whether it ends them. */
+export interface FailureWrite {
+  /** The value `consecutive_failures` is set to. */
+  failures: number;
+  /** Tokens landing on it, deduplicated. */
+  tokens: string[];
+  /** Whether this statement also writes `active: false`. */
+  retire: boolean;
+}
+
+/**
+ * Who lands on which failure count, and which of those are ended by it.
+ *
+ * Pure and exported so the rule can be tested without a database — the same
+ * reason `closableBoards` and `mergeBoards` are.
+ *
+ * Two details that are easy to get wrong and are therefore decided here:
+ *
+ * - A token absent from `current` is NOT in the registry. It comes from
+ *   discovered-boards.json, which the crawl list is merged with, and there is
+ *   no row to update. Skipped rather than inserted half-formed.
+ * - A token can arrive twice in one batch. A Workday tenant runs a career site
+ *   per campus and both rows carry the same token, so two sites failing is two
+ *   outcomes for one token. That is ONE strike, not two — deduplicated here
+ *   rather than counted twice.
+ */
+export function planFailureWrites(
+  failed: readonly { token: string }[],
+  current: ReadonlyMap<string, number>,
+  maxFailures: number,
+): FailureWrite[] {
+  const byNext = new Map<number, string[]>();
+  const seen = new Set<string>();
+  for (const f of failed) {
+    if (!current.has(f.token) || seen.has(f.token)) continue;
+    seen.add(f.token);
+    const next = (current.get(f.token) ?? 0) + 1;
+    const list = byNext.get(next) ?? [];
+    list.push(f.token);
+    byNext.set(next, list);
+  }
+  return [...byNext]
+    .sort((a, b) => a[0] - b[0])
+    .map(([failures, tokens]) => ({ failures, tokens, retire: failures >= maxFailures }));
+}
+
+/** Who may end a board's life. */
+export interface OutcomeOptions {
+  /**
+   * Whether the caller is allowed to advance the counter that ends in
+   * retirement. Defaults to FALSE, so a caller that does not think about it
+   * cannot retire anything — the answer that never costs a live board.
+   *
+   * Only `boards:verify` passes true. See the rule above recordCrawlOutcomes.
+   */
+  mayRetire?: boolean;
+  /**
+   * Injected by tests, the way `fetchImpl` is for the adapters. Defaults to the
+   * write client, so production never passes it and cannot pass the wrong one.
+   */
+  client?: ReturnType<typeof dbWrite>;
+}
+
 export async function recordCrawlOutcomes(
   outcomes: {
     provider: string;
@@ -253,13 +318,15 @@ export async function recordCrawlOutcomes(
     failure?: 'gone' | 'refused';
   }[],
   maxFailures: number,
-): Promise<{ recorded: number; deactivated: number; spared: number }> {
-  if (outcomes.length === 0) return { recorded: 0, deactivated: 0, spared: 0 };
-  const client = dbWrite();
+  { mayRetire = false, client: injected }: OutcomeOptions = {},
+): Promise<{ recorded: number; deactivated: number; spared: number; looksGone: number }> {
+  if (outcomes.length === 0) return { recorded: 0, deactivated: 0, spared: 0, looksGone: 0 };
+  const client = injected ?? dbWrite();
   const now = new Date().toISOString();
   let deactivated = 0;
   let recorded = 0;
   let spared = 0;
+  let looksGone = 0;
 
   // Tokens are only unique within a provider, so every statement is scoped by
   // one. Chunked because these become query-string parameters.
@@ -297,7 +364,35 @@ export async function recordCrawlOutcomes(
     // Refusals get their timestamp and their error text recorded, so the run is
     // still honest about what happened — they simply do not advance the counter
     // that ends in deactivation.
-    const refused = list.filter((o) => !o.ok && o.failure !== 'gone');
+    //
+    // AND THE RULE ABOVE IT: only a caller that asked for the power may use it.
+    //
+    // The split above answers "is this board gone?" from a single hurried look.
+    // The hourly crawl takes 25,000 of those looks under vendor rate limits, and
+    // it is the pass least able to tell a closure from a bad afternoon. It has
+    // been wrong twice: 2,185 boards on a 429, and then 44 more on a Workday
+    // challenge page served where JSON belongs, which carries no status code and
+    // so matched no refusal rule of the day. Probed live on 8 Sep 2026, 44 of
+    // the 81 boards retired for failing answered HTTP 200 with 7,871 jobs.
+    //
+    // Both of those specific holes are now shut — see the pair of tests in
+    // tests/retirement.test.ts that drive the real adapter against an HTML
+    // challenge page and against a 404. That is the argument FOR this rule
+    // rather than against it: the split is now two-for-two on faults nobody
+    // could see in advance, and the third one will be invisible too.
+    //
+    // So the crawl no longer votes. With mayRetire false every failure — gone or
+    // refused — is recorded and none advances the counter, which keeps that
+    // counter meaning what it says: consecutive failures seen by the pass that
+    // is entitled to retire on them. Feeding it hurried observations would put a
+    // board five crawl strikes from death before the careful pass ever looked at
+    // it, which is the bug in a new coat.
+    //
+    // `boards:verify` is that pass: one request per second, a real HTTP status
+    // or nothing, and a retry before it calls anything dead.
+    const counted = mayRetire ? list.filter((o) => !o.ok && o.failure === 'gone') : [];
+    const refused = list.filter((o) => !o.ok && !(mayRetire && o.failure === 'gone'));
+    looksGone += list.filter((o) => !o.ok && o.failure === 'gone').length;
     for (let i = 0; i < refused.length; i += CHUNK) {
       const slice = refused.slice(i, i + CHUNK).map((o) => o.token);
       const { error, count } = await client
@@ -316,7 +411,7 @@ export async function recordCrawlOutcomes(
       spared += count ?? 0;
     }
 
-    const failed = list.filter((o) => !o.ok && o.failure === 'gone');
+    const failed = counted;
     if (failed.length === 0) continue;
 
     // Read the current counts first rather than blindly incrementing: PostgREST
@@ -337,21 +432,14 @@ export async function recordCrawlOutcomes(
     }
 
     // Group by the count they land on, so this is a few statements whatever the
-    // number of failures.
-    const byNext = new Map<number, string[]>();
-    for (const f of failed) {
-      // Absent from the map means the board is not in the registry — a
-      // file-only board. Nothing to update.
-      if (!current.has(f.token)) continue;
-      const next = (current.get(f.token) ?? 0) + 1;
-      const list2 = byNext.get(next) ?? [];
-      list2.push(f.token);
-      byNext.set(next, list2);
-    }
-
+    // number of failures. The rule itself is in planFailureWrites, which is pure
+    // and tested directly.
     const errorOf = new Map(failed.map((f) => [f.token, f.error ?? 'crawl failed']));
-    for (const [next, group] of byNext) {
-      const retire = next >= maxFailures;
+    for (const { failures: next, tokens: group, retire } of planFailureWrites(
+      failed,
+      current,
+      maxFailures,
+    )) {
       for (let i = 0; i < group.length; i += CHUNK) {
         const slice = group.slice(i, i + CHUNK);
         const { error, count } = await client
@@ -377,5 +465,5 @@ export async function recordCrawlOutcomes(
     }
   }
 
-  return { recorded, deactivated, spared };
+  return { recorded, deactivated, spared, looksGone };
 }
