@@ -79,7 +79,13 @@ async function main(): Promise<void> {
   // it as a failure is how a rate limit turns into a deleted board.
   const { deactivated } = await recordCrawlOutcomes(
     [
-      ...live.map((r) => ({ provider: r.board.provider, token: r.board.token, ok: true, jobs: r.jobs })),
+      ...live.map((r) => ({
+        provider: r.board.provider,
+        token: r.board.token,
+        site: r.board.extra?.site ?? '',
+        ok: true,
+        jobs: r.jobs,
+      })),
       // The failure KIND, not just the fact of it. Retirement now counts only
       // boards that are gone, so omitting this made every dead verdict here
       // read as "refused" and this pass — the one whose entire job is retiring
@@ -90,6 +96,11 @@ async function main(): Promise<void> {
       ...dead.map((r) => ({
         provider: r.board.provider,
         token: r.board.token,
+        // Which career site died. This pass is the only one that can retire, so
+        // this is the call where getting the row wrong destroys a live board:
+        // Ochsner's physicians' portal must not take the 1,917-job hospital
+        // board down with it.
+        site: r.board.extra?.site ?? '',
         ok: false,
         jobs: 0,
         failure: failureKindFor(r.status ?? undefined),

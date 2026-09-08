@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  boardKey,
   failureReason,
   groupByReason,
   planFailureWrites,
@@ -48,14 +49,18 @@ const MAX = 5;
 // The rule, on its own
 // ---------------------------------------------------------------------------
 
-const at = (...pairs: [string, number][]) => new Map(pairs);
-const tokens = (...t: string[]) => t.map((token) => ({ token }));
+/** Rows already in the registry: [token, strikes] or [token, strikes, site]. */
+const at = (...rows: ([string, number] | [string, number, string])[]) =>
+  new Map(rows.map(([token, n, site]) => [boardKey(token, site ?? ''), n]));
+/** Boards that failed this run: 'token' or ['token', 'site']. */
+const tokens = (...t: (string | [string, string])[]) =>
+  t.map((x) => (typeof x === 'string' ? { token: x, site: '' } : { token: x[0], site: x[1] }));
 const find = (plan: FailureWrite[], failures: number) =>
   plan.find((w) => w.failures === failures);
 
 test('a first failure is a long way from retirement', () => {
   const plan = planFailureWrites(tokens('ppg'), at(['ppg', 0]), MAX);
-  assert.deepEqual(plan, [{ failures: 1, reason: 'failed', tokens: ['ppg'], retire: false }]);
+  assert.deepEqual(plan, [{ failures: 1, reason: 'failed', site: '', tokens: ['ppg'], retire: false }]);
 });
 
 test('the strike before last does not retire', () => {
@@ -82,20 +87,53 @@ test('a board the registry has never heard of is skipped, not inserted', () => {
   assert.deepEqual(planFailureWrites(tokens('ghost'), at(['ppg', 0]), MAX), []);
 });
 
-test('ONE tenant failing on two career sites is one strike, not two', () => {
-  // The bug this guards: a Workday token is a tenant, and Ochsner runs
-  // `Ochsner` (1,917 jobs) and `ochsnerphysician` (346) under the same token.
-  // Both failing arrives as two outcomes for one token. Counted twice, a tenant
-  // with two sites would reach the limit in half the runs of a tenant with one.
-  const plan = planFailureWrites(tokens('ochsner', 'ochsner'), at(['ochsner', 3]), MAX);
-  assert.equal(plan.length, 1);
-  assert.deepEqual(plan[0], { failures: 4, reason: 'failed', tokens: ['ochsner'], retire: false });
+test('ONE FAILING CAREER SITE CANNOT TAKE ITS SIBLING DOWN', () => {
+  // The bug this guards. A Workday token is a TENANT: Ochsner runs `Ochsner`
+  // with 1,917 jobs and `ochsnerphysician` with 346, two rows sharing one token,
+  // and 14 tenants are like this. The statement was scoped to provider + token,
+  // so `active: false` for the small portal reached the big hospital board
+  // beside it. Each site now gets its own statement and its own strike count.
+  const plan = planFailureWrites(
+    tokens(['ochsner', 'ochsnerphysician']),
+    at(['ochsner', 4, 'ochsnerphysician'], ['ochsner', 0, 'Ochsner']),
+    MAX,
+  );
+  assert.equal(plan.length, 1, 'only the site that failed is written');
+  assert.equal(plan[0]?.site, 'ochsnerphysician');
+  assert.equal(plan[0]?.retire, true, 'the portal reached five and goes');
+  assert.deepEqual(plan[0]?.tokens, ['ochsner']);
 });
 
-test('a tenant with two sites cannot be pushed over the line by the duplicate', () => {
-  const plan = planFailureWrites(tokens('nshe', 'nshe', 'nshe'), at(['nshe', 3]), MAX);
-  assert.equal(find(plan, 4)?.retire, false, 'three sites, one strike, still alive');
-  assert.equal(find(plan, 5), undefined, 'and nothing lands on the retiring count');
+test('two sites of one tenant get their own strike counts, not a shared one', () => {
+  const plan = planFailureWrites(
+    tokens(['nshe', 'GBC-external'], ['nshe', 'UNR-external']),
+    at(['nshe', 0, 'GBC-external'], ['nshe', 4, 'UNR-external']),
+    MAX,
+  );
+  assert.equal(plan.length, 2, 'two rows, two statements');
+  assert.equal(plan.find((p) => p.site === 'GBC-external')?.failures, 1);
+  assert.equal(plan.find((p) => p.site === 'GBC-external')?.retire, false);
+  assert.equal(plan.find((p) => p.site === 'UNR-external')?.retire, true);
+});
+
+test('the SAME site arriving twice is still one strike', () => {
+  // Deduplication is by row now, not by token — the same board reported twice in
+  // one batch must not be counted twice.
+  const plan = planFailureWrites(
+    tokens(['ochsner', 'Ochsner'], ['ochsner', 'Ochsner']),
+    at(['ochsner', 3, 'Ochsner']),
+    MAX,
+  );
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0]?.failures, 4);
+  assert.deepEqual(plan[0]?.tokens, ['ochsner']);
+});
+
+test('providers with no site are unaffected — they all share the empty one', () => {
+  const plan = planFailureWrites(tokens('a', 'b'), at(['a', 0], ['b', 0]), MAX);
+  assert.equal(plan.length, 1, 'one statement covers both, as before');
+  assert.equal(plan[0]?.site, '');
+  assert.deepEqual(plan[0]?.tokens, ['a', 'b']);
 });
 
 test('boards are grouped by the count they land on, in order', () => {
@@ -210,6 +248,7 @@ interface Statement {
   patch?: Record<string, unknown>;
   columns?: string;
   provider?: string;
+  site?: string;
   tokens?: string[];
 }
 
@@ -219,13 +258,27 @@ interface Statement {
  * The chain is `.from(t).update(patch, opts).eq(col, v).in(col, arr)` and the
  * final link is awaited, so every link returns the same thenable recorder.
  */
-function fakeClient(rows: { provider: string; token: string; consecutive_failures: number }[]) {
+function fakeClient(
+  rows: { provider: string; token: string; site?: string; consecutive_failures: number; active?: boolean }[],
+) {
   const statements: Statement[] = [];
+
+  /** Rows this statement's filters actually select. */
+  const matched = (st: Statement) =>
+    rows.filter(
+      (r) =>
+        r.provider === st.provider &&
+        (st.tokens ?? []).includes(r.token) &&
+        // Only when the statement scoped itself. An unscoped one reaches every
+        // site of the tenant, which is the behaviour these tests exist to pin.
+        (st.site === undefined || (r.site ?? '') === st.site),
+    );
 
   const builder = (st: Statement) => {
     const self = {
       eq(col: string, val: string) {
         if (col === 'provider') st.provider = val;
+        if (col === 'site') st.site = val;
         return self;
       },
       in(_col: string, arr: string[]) {
@@ -234,13 +287,21 @@ function fakeClient(rows: { provider: string; token: string; consecutive_failure
       },
       then(resolve: (r: unknown) => void) {
         if (st.verb === 'select') {
-          const data = rows
-            .filter((r) => r.provider === st.provider && (st.tokens ?? []).includes(r.token))
-            .map((r) => ({ token: r.token, consecutive_failures: r.consecutive_failures }));
-          resolve({ data, error: null });
+          resolve({
+            data: matched(st).map((r) => ({
+              token: r.token,
+              site: r.site ?? '',
+              consecutive_failures: r.consecutive_failures,
+            })),
+            error: null,
+          });
           return;
         }
-        resolve({ error: null, count: (st.tokens ?? []).length });
+        // The real count is the number of ROWS the filters hit, not the number
+        // of tokens named — that difference is exactly the sibling bug.
+        const hit = matched(st);
+        for (const r of hit) Object.assign(r, st.patch);
+        resolve({ error: null, count: hit.length });
       },
     };
     return self;
@@ -263,7 +324,7 @@ function fakeClient(rows: { provider: string; token: string; consecutive_failure
     },
   };
 
-  return { client: client as unknown as ReturnType<typeof dbWrite>, statements };
+  return { client: client as unknown as ReturnType<typeof dbWrite>, statements, rows };
 }
 
 const updates = (s: Statement[]) => s.filter((x) => x.verb === 'update');
@@ -284,11 +345,13 @@ const answered = (token: string, jobs = 12) =>
  * is part of what is being tested, or the select finds nothing and the test
  * passes for the wrong reason.
  */
-const registry = (...pairs: ([string, number] | [string, number, string])[]) =>
-  pairs.map(([token, consecutive_failures, provider]) => ({
+const registry = (...pairs: ([string, number] | [string, number, string] | [string, number, string, string])[]) =>
+  pairs.map(([token, consecutive_failures, provider, site]) => ({
     provider: provider ?? 'workday',
     token,
+    site: site ?? '',
     consecutive_failures,
+    active: true,
   }));
 
 test('THE CRAWL RETIRES NOTHING, even a board on its last strike', async () => {
@@ -557,6 +620,64 @@ test('two boards dying for different reasons are written separately', async () =
       'and never in one statement',
     );
   }
+});
+
+test('OCHSNER KEEPS ITS HOSPITAL BOARD WHEN THE PHYSICIANS PORTAL DIES', async () => {
+  // End to end, against the fake database, on the only pass that can retire.
+  // The rows are the real ones: token `ochsner`, sites `Ochsner` (1,917 jobs)
+  // and `ochsnerphysician` (346). The portal is on its last strike; the hospital
+  // board is healthy and must still be active when this returns.
+  const { client, statements } = fakeClient(
+    registry(['ochsner', 4, 'workday', 'ochsnerphysician'], ['ochsner', 0, 'workday', 'Ochsner']),
+  );
+  const res = await recordCrawlOutcomes(
+    [
+      { provider: 'workday', token: 'ochsner', site: 'ochsnerphysician', ok: false, jobs: 0, error: 'workday/ochsner: HTTP 404', failure: 'gone' },
+    ],
+    MAX,
+    { client, mayRetire: true },
+  );
+
+  assert.equal(res.deactivated, 1, 'exactly one row retired, not two');
+  const retired = retiring(statements);
+  assert.equal(retired.length, 1);
+  assert.equal(retired[0]?.site, 'ochsnerphysician', 'and the statement named the site');
+});
+
+test('the healthy sibling is still active in the rows themselves afterwards', async () => {
+  // Asserted on the final state of the fake table rather than on the statements
+  // issued, because the statements are what a reviewer reads and the rows are
+  // what a company loses.
+  const { client, rows } = fakeClient(
+    registry(['ochsner', 4, 'workday', 'ochsnerphysician'], ['ochsner', 0, 'workday', 'Ochsner']),
+  );
+  await recordCrawlOutcomes(
+    [
+      { provider: 'workday', token: 'ochsner', site: 'ochsnerphysician', ok: false, jobs: 0, error: 'workday/ochsner: HTTP 404', failure: 'gone' },
+    ],
+    MAX,
+    { client, mayRetire: true },
+  );
+
+  const hospital = rows.find((r) => r.site === 'Ochsner');
+  const portal = rows.find((r) => r.site === 'ochsnerphysician');
+  assert.equal(hospital?.active, true, 'the 1,917-job board is untouched');
+  assert.equal(hospital?.consecutive_failures, 0, 'and carries no strike it did not earn');
+  assert.equal(portal?.active, false, 'while the portal that actually died is retired');
+});
+
+test('and the crawl cannot retire either of them, whatever it saw', async () => {
+  const { client, rows } = fakeClient(
+    registry(['ochsner', 4, 'workday', 'ochsnerphysician'], ['ochsner', 0, 'workday', 'Ochsner']),
+  );
+  await recordCrawlOutcomes(
+    [
+      { provider: 'workday', token: 'ochsner', site: 'ochsnerphysician', ok: false, jobs: 0, error: 'workday/ochsner: HTTP 404', failure: 'gone' },
+    ],
+    MAX,
+    { client },
+  );
+  assert.equal(rows.every((r) => r.active), true, 'both rows survive the hourly crawl');
 });
 
 test('a file-only board is never inserted by a failure', async () => {

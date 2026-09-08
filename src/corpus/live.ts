@@ -105,6 +105,9 @@ async function loadBoard(board: CorpusBoard, now: number) {
     company: board.company,
     provider: board.provider,
     token: board.token,
+    // '' rather than undefined for the providers that have no site, because
+    // that is what the column holds and the outcome is matched against it.
+    site: board.extra?.site ?? '',
     jobs: 0,
     kept: 0,
     ms: 0,

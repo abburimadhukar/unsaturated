@@ -292,6 +292,17 @@ export interface FailureWrite {
   failures: number;
   /** What happened, true of every token in this group. */
   reason: string;
+  /**
+   * The Workday career site this statement is scoped to, '' for everyone else.
+   *
+   * Only this path carries it. A tenant's two sites are two rows sharing one
+   * token, and `.in('token', …)` alone reaches both — which is harmless for a
+   * timestamp and fatal for `active: false`. The high-volume refusal path stays
+   * unscoped on purpose: it writes only diagnostics, nothing reads them to make
+   * a decision any more, and scoping it would turn four statements into one per
+   * distinct Workday site.
+   */
+  site: string;
   /** Tokens landing on it, deduplicated. */
   tokens: string[];
   /** Whether this statement also writes `active: false`. */
@@ -314,33 +325,41 @@ export interface FailureWrite {
  *   outcomes for one token. That is ONE strike, not two — deduplicated here
  *   rather than counted twice.
  */
+/** How a board is addressed here: a token alone is not enough for Workday. */
+export const boardKey = (token: string, site?: string) =>
+  JSON.stringify([token, site ?? '']);
+
 export function planFailureWrites(
-  failed: readonly { token: string; error?: string }[],
+  failed: readonly { token: string; site?: string; error?: string }[],
   current: ReadonlyMap<string, number>,
   maxFailures: number,
 ): FailureWrite[] {
-  // Grouped by the count AND by the reason: the count decides retirement, the
-  // reason is what gets written down, and a group may only share a statement
-  // when both are true of every board in it.
+  // Grouped by the count, the reason AND the site: the count decides
+  // retirement, the reason is what gets written down, the site says which row,
+  // and a statement may only be shared when all three are true of everyone in
+  // it.
   const groups = new Map<string, FailureWrite>();
   const seen = new Set<string>();
   for (const f of failed) {
-    if (!current.has(f.token) || seen.has(f.token)) continue;
-    seen.add(f.token);
-    const failures = (current.get(f.token) ?? 0) + 1;
+    const key = boardKey(f.token, f.site);
+    if (!current.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    const failures = (current.get(key) ?? 0) + 1;
     const reason = failureReason(f.error);
-    const key = `${failures} ${reason}`;
-    const group = groups.get(key) ?? {
+    const site = f.site ?? '';
+    const group = groups.get(JSON.stringify([failures, reason, site])) ?? {
       failures,
       reason,
+      site,
       tokens: [],
       retire: failures >= maxFailures,
     };
     group.tokens.push(f.token);
-    groups.set(key, group);
+    groups.set(JSON.stringify([failures, reason, site]), group);
   }
   return [...groups.values()].sort(
-    (a, b) => a.failures - b.failures || a.reason.localeCompare(b.reason),
+    (a, b) =>
+      a.failures - b.failures || a.reason.localeCompare(b.reason) || a.site.localeCompare(b.site),
   );
 }
 
@@ -365,6 +384,11 @@ export async function recordCrawlOutcomes(
   outcomes: {
     provider: string;
     token: string;
+    /**
+     * The Workday career site this outcome is about, '' for every other
+     * provider. Only the retiring path is scoped by it — see FailureWrite.site.
+     */
+    site?: string;
     ok: boolean;
     jobs: number;
     error?: string;
@@ -473,24 +497,27 @@ export async function recordCrawlOutcomes(
     // Read the current counts first rather than blindly incrementing: PostgREST
     // cannot express `set n = n + 1`, and guessing would let one bad run retire
     // a board that had been healthy until then.
+    // Keyed by token AND site. Keyed by token alone, a tenant's two rows both
+    // landed in the map and the second overwrote the first, so a board's strike
+    // count could be read off its sibling.
     const current = new Map<string, number>();
     const tokens = failed.map((o) => o.token);
     for (let i = 0; i < tokens.length; i += CHUNK) {
       const { data, error } = await client
         .from('boards')
-        .select('token,consecutive_failures')
+        .select('token,site,consecutive_failures')
         .eq('provider', provider)
         .in('token', tokens.slice(i, i + CHUNK));
       if (error) { console.error('board failure read failed:', error.message); continue; }
-      for (const r of (data ?? []) as { token: string; consecutive_failures: number }[]) {
-        current.set(r.token, r.consecutive_failures ?? 0);
+      for (const r of (data ?? []) as { token: string; site: string | null; consecutive_failures: number }[]) {
+        current.set(boardKey(r.token, r.site ?? ''), r.consecutive_failures ?? 0);
       }
     }
 
     // Group by the count they land on, so this is a few statements whatever the
     // number of failures. The rule itself is in planFailureWrites, which is pure
     // and tested directly.
-    for (const { failures: next, reason, tokens: group, retire } of planFailureWrites(
+    for (const { failures: next, reason, site, tokens: group, retire } of planFailureWrites(
       failed,
       current,
       maxFailures,
@@ -512,6 +539,9 @@ export async function recordCrawlOutcomes(
             { count: 'exact' },
           )
           .eq('provider', provider)
+          // The row, not the tenant. Ochsner's physicians' portal failing must
+          // not carry off the 1,917-job hospital board that shares its token.
+          .eq('site', site)
           .in('token', slice);
         if (error) { console.error('board failure write failed:', error.message); continue; }
         recorded += count ?? 0;

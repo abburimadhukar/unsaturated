@@ -106,6 +106,9 @@ async function main(): Promise<void> {
         .map((b) => ({
           provider: b.provider,
           token: b.token as string,
+          // Which ROW this outcome belongs to. A Workday token is a tenant and
+          // 14 of them run two career sites under it.
+          site: b.site ?? '',
           ok: !b.error,
           jobs: b.jobs,
           ...(b.error ? { error: b.error } : {}),

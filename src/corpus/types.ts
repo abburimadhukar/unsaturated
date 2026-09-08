@@ -92,6 +92,17 @@ export interface BoardHealth {
    * healthy board authorises closing a failing sibling's postings.
    */
   token?: string;
+  /**
+   * The Workday career site, where the board has one. Empty for every other
+   * provider, which is exactly how the column stores it.
+   *
+   * Carried because a Workday token is a TENANT, not a board: Ochsner runs
+   * `Ochsner` with 1,917 jobs and `ochsnerphysician` with 346 under one token,
+   * and 14 tenants hold two live sites. Without this, an outcome for one site
+   * is written to both rows — so a failing physicians' portal could retire the
+   * main hospital board sitting beside it.
+   */
+  site?: string;
   jobs: number;
   kept: number;
   /** Descriptions fetched by the backfill pass. */
