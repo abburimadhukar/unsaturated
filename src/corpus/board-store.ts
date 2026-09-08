@@ -240,10 +240,58 @@ export async function upsertBoards(boards: StoredBoard[]): Promise<number> {
  * the power with `mayRetire`, and only `boards:verify` does. See the rule beside
  * `counted` below for why the hourly crawl no longer gets a vote.
  */
+/**
+ * A failure message with the board's name taken off the front.
+ *
+ * Every adapter prefixes its errors with `provider/token: `, and that prefix is
+ * the ONLY board-specific part of the string. Which matters because these are
+ * written in batches: one message covered a chunk of up to 200 boards, so 44 of
+ * the 74 retired boards carrying an attributable error named a DIFFERENT board.
+ * 59%. `workday:ppg` said the error came from `workday/catalent`.
+ *
+ * That was harmless while the text was only a diagnostic. It stopped being
+ * harmless when boards-revive started deciding a board's fate by reading it.
+ *
+ * Taking the prefix off makes the remainder true of every board that failed the
+ * same way, so a batch can still share one statement without any row claiming
+ * something that did not happen to it. The row already knows which board it is.
+ *
+ * Measured against the live registry, 8 Sep 2026: 3,150 boards carried an error
+ * between them, 392 distinct strings as stored. Strip the prefix and the ones
+ * this function writes collapse to nine — 2,710 on a 429, 47 on the HTML
+ * challenge page, 36 on a 404, and single figures of everything else. The long
+ * tail of 330 is `duplicate spelling of X` from boards-dedupe, which writes one
+ * row at a time and never comes through here.
+ */
+export function failureReason(error: string | undefined): string {
+  const text = (error ?? '').trim();
+  if (!text) return 'failed';
+  return text.replace(/^[a-z]+\/[A-Za-z0-9_.:@+-]+:\s*/, '').slice(0, 300) || 'failed';
+}
+
+/** Groups boards by what actually happened to them, so one statement cannot lie. */
+export function groupByReason<T extends { token: string; error?: string }>(
+  boards: readonly T[],
+): { reason: string; tokens: string[] }[] {
+  const byReason = new Map<string, string[]>();
+  const seen = new Set<string>();
+  for (const b of boards) {
+    if (seen.has(b.token)) continue;
+    seen.add(b.token);
+    const reason = failureReason(b.error);
+    const list = byReason.get(reason) ?? [];
+    list.push(b.token);
+    byReason.set(reason, list);
+  }
+  return [...byReason].map(([reason, tokens]) => ({ reason, tokens }));
+}
+
 /** One UPDATE: the boards landing on this failure count, and whether it ends them. */
 export interface FailureWrite {
   /** The value `consecutive_failures` is set to. */
   failures: number;
+  /** What happened, true of every token in this group. */
+  reason: string;
   /** Tokens landing on it, deduplicated. */
   tokens: string[];
   /** Whether this statement also writes `active: false`. */
@@ -267,23 +315,33 @@ export interface FailureWrite {
  *   rather than counted twice.
  */
 export function planFailureWrites(
-  failed: readonly { token: string }[],
+  failed: readonly { token: string; error?: string }[],
   current: ReadonlyMap<string, number>,
   maxFailures: number,
 ): FailureWrite[] {
-  const byNext = new Map<number, string[]>();
+  // Grouped by the count AND by the reason: the count decides retirement, the
+  // reason is what gets written down, and a group may only share a statement
+  // when both are true of every board in it.
+  const groups = new Map<string, FailureWrite>();
   const seen = new Set<string>();
   for (const f of failed) {
     if (!current.has(f.token) || seen.has(f.token)) continue;
     seen.add(f.token);
-    const next = (current.get(f.token) ?? 0) + 1;
-    const list = byNext.get(next) ?? [];
-    list.push(f.token);
-    byNext.set(next, list);
+    const failures = (current.get(f.token) ?? 0) + 1;
+    const reason = failureReason(f.error);
+    const key = `${failures} ${reason}`;
+    const group = groups.get(key) ?? {
+      failures,
+      reason,
+      tokens: [],
+      retire: failures >= maxFailures,
+    };
+    group.tokens.push(f.token);
+    groups.set(key, group);
   }
-  return [...byNext]
-    .sort((a, b) => a[0] - b[0])
-    .map(([failures, tokens]) => ({ failures, tokens, retire: failures >= maxFailures }));
+  return [...groups.values()].sort(
+    (a, b) => a.failures - b.failures || a.reason.localeCompare(b.reason),
+  );
 }
 
 /** Who may end a board's life. */
@@ -393,22 +451,20 @@ export async function recordCrawlOutcomes(
     const counted = mayRetire ? list.filter((o) => !o.ok && o.failure === 'gone') : [];
     const refused = list.filter((o) => !o.ok && !(mayRetire && o.failure === 'gone'));
     looksGone += list.filter((o) => !o.ok && o.failure === 'gone').length;
-    for (let i = 0; i < refused.length; i += CHUNK) {
-      const slice = refused.slice(i, i + CHUNK).map((o) => o.token);
-      const { error, count } = await client
-        .from('boards')
-        .update(
-          {
-            last_crawled_at: now,
-            last_error: refused[i]?.error?.slice(0, 300) ?? 'refused',
-          },
-          { count: 'exact' },
-        )
-        .eq('provider', provider)
-        .in('token', slice);
-      if (error) { console.error('board refusal write failed:', error.message); continue; }
-      recorded += count ?? 0;
-      spared += count ?? 0;
+    // One statement per REASON rather than per chunk, so no board is handed a
+    // neighbour's error text. See failureReason above for why that matters and
+    // what it used to cost.
+    for (const { reason, tokens } of groupByReason(refused)) {
+      for (let i = 0; i < tokens.length; i += CHUNK) {
+        const { error, count } = await client
+          .from('boards')
+          .update({ last_crawled_at: now, last_error: reason }, { count: 'exact' })
+          .eq('provider', provider)
+          .in('token', tokens.slice(i, i + CHUNK));
+        if (error) { console.error('board refusal write failed:', error.message); continue; }
+        recorded += count ?? 0;
+        spared += count ?? 0;
+      }
     }
 
     const failed = counted;
@@ -434,8 +490,7 @@ export async function recordCrawlOutcomes(
     // Group by the count they land on, so this is a few statements whatever the
     // number of failures. The rule itself is in planFailureWrites, which is pure
     // and tested directly.
-    const errorOf = new Map(failed.map((f) => [f.token, f.error ?? 'crawl failed']));
-    for (const { failures: next, tokens: group, retire } of planFailureWrites(
+    for (const { failures: next, reason, tokens: group, retire } of planFailureWrites(
       failed,
       current,
       maxFailures,
@@ -448,10 +503,10 @@ export async function recordCrawlOutcomes(
             {
               last_crawled_at: now,
               consecutive_failures: next,
-              // One message for the group. Storing each board's own text would
-              // mean a statement per board, and the reason a board is failing
-              // is nearly always the same across a batch.
-              last_error: errorOf.get(slice[0] as string)?.slice(0, 300) ?? null,
+              // True of every board in the group, because the group is keyed on
+              // it. This line used to read `errorOf.get(slice[0])` — one board's
+              // text stamped across up to 200 rows.
+              last_error: reason,
               ...(retire ? { active: false } : {}),
             },
             { count: 'exact' },

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import {
+  failureReason,
+  groupByReason,
   planFailureWrites,
   recordCrawlOutcomes,
   type FailureWrite,
@@ -51,7 +53,7 @@ const find = (plan: FailureWrite[], failures: number) =>
 
 test('a first failure is a long way from retirement', () => {
   const plan = planFailureWrites(tokens('ppg'), at(['ppg', 0]), MAX);
-  assert.deepEqual(plan, [{ failures: 1, tokens: ['ppg'], retire: false }]);
+  assert.deepEqual(plan, [{ failures: 1, reason: 'failed', tokens: ['ppg'], retire: false }]);
 });
 
 test('the strike before last does not retire', () => {
@@ -85,7 +87,7 @@ test('ONE tenant failing on two career sites is one strike, not two', () => {
   // with two sites would reach the limit in half the runs of a tenant with one.
   const plan = planFailureWrites(tokens('ochsner', 'ochsner'), at(['ochsner', 3]), MAX);
   assert.equal(plan.length, 1);
-  assert.deepEqual(plan[0], { failures: 4, tokens: ['ochsner'], retire: false });
+  assert.deepEqual(plan[0], { failures: 4, reason: 'failed', tokens: ['ochsner'], retire: false });
 });
 
 test('a tenant with two sites cannot be pushed over the line by the duplicate', () => {
@@ -117,6 +119,83 @@ test('nothing failing produces no statements', () => {
 test('a limit of one retires on the first strike, and a huge limit never does', () => {
   assert.equal(planFailureWrites(tokens('x'), at(['x', 0]), 1)[0]?.retire, true);
   assert.equal(planFailureWrites(tokens('x'), at(['x', 99]), 1_000_000)[0]?.retire, false);
+});
+
+// ---------------------------------------------------------------------------
+// Whose error is it — the second bug, and the one the repair reads
+// ---------------------------------------------------------------------------
+
+test('a board no longer carries another board\'s name', () => {
+  // Measured 8 Sep: 44 of the 74 retired boards with an attributable error named
+  // a DIFFERENT board. workday:ppg said the failure came from workday/catalent.
+  assert.equal(
+    failureReason("workday/catalent: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"),
+    "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON",
+  );
+});
+
+test('boards that failed the same way still share one statement', () => {
+  // The batching was never the problem, the shared TEXT was. Strip the name and
+  // the remainder is true of all of them, so the write stays cheap.
+  const groups = groupByReason([
+    { token: 'ppg', error: "workday/ppg: HTTP 429 (429 is rate limiting)" },
+    { token: 'yai', error: "workday/yai: HTTP 429 (429 is rate limiting)" },
+    { token: 'upenn', error: 'workday/upenn: HTTP 404 (wrong tenant token)' },
+  ]);
+  assert.equal(groups.length, 2, 'two reasons, two statements — not three, not one');
+  const rate = groups.find((g) => g.reason.startsWith('HTTP 429'));
+  assert.deepEqual(rate?.tokens, ['ppg', 'yai']);
+  assert.deepEqual(groups.find((g) => g.reason.startsWith('HTTP 404'))?.tokens, ['upenn']);
+});
+
+test('a failure with no message recorded says so, rather than nothing', () => {
+  assert.equal(failureReason(undefined), 'failed');
+  assert.equal(failureReason(''), 'failed');
+  assert.equal(failureReason('   '), 'failed');
+  // Prefix and nothing else: do not store an empty string.
+  assert.equal(failureReason('workday/ppg: '), 'failed');
+});
+
+test('a message that is not prefixed is left exactly as it is', () => {
+  assert.equal(failureReason('socket hang up'), 'socket hang up');
+  // A URL in the text is not a provider prefix and must survive.
+  assert.equal(
+    failureReason('https://ppg.wd5.myworkdayjobs.com/x failed'),
+    'https://ppg.wd5.myworkdayjobs.com/x failed',
+  );
+});
+
+test('the stored reason is capped, like the column it goes into', () => {
+  assert.equal(failureReason('workday/ppg: ' + 'x'.repeat(500)).length, 300);
+});
+
+test('two boards failing differently never share a statement', () => {
+  // The case that made this urgent: one board refused, its neighbour genuinely
+  // 404. Sharing text meant the 404 could be revived and the refusal left dead.
+  const plan = planFailureWrites(
+    [
+      { token: 'ppg', error: 'workday/ppg: HTTP 429' },
+      { token: 'trails', error: 'greenhouse/trails: HTTP 404' },
+    ],
+    at(['ppg', 0], ['trails', 0]),
+    MAX,
+  );
+  assert.equal(plan.length, 2, 'same failure count, different reasons, two statements');
+  assert.deepEqual(plan.find((p) => p.reason === 'HTTP 429')?.tokens, ['ppg']);
+  assert.deepEqual(plan.find((p) => p.reason === 'HTTP 404')?.tokens, ['trails']);
+});
+
+test('the same reason at different failure counts stays separate', () => {
+  const plan = planFailureWrites(
+    [
+      { token: 'a', error: 'workday/a: HTTP 429' },
+      { token: 'b', error: 'workday/b: HTTP 429' },
+    ],
+    at(['a', 0], ['b', 3]),
+    MAX,
+  );
+  assert.equal(plan.length, 2);
+  assert.deepEqual(plan.map((p) => [p.failures, p.tokens]), [[1, ['a']], [4, ['b']]]);
 });
 
 // ---------------------------------------------------------------------------
@@ -197,9 +276,15 @@ const refused = (token: string, error = 'HTTP 429') =>
 const answered = (token: string, jobs = 12) =>
   ({ provider: 'workday', token, ok: true, jobs });
 
-const registry = (...pairs: [string, number][]) =>
-  pairs.map(([token, consecutive_failures]) => ({
-    provider: 'workday',
+/**
+ * Rows the fake database already holds. Provider defaults to workday because
+ * most of these cases are Workday boards; pass it explicitly where the provider
+ * is part of what is being tested, or the select finds nothing and the test
+ * passes for the wrong reason.
+ */
+const registry = (...pairs: ([string, number] | [string, number, string])[]) =>
+  pairs.map(([token, consecutive_failures, provider]) => ({
+    provider: provider ?? 'workday',
     token,
     consecutive_failures,
   }));
@@ -416,6 +501,59 @@ test('a mixed batch writes each board once and counts each board once', async ()
     }
     assert.equal(res.recorded, 3);
     assert.equal(res.looksGone, 1, 'and the gone one is reported either way');
+  }
+});
+
+test('through the write path, each board is told the truth about itself', async () => {
+  // The whole point. ppg was rate limited, trails is genuinely gone, and neither
+  // row may end up carrying the other's story — boards-revive reads this text.
+  for (const mayRetire of [false, true]) {
+    const { client, statements } = fakeClient(registry(['ppg', 0], ['trails', 0]));
+    await recordCrawlOutcomes(
+      [
+        { provider: 'workday', token: 'ppg', ok: false, jobs: 0, error: 'workday/ppg: HTTP 429', failure: 'refused' },
+        { provider: 'workday', token: 'trails', ok: false, jobs: 0, error: 'workday/trails: HTTP 404', failure: 'gone' },
+      ],
+      MAX,
+      { client, mayRetire },
+    );
+
+    assert.equal(patchFor(statements, 'ppg')?.last_error, 'HTTP 429', `mayRetire=${mayRetire}`);
+    assert.equal(patchFor(statements, 'trails')?.last_error, 'HTTP 404');
+    // And neither statement covers both boards.
+    for (const s of updates(statements)) {
+      assert.ok(
+        !((s.tokens ?? []).includes('ppg') && (s.tokens ?? []).includes('trails')),
+        'a statement may not span two different reasons',
+      );
+    }
+  }
+});
+
+test('two boards dying for different reasons are written separately', async () => {
+  // Both down the counted path, both on the same strike, different causes. This
+  // is the combination the old code could not express: one statement, one text,
+  // and whichever board sorted first decided what the other one said.
+  const { client, statements } = fakeClient(
+    registry(['trails', 4, 'greenhouse'], ['lifen', 4, 'greenhouse']),
+  );
+  const res = await recordCrawlOutcomes(
+    [
+      { provider: 'greenhouse', token: 'trails', ok: false, jobs: 0, error: 'greenhouse/trails: HTTP 404', failure: 'gone' },
+      { provider: 'greenhouse', token: 'lifen', ok: false, jobs: 0, error: 'greenhouse/lifen: HTTP 410', failure: 'gone' },
+    ],
+    MAX,
+    { client, mayRetire: true },
+  );
+
+  assert.equal(patchFor(statements, 'trails')?.last_error, 'HTTP 404');
+  assert.equal(patchFor(statements, 'lifen')?.last_error, 'HTTP 410');
+  assert.equal(res.deactivated, 2, 'both genuinely gone, both retired');
+  for (const s of updates(statements)) {
+    assert.ok(
+      !((s.tokens ?? []).includes('trails') && (s.tokens ?? []).includes('lifen')),
+      'and never in one statement',
+    );
   }
 });
 
