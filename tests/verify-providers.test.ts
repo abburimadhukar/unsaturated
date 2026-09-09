@@ -22,7 +22,7 @@ const adapters = read('../src/ats/adapters/index.ts');
 /** Providers the discovery harvest can actually produce candidates for. */
 const HARVESTED = [
   'greenhouse', 'ashby', 'workday', 'smartrecruiters', 'workable', 'personio',
-  'bamboohr', 'ukg', 'recruitee', 'teamtailor',
+  'bamboohr', 'ukg', 'recruitee', 'teamtailor', 'rippling',
 ];
 
 test('every harvested provider has a verification endpoint', () => {
@@ -66,4 +66,66 @@ test('a provider with no adapter is not in the discovery matrix', () => {
   for (const p of line.split(',').map((s) => s.trim()).filter(Boolean)) {
     assert.ok(adapters.includes(p), `${p} is discovered but has no adapter to crawl it`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Rippling — wired 9 September 2026
+// ---------------------------------------------------------------------------
+
+/**
+ * The token is the first path segment of an ats.rippling.com URL.
+ *
+ * The URLs below are real, taken from CC-MAIN-2026-34 on 9 Sep 2026. That index
+ * page holds 9,183 URLs and 937 distinct tokens, against 4 registered.
+ */
+const ripplingPattern = () => {
+  const cc = read('../src/discovery/commoncrawl.ts');
+  const block = cc.match(/provider: 'rippling',\s*match: '([^']+)',\s*extract: (\/.*\/[a-z]*),/);
+  assert.ok(block, 'the rippling pattern is gone from commoncrawl.ts');
+  return { match: block[1]!, extract: new RegExp(block[2]!.slice(1, block[2]!.lastIndexOf('/'))) };
+};
+
+test('the rippling pattern pulls the company out of a real board URL', () => {
+  const { extract } = ripplingPattern();
+  const cases: [string, string][] = [
+    ['https://ats.rippling.com/514-careers/jobs/5811104e-78bb-4aaa-a8f6-32bbad47654b', '514-careers'],
+    ['https://ats.rippling.com/aaca/jobs/51f21f69-d573-4971-8759-b43d3dd6ce23', 'aaca'],
+    ['https://ats.rippling.com/a20-opportunities-page/jobs', 'a20-opportunities-page'],
+    ['https://ats.rippling.com/droneshield', 'droneshield'],
+    ['https://ats.rippling.com/jobs-at-tuesday-health/jobs', 'jobs-at-tuesday-health'],
+  ];
+  for (const [url, token] of cases) {
+    const m = extract.exec(url);
+    assert.ok(m, `no match: ${url}`);
+    assert.equal(m[1], token, url);
+  }
+});
+
+test('the rippling pattern asks the index for the right host', () => {
+  assert.equal(ripplingPattern().match, 'ats.rippling.com/*');
+});
+
+test('a token that is only routing is refused before it reaches a board', () => {
+  // NOT_A_TOKEN exists because the first path segment is not always a company.
+  const cc = read('../src/discovery/commoncrawl.ts');
+  const m = cc.match(/const NOT_A_TOKEN =\s*(\/[^;]+\/[a-z]*);/);
+  assert.ok(m, 'NOT_A_TOKEN is gone');
+  const re = new RegExp(m[1]!.slice(1, m[1]!.lastIndexOf('/')), 'i');
+  for (const junk of ['jobs', 'api', 'search', 'login']) {
+    assert.ok(re.test(junk), `${junk} should never become a board`);
+  }
+  // And it must not eat real Rippling companies, which are hyphenated slugs.
+  for (const real of ['514-careers', 'jobs-at-tuesday-health', 'droneshield', 'atlas-data-storage']) {
+    assert.equal(re.test(real), false, `${real} is a real board and must survive`);
+  }
+});
+
+test('rippling is in the discovery matrix, not just in the code', () => {
+  const workflow = read('../.github/workflows/discover.yml');
+  const line = workflow.match(/provider: \[([^\]]+)\]/);
+  assert.ok(line);
+  assert.ok(
+    line[1].split(',').map((s) => s.trim()).includes('rippling'),
+    'the pattern and the verifier exist but nothing runs the harvest',
+  );
 });

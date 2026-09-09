@@ -116,6 +116,26 @@ const PATTERNS: Pattern[] = [
     match: '*.teamtailor.com/*',
     extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.teamtailor\.com/i,
   },
+  // Rippling: the company is the first path segment, as clean as Greenhouse's.
+  //
+  //   ats.rippling.com/514-careers/jobs/5811104e-78bb-4aaa-a8f6-32bbad47654b
+  //   ats.rippling.com/aaca/jobs
+  //
+  // Measured against CC-MAIN-2026-34 on 9 Sep 2026: one index page, 9,183
+  // indexed URLs, 937 distinct tokens. Only 4 were registered. A spread sample
+  // of 25 unregistered ones found 23 alive, averaging 10.8 postings each.
+  //
+  // Worth knowing before judging the yield: Rippling's feed carries a title, a
+  // department, a location and a URL — no description and no publish date. So
+  // these roles are classified from their title alone, and the in-scope share is
+  // low. 202 postings sampled across ten boards produced 7 in a browsable
+  // family — 3%. Rippling sells to small local employers, and most of them are
+  // not hiring engineers.
+  {
+    provider: 'rippling',
+    match: 'ats.rippling.com/*',
+    extract: /ats\.rippling\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/,
+  },
   // UKG needs BOTH halves of the URL: a company code and a board id. A match
   // that finds only the code is unusable, so the pattern demands both.
   // Both hosts, and the host is captured. UKG serves boards from

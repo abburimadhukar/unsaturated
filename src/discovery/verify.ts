@@ -75,6 +75,18 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
       return { url: `https://apply.workable.com/api/v1/widget/accounts/${b.token}` };
     case 'breezy':
       return { url: `https://${b.token}.breezy.hr/json` };
+    // Rippling was missing, and its absence was silent in the way this whole
+    // function warns about: no case means `endpoint` returns null, which makes
+    // every candidate "unknown", and only `live` boards are ever stored. Wiring
+    // discovery to Rippling without this would harvest 937 tokens, verify none
+    // of them, store nothing, and report success — which is exactly how 1,667
+    // Personio boards were lost.
+    //
+    // The response is a BARE ARRAY of postings, so countJobs falls through to
+    // its Array.isArray(body) branch. Verified 9 Sep 2026: 23 of 25 unregistered
+    // tokens sampled from the index answered 200, carrying 10.8 jobs each.
+    case 'rippling':
+      return { url: `https://api.rippling.com/platform/api/ats/v1/board/${b.token}/jobs` };
     case 'recruitee':
       return { url: `https://${b.token}.recruitee.com/api/offers/` };
     case 'teamtailor':

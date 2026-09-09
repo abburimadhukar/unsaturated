@@ -60,7 +60,11 @@ jobs:
         # from the original file. Scaling them is the cheapest corpus growth
         # available while Common Crawl has nothing left for greenhouse, workday,
         # ashby and lever.
-        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor]
+        # rippling added 9 Sep 2026. It was one of "these five" above and had an
+        # adapter all along; only the harvest pattern and this line were missing,
+        # plus an endpoint() case in verify.ts without which every candidate
+        # would have verified as "unknown" and been silently discarded.
+        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling]
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run
