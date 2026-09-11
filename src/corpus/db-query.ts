@@ -1,6 +1,6 @@
 import { db } from '../db/supabase.js';
 import { MAX_AGE_DAYS, type FeedJob, type FeedQuery } from './live.js';
-import { toFeedJob, type JobRow } from './db-feed.js';
+import { isTransientWriteError, toFeedJob, type JobRow } from './db-feed.js';
 
 /**
  * Feed queries answered by the database.
@@ -113,6 +113,15 @@ export async function queryFeedFromDb(
   }
 }
 
+const FACET_RETRY_PAUSE_MS = 150;
+
+/** `client` and `wait` are injected so the retry can be tested without a database. */
+export interface FacetOptions {
+  client?: { rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
+  wait?: (ms: number) => Promise<void>;
+  attempt?: number;
+}
+
 /**
  * Sidebar counts for the current query.
  *
@@ -122,10 +131,33 @@ export async function queryFeedFromDb(
  * offered "United States (6,243)", and choosing a country left the family tabs
  * unchanged. Each facet still excludes its own dimension, which is what lets you
  * switch between options rather than seeing every unselected one as zero.
+ *
+ * ONE RETRY, AND ONLY FOR A REFUSAL.
+ *
+ * Measured 11 Sep 2026, 25 sequential calls against production: 24 answered and
+ * one came back `canceling statement due to statement timeout`. 4%. The query
+ * runs ~1.1s at the median against `anon`'s 3-second statement timeout, so it
+ * does not have to be much unluckier than usual to be killed.
+ *
+ * That 4% costs more than it sounds. A caller cannot tell a refusal from an
+ * empty corpus, because this returns null for both — and app/api/feed/route.ts
+ * substitutes EMPTY facets for a null, so the page renders with every filter
+ * count at zero and the total reading 0, with the jobs listed right beside it.
+ * That breaks the project's first rule: a missing value shows as missing, never
+ * as an invented number, and a zero here is an invented number.
+ *
+ * One attempt, not three. A retry costs a whole extra slow query on a path the
+ * page is waiting for, so this trades ~4% of loads being WRONG for ~4% being
+ * slower, which is the right way round. Anything still refused after that stays
+ * null — the retry narrows the window, it does not close it, and the zeroed
+ * fallback in the route is still there to be decided on.
  */
-export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
+export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promise<Facets | null> {
+  const attempt = opts.attempt ?? 0;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const client = opts.client ?? db();
   try {
-    const { data, error } = await db().rpc('feed_facets', {
+    const { data, error } = await client.rpc('feed_facets', {
       p_cutoff: cutoffIso(),
       p_in_scope: f.cloudOnly !== false,
       p_hide_ghosts: f.hideGhosts === true,
@@ -146,11 +178,22 @@ export async function facetsFromDb(f: FeedQuery): Promise<Facets | null> {
       p_adjacent: orNull(f.adjacent),
     });
     if (error) {
+      if (attempt === 0 && isTransientWriteError(error.message)) {
+        console.warn(`feed_facets refused, retrying once: ${error.message}`);
+        await wait(FACET_RETRY_PAUSE_MS);
+        return facetsFromDb(f, { ...opts, attempt: 1 });
+      }
       console.error('feed_facets failed:', error.message);
       return null;
     }
     return (data as Facets) ?? null;
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (attempt === 0 && isTransientWriteError(message)) {
+      console.warn(`feed_facets unavailable, retrying once: ${message}`);
+      await wait(FACET_RETRY_PAUSE_MS);
+      return facetsFromDb(f, { ...opts, attempt: 1 });
+    }
     console.error('feed_facets unavailable:', err);
     return null;
   }
