@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { facetsFromDb } from '../src/corpus/db-query.js';
 
@@ -172,4 +173,50 @@ test('the pause happens before the retry, and only then', async () => {
   const noPause: number[] = [];
   await facetsFromDb({}, { client: clean.client, wait: async (ms) => void noPause.push(ms) });
   assert.deepEqual(noPause, [], 'a clean call never waits');
+});
+
+// ---------------------------------------------------------------------------
+// The cache header on a degraded answer
+//
+// The retry makes a refusal rare, which means it cannot be observed to order
+// against the live site: 30 cache-busted requests after deploying came back
+// healthy. So the wiring is asserted from the source, the way the retirement
+// tests assert which callers may retire a board.
+// ---------------------------------------------------------------------------
+
+const routeSrc = readFileSync(
+  new URL('../app/api/feed/route.ts', import.meta.url),
+  'utf8',
+);
+
+test('a degraded answer is cached for seconds, not minutes', () => {
+  const m = routeSrc.match(/DEGRADED_CACHE_HEADER\s*=\s*'([^']+)'/);
+  assert.ok(m, 'DEGRADED_CACHE_HEADER must exist');
+  const header = m![1]!;
+  const maxAge = Number(header.match(/s-maxage=(\d+)/)?.[1]);
+  assert.ok(maxAge > 0 && maxAge <= 10, `s-maxage should be a blink, got ${maxAge}`);
+  assert.doesNotMatch(
+    header,
+    /stale-while-revalidate/,
+    'serving a wrong answer stale is the amplification this exists to remove',
+  );
+});
+
+test('the normal header is still long-lived — the fix must not slow the happy path', () => {
+  const m = routeSrc.match(/const CACHE_HEADER\s*=\s*'([^']+)'/);
+  assert.ok(m);
+  assert.match(m![1]!, /s-maxage=60/);
+  assert.match(m![1]!, /stale-while-revalidate=300/);
+});
+
+test('THE ROUTE PICKS THE HEADER FROM WHETHER THE FACETS ARRIVED', () => {
+  // A null from facetsFromDb has to be remembered before the fallback hides it,
+  // or the degraded answer gets the full 60+300 seconds.
+  assert.match(routeSrc, /facetsMissing\s*=\s*realFacets === null/);
+  assert.match(
+    routeSrc,
+    /cache-control',\s*facetsMissing \? DEGRADED_CACHE_HEADER : CACHE_HEADER/,
+    'the choice must be driven by facetsMissing, not by anything else',
+  );
+  assert.match(routeSrc, /x-facets', 'unavailable'/, 'and it is visible in the response');
 });
