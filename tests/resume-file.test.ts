@@ -210,3 +210,68 @@ test('nothing outside the admin route reads these tables with the public key', (
     assert.doesNotMatch(src, /\bdb\(\)\s*\n?\s*\.from\('(user_state|job_events)'\)/, f);
   }
 });
+
+// ---------------------------------------------------------------------------
+// schema.sql must describe the table the code actually writes
+//
+// It has drifted twice. `boards.site` was added by a migration and never folded
+// back in, so a fresh database came up with the old unique constraint and could
+// hold one career site per employer — the exact bug that migration existed to
+// fix. `user_state` was worse: first_name, last_name, resume_name, resume_size
+// and resume_path were all live in production and absent from this file, so a
+// fresh database was missing five columns the code writes on every save.
+//
+// The rule, stated once: a migration is not finished until schema.sql would
+// produce the same table.
+// ---------------------------------------------------------------------------
+
+test('SCHEMA.SQL DECLARES EVERY user_state COLUMN THE CODE WRITES', () => {
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+  const store = readFileSync(new URL('../src/state/store.ts', import.meta.url), 'utf8');
+
+  const block = schema.slice(schema.indexOf('create table if not exists public.user_state'));
+  const declared = block.slice(0, block.indexOf(');'));
+
+  // The interface is the contract for what a write contains, so it is the list
+  // to check against rather than one maintained by hand here.
+  const iface = store.slice(
+    store.indexOf('export interface UserStateRow'),
+    store.indexOf('}', store.indexOf('export interface UserStateRow')),
+  );
+  const fields = [...iface.matchAll(/^\s{2}([a-z_]+)[?]?:/gm)].map((m) => m[1]!);
+  assert.ok(fields.length >= 9, `expected the row interface to be found, got ${fields}`);
+
+  // Line-by-line rather than a built regex. The first version of this test used
+  // new RegExp with an escape inside a template literal, where \s is not a valid
+  // escape and silently collapses to a literal "s" — so the pattern became
+  // ^s{2}user_ids and the test failed against a file that was correct.
+  const declaredNames = declared
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => !l.startsWith('--'))
+    .map((l) => l.split(/\s+/)[0] ?? '');
+
+  for (const f of fields) {
+    assert.ok(
+      declaredNames.includes(f),
+      `schema.sql does not declare user_state.${f} — a fresh database would reject the write. ` +
+        `It declares: ${declaredNames.filter(Boolean).join(', ')}`,
+    );
+  }
+});
+
+test('the vector type exists before any column declares it', () => {
+  // schema.sql is applied top to bottom. halfvec used above `create extension`
+  // is a file that fails on a fresh database and works on every existing one,
+  // which is the hardest kind of breakage to notice.
+  const lines = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8')
+    .split(/\r?\n/)
+    // Comments mention the type while explaining it; only code counts.
+    .map((l) => l.replace(/--.*$/, ''));
+
+  const ext = lines.findIndex((l) => /create extension if not exists vector/.test(l));
+  const firstUse = lines.findIndex((l) => /halfvec\(/.test(l));
+  assert.ok(ext >= 0, 'the vector extension must be created in schema.sql');
+  assert.ok(firstUse >= 0, 'expected a halfvec column');
+  assert.ok(ext < firstUse, `extension on line ${ext + 1}, halfvec used on line ${firstUse + 1}`);
+});
