@@ -207,9 +207,14 @@ drop policy if exists "crawl runs are publicly readable" on public.crawl_runs;
 create policy "crawl runs are publicly readable" on public.crawl_runs
   for select to anon, authenticated using (true);
 
+-- NO select policy for anon or authenticated, deliberately. This table holds a
+-- person's name, the skills extracted from their CV, the path to the file and
+-- their reading history. `anon` is the publishable key, which is embedded in the
+-- deployed page -- so a blanket policy here publishes all of it. It did: on
+-- 11 Sep 2026 that key returned all seven rows, three of them real people's full
+-- names. Every read is server-side with the secret key, which bypasses RLS.
+-- See migrations/2026-09-11-private-profiles.sql.
 drop policy if exists "user_state readable pre-auth" on public.user_state;
-create policy "user_state readable pre-auth" on public.user_state
-  for select to anon, authenticated using (true);
 
 -- Explicitly dropped, not merely absent: re-running this file must close the
 -- hole on a database where the old policies still exist.
@@ -218,6 +223,5 @@ drop policy if exists "user_state updatable pre-auth" on public.user_state;
 drop policy if exists "job_events insertable pre-auth" on public.job_events;
 drop policy if exists "job_events updatable pre-auth" on public.job_events;
 
+-- Same: every job a person has opened or applied to is theirs alone.
 drop policy if exists "job_events readable pre-auth" on public.job_events;
-create policy "job_events readable pre-auth" on public.job_events
-  for select to anon, authenticated using (true);
