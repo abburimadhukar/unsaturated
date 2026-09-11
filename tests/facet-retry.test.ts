@@ -129,7 +129,21 @@ test('the retry sends the SAME query, not a different one', async () => {
     { client, wait: noWait },
   );
   assert.equal(calls.length, 2);
-  assert.deepEqual(calls[0], calls[1], 'both asks are identical');
+
+  // Every FILTER must be identical. p_cutoff is deliberately excluded: it is
+  // recomputed from Date.now() on each call, so the retry's copy can differ by a
+  // millisecond or two. Harmless on a 60-day window, and asserting strict
+  // equality over it made this test fail roughly once a run under load — a flake
+  // in the test, not a defect in the retry.
+  const { p_cutoff: firstCutoff, ...firstFilters } = calls[0]!;
+  const { p_cutoff: secondCutoff, ...secondFilters } = calls[1]!;
+  assert.deepEqual(firstFilters, secondFilters, 'both asks carry the same filters');
+  assert.ok(typeof firstCutoff === 'string' && typeof secondCutoff === 'string');
+  assert.ok(
+    Math.abs(Date.parse(secondCutoff as string) - Date.parse(firstCutoff as string)) < 5_000,
+    'and the same window, give or take the clock',
+  );
+
   assert.equal(calls[1]?.p_family, 'software');
   assert.equal(calls[1]?.p_specialization, 'backend');
   assert.equal(calls[1]?.p_country, 'US');

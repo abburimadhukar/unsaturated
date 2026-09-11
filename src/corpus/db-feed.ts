@@ -501,6 +501,42 @@ export function closableBoards(boards: { provider: string; token?: string; jobs:
   return new Set([...byToken].filter(([, ok]) => ok).map(([key]) => key));
 }
 
+/**
+ * The queries the close-scan will issue, one per provider per chunk of tokens.
+ *
+ * Pure and exported so the scoping can be tested without a database, the way
+ * closableBoards and planFailureWrites are. This decides which postings the
+ * close pass is even allowed to SEE, so getting it wrong either strands withdrawn
+ * jobs on the site or — far worse — lets a board authorise closing another's.
+ *
+ * Grouped by provider because tokens are only unique within one and a statement
+ * can filter one at a time. Chunked because these travel in the URL.
+ */
+export function closeScanTargets(
+  healthyBoards: Iterable<string>,
+  chunk: number = FILTER_CHUNK,
+): { provider: string; tokens: string[] }[] {
+  const byProvider = new Map<string, string[]>();
+  for (const id of healthyBoards) {
+    // First colon only. The provider never contains one; a token must not be
+    // ASSUMED not to, and splitting on every colon would silently truncate it.
+    const at = id.indexOf(':');
+    if (at <= 0 || at === id.length - 1) continue;
+    const provider = id.slice(0, at);
+    const list = byProvider.get(provider) ?? [];
+    list.push(id.slice(at + 1));
+    byProvider.set(provider, list);
+  }
+
+  const out: { provider: string; tokens: string[] }[] = [];
+  for (const [provider, tokens] of byProvider) {
+    for (let i = 0; i < tokens.length; i += chunk) {
+      out.push({ provider, tokens: tokens.slice(i, i + chunk) });
+    }
+  }
+  return out;
+}
+
 export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed: number }> {
   const client = dbWrite();
   // crawl_runs.started_at defaulted to now() at INSERT time, which is stamped
@@ -570,27 +606,52 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
   let closed = 0;
 
   if (healthyBoards.size > 0 && seenKeys.size > 0) {
-    // Paged. A bare select is capped at 1000 rows by PostgREST, so with 3,535
-    // open jobs, 72% of them were structurally unclosable — they stayed on the
-    // site forever after the employer withdrew them. Ordered by key so the
-    // page boundaries are stable across requests.
+    // SCOPED TO THE BOARDS THIS SHARD CRAWLED, not every open posting.
+    //
+    // This used to select all open jobs and filter them in JavaScript, which
+    // meant all four shards pulled the entire corpus every run to use a quarter
+    // of it. Measured 11 Sep 2026: 110 bytes a row, 67,000 open postings.
+    //
+    //   one shard reading everything     7.0 MB
+    //   four shards, one crawl          28.1 MB
+    //   twelve crawls a day              337 MB
+    //   thirty days                      9.9 GB   against a 5 GB free allowance
+    //
+    // Three quarters of that was fetched only to be discarded by the filter
+    // below. Asking per board costs more round trips and a fraction of the data,
+    // and a shard now reads roughly what it is entitled to close.
+    //
+    // The filter is KEPT even though the query now guarantees it. This is the
+    // code path that once let a healthy Greenhouse board authorise closing every
+    // job from the same company's failing Ashby board, so the guarantee is worth
+    // having twice: the query narrows it, the filter proves it.
     type OpenRow = { key: string; provider: string; board_token: string };
-    const open: OpenRow[] = await readInPages<OpenRow>(
-      (from, size) =>
-        client
-          .from('jobs')
-          .select('key,provider,board_token')
-          .is('closed_at', null)
-          .order('key', { ascending: true })
-          .range(from, from + size - 1) as unknown as Promise<{
-          data: OpenRow[] | null;
-          error: { message: string } | null;
-        }>,
-      {
-        onRetry: (size, next, message) =>
-          console.warn(`  close-scan page of ${size} failed, retrying ${next} — ${message}`),
-      },
-    );
+
+    const open: OpenRow[] = [];
+    for (const { provider, tokens } of closeScanTargets(healthyBoards)) {
+      // Still paged within a chunk. One board can hold thousands of postings —
+      // Cleveland Clinic's main site alone has 2,107 — so a chunk of 150 of them
+      // is nowhere near safely under PostgREST's 1,000-row cap.
+      const rows = await readInPages<OpenRow>(
+        (from, size) =>
+          client
+            .from('jobs')
+            .select('key,provider,board_token')
+            .is('closed_at', null)
+            .eq('provider', provider)
+            .in('board_token', tokens)
+            .order('key', { ascending: true })
+            .range(from, from + size - 1) as unknown as Promise<{
+            data: OpenRow[] | null;
+            error: { message: string } | null;
+          }>,
+        {
+          onRetry: (size, next, message) =>
+            console.warn(`  close-scan page of ${size} failed, retrying ${next} — ${message}`),
+        },
+      );
+      open.push(...rows);
+    }
 
     const stale = open
       .filter((r) => healthyBoards.has(`${r.provider}:${r.board_token}`))
