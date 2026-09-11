@@ -3,19 +3,31 @@ import assert from 'node:assert/strict';
 
 import { GET } from '../app/api/feed/route.js';
 import { facetsFromDb } from '../src/corpus/db-query.js';
+import { checkLiveDb } from './live-db.js';
 import { UNKNOWN_SPECIALIZATION } from '../src/taxonomy/specializations.js';
 
 /**
- * Two halves.
+ * Two halves, and they are not the same KIND of test.
  *
- * The validation half runs anywhere: those requests are rejected before the
- * route reaches the database, so they need neither credentials nor the
- * migration.
+ * The validation half runs anywhere. Those requests are rejected before the
+ * route reaches the database, so they need neither credentials nor a migration,
+ * and they give the same answer every time. They run under plain `npm test`.
  *
- * The filtering half needs the migration applied, since it is asserting what
- * Postgres returns. Nothing here applies it — production is changed by hand,
- * deliberately — so those tests skip, loudly, until it is. A skipped test that
- * says why is worth more than one that passes by not looking.
+ * The filtering half queries PRODUCTION. It pages through every open posting —
+ * 67,000 on 10 Sep 2026, over roughly 125 sequential requests — while hourly
+ * crawls write to the same table. That makes it a health check rather than a
+ * unit test: it cannot give a stable answer, because the thing it measures moves.
+ * Four consecutive runs on 10 Sep, against identical code, went 25/0, 24/1,
+ * 9/0 and 18/7.
+ *
+ * So it is OPT-IN: `npm run test:live`. Mixing the two meant a red suite could
+ * not distinguish a broken change from a moved number, which is the same as
+ * having no signal. `npm test` is now deterministic and worth gating a commit on.
+ *
+ * When the live half is skipped, the reason says which of three things happened
+ * — not asked for, database busy, or schema behind. See tests/live-db.ts; the
+ * old probe called all three "apply the migration", including when the schema
+ * was already correct.
  */
 
 const BASE = 'https://unsaturated.test/api/feed';
@@ -25,21 +37,18 @@ async function call(query: string): Promise<{ status: number; body: any }> {
   return { status: res.status, body: await res.json() };
 }
 
-let migrated = false;
+// Renamed from `migrated`, because that is not what it means. It means "the
+// live-database tests may run", and a false can be any of three unrelated
+// things: they were not asked for, the database is busy, or the schema is
+// behind. checkLiveDb says which — see tests/live-db.ts for why that matters.
+let liveDb = false;
 let skipReason = '';
 
 before(async () => {
-  try {
-    const facets = await facetsFromDb({ specialization: 'backend' });
-    if (facets && typeof facets.specialization === 'object') {
-      migrated = true;
-    } else {
-      skipReason = 'feed_facets does not accept p_specialization yet — apply the migration';
-    }
-  } catch (err) {
-    skipReason = `database unreachable: ${err instanceof Error ? err.message : String(err)}`;
-  }
-  if (!migrated) console.log(`\n  [db tests skipped] ${skipReason}\n`);
+  const status = await checkLiveDb();
+  liveDb = status.ok;
+  skipReason = status.reason;
+  if (!liveDb) console.log(`\n  [live-database tests skipped] ${skipReason}\n`);
 });
 
 // ---------------------------------------------------------------------------
@@ -115,7 +124,7 @@ test('an unknown family is still a 400', async () => {
 // ---------------------------------------------------------------------------
 
 test('filtering by a specialization returns only that specialization', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const { status, body } = await call('family=software&specialization=backend&limit=50');
   assert.equal(status, 200);
   for (const job of body.jobs) {
@@ -125,7 +134,7 @@ test('filtering by a specialization returns only that specialization', async (t)
 });
 
 test('filtering by unknown returns only rows whose specialization is NULL', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const { status, body } = await call(
     `family=software&specialization=${UNKNOWN_SPECIALIZATION}&limit=50`,
   );
@@ -137,7 +146,7 @@ test('filtering by unknown returns only rows whose specialization is NULL', asyn
 });
 
 test('jobs with an unknown specialization are visible when no specialization is chosen', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const { body } = await call('family=software&limit=200');
   const unknowns = body.jobs.filter((j: { specialization: string | null }) => j.specialization === null);
   const known = body.jobs.filter((j: { specialization: string | null }) => j.specialization !== null);
@@ -147,7 +156,7 @@ test('jobs with an unknown specialization are visible when no specialization is 
 });
 
 test('the facets carry a specialization count including __unknown__', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const { body } = await call('family=software');
   const facet = body.facets.specialization as Record<string, number>;
   assert.equal(typeof facet, 'object');
@@ -182,7 +191,7 @@ async function allPages(query: string): Promise<any[]> {
 
 for (const days of [1, 3, 7]) {
   test(`posting window: no row older than ${days}d, on any page`, async (t) => {
-    if (!migrated) return t.skip(skipReason);
+    if (!liveDb) return t.skip(skipReason);
     const rows = await allPages(`postedWithinDays=${days}`);
     // No escape hatch: a dated row outside the window is a failure, full stop.
     const stale = rows.filter((j) => j.ageDays !== null && j.ageDays > days);
@@ -191,7 +200,7 @@ for (const days of [1, 3, 7]) {
   });
 
   test(`posting window: undated rows in ${days}d are counted and disclosed`, async (t) => {
-    if (!migrated) return t.skip(skipReason);
+    if (!liveDb) return t.skip(skipReason);
     const rows = await allPages(`postedWithinDays=${days}`);
     const undated = rows.filter((j) => j.ageDays === null).length;
     const { body } = await call(`postedWithinDays=${days}&limit=1`);
@@ -203,7 +212,7 @@ for (const days of [1, 3, 7]) {
   });
 
   test(`posting window: includeUnknown=0 removes every undated row in ${days}d`, async (t) => {
-    if (!migrated) return t.skip(skipReason);
+    if (!liveDb) return t.skip(skipReason);
     const rows = await allPages(`postedWithinDays=${days}&includeUnknown=0`);
     assert.ok(rows.length > 0, 'expected rows');
     assert.equal(rows.filter((j) => j.ageDays === null).length, 0);
@@ -211,7 +220,7 @@ for (const days of [1, 3, 7]) {
 }
 
 test('posting window: a tighter window is a strict subset of a looser one', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const [one, three] = [await allPages('postedWithinDays=1'), await allPages('postedWithinDays=3')];
   const wider = new Set(three.map((j) => j.key));
   const leaked = one.filter((j) => !wider.has(j.key));
@@ -220,7 +229,7 @@ test('posting window: a tighter window is a strict subset of a looser one', asyn
 });
 
 test('posting window: matched equals the rows actually served', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const { body } = await call('postedWithinDays=3&limit=1');
   const rows = await allPages('postedWithinDays=3');
   // The header said "1,393 roles" while serving a different set. A count that
@@ -230,7 +239,7 @@ test('posting window: matched equals the rows actually served', async (t) => {
 });
 
 test('the specialization facet ignores its own selection but not the others', async (t) => {
-  if (!migrated) return t.skip(skipReason);
+  if (!liveDb) return t.skip(skipReason);
   const all = await call('family=software');
   const backend = await call('family=software&specialization=backend');
   // Same counts either way, or the list would collapse to one option the moment

@@ -36,7 +36,8 @@
     "boards:revive": "tsx src/cli/boards-revive.ts",
     "boards:dedupe": "tsx src/cli/boards-dedupe.ts",
     "boards:adopt": "tsx src/cli/boards-adopt.ts",
-    "migrate": "tsx src/cli/migrate.ts"
+    "migrate": "tsx src/cli/migrate.ts",
+    "test:live": "node --import tsx tests/run-live.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",
