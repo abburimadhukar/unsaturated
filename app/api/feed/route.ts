@@ -52,6 +52,27 @@ const MAX_PAGE_SIZE = 200;
 const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
 
 /**
+ * The same response, but only briefly, when the sidebar counts are missing.
+ *
+ * `facetsFromDb` returns null for every failure, and the fallback below fills in
+ * empty facets — so the page renders every filter count as zero and the total as
+ * 0, with the jobs listed right beside them. Measured 11 Sep 2026: one call in
+ * twenty-five was refused with `canceling statement due to statement timeout`,
+ * on a query that runs ~1.1s against anon's 3-second limit.
+ *
+ * Cached for 60 seconds and served stale for 300 more, one unlucky fill becomes
+ * SIX MINUTES of every visitor seeing zeros. Watched happening on 11 Sep: five
+ * consecutive requests reading total=0, then eight more, then healthy.
+ *
+ * Five seconds, not no-store. The obvious fix is to refuse to cache a degraded
+ * answer at all, and it is wrong: the count failed BECAUSE the database was
+ * busy, so sending every visitor straight at it is a stampede aimed at the thing
+ * already struggling. Five seconds bounds the wrongness to a blink while still
+ * letting one request shield the rest.
+ */
+const DEGRADED_CACHE_HEADER = 'public, s-maxage=5';
+
+/**
  * How many of the returned rows only survived because unknowns are kept.
  * Surfacing this stops a filter quietly changing what "matched" means.
  */
@@ -191,7 +212,12 @@ export async function GET(request: Request) {
   // outage still serves the build snapshot.
   const fromDb = await queryFeedFromDb(query, offset, limit);
   if (fromDb) {
-    const facets = (await facetsFromDb(query)) ?? {
+    const realFacets = await facetsFromDb(query);
+    // Remembered, because the cache header depends on it. Without this the
+    // degraded answer was indistinguishable from a real one by the time the
+    // header was set, and got the full 60+300 seconds.
+    const facetsMissing = realFacets === null;
+    const facets = realFacets ?? {
       family: {}, country: {}, remote: {}, provider: {}, seniority: {}, adjacent: {},
       stack: {}, specialization: {}, countryUnknown: 0, inScope: 0,
       refreshedAt: null, scanned: 0,
@@ -214,7 +240,9 @@ export async function GET(request: Request) {
       facets,
       jobs: fromDb.jobs,
     });
-    res.headers.set('cache-control', CACHE_HEADER);
+    res.headers.set('cache-control', facetsMissing ? DEGRADED_CACHE_HEADER : CACHE_HEADER);
+    // So this is visible in a response rather than only in a Worker log.
+    if (facetsMissing) res.headers.set('x-facets', 'unavailable');
     return res;
   }
 
