@@ -279,9 +279,129 @@ export function toJobRow(j: FeedJob, now: string = new Date().toISOString()) {
  * and must still fail loudly on the first attempt.
  */
 export function isTransientWriteError(message: string): boolean {
-  return /statement timeout|canceling statement|deadlock detected|ECONNRESET|socket hang up/i.test(
-    message,
-  );
+  return TRANSIENT.test(message);
+}
+
+/**
+ * "Too busy right now", in every phrasing this project has actually been told.
+ *
+ * Two different layers refuse us and they word it differently. Postgres kills a
+ * query: `canceling statement due to statement timeout`. The HTTP gateway in
+ * front of Postgres gives up waiting on one: `Gateway Timeout`. Same cause, same
+ * correct response — ask for less — and only the first was on this list.
+ *
+ * That gap cost a whole shard on 8 Sep 2026. It had crawled for thirteen minutes
+ * and collected ~16,000 roles:
+ *
+ *   crawl failed: supabase upsert failed: Gateway Timeout
+ *
+ * The halving retry was right there and never fired, because the string did not
+ * match. Four of the crawl failures on record are this one shape — a transient
+ * refusal read as a permanent fault — across both layers.
+ *
+ * PHRASES ONLY, NEVER BARE STATUS NUMBERS. `\b50[234]\b` would have been the
+ * obvious way to catch 502/503/504 and it is a trap: a unique-violation message
+ * quotes the offending key, and our keys look like `greenhouse:acme:502...`. So
+ * a genuine constraint violation would match, get retried down to the floor, and
+ * arrive as a confusing slow failure instead of a clear immediate one.
+ *
+ * Narrow on purpose. A constraint violation, a missing column or a bad payload
+ * is a real fault and must still fail loudly on the first attempt — asserted in
+ * tests/transient-errors.test.ts. Anything that still fails at the floor throws
+ * regardless, so a mistake here delays a failure rather than hiding it.
+ */
+const TRANSIENT = new RegExp(
+  [
+    // Postgres itself ran out of time, or could not get a lock.
+    'statement timeout',
+    'canceling statement',
+    'deadlock detected',
+    // Postgres going away under us: a restart, a failover, a dropped backend.
+    'terminating connection',
+    'server closed the connection',
+    // The gateway in front of it gave up. This is the one that cost a shard.
+    'gateway time-?out',
+    'bad gateway',
+    'service unavailable',
+    'upstream connect error',
+    'upstream request timeout',
+    // The request never completed at the socket level.
+    'ECONNRESET',
+    'socket hang up',
+    'fetch failed',
+    'ETIMEDOUT',
+    'EAI_AGAIN',
+    'UND_ERR_',
+  ].join('|'),
+  'i',
+);
+
+/**
+ * Reads every page of something, halving the page whenever the database says it
+ * ran out of time.
+ *
+ * The read twin of `upsertInChunks`, and it exists because the write path had
+ * this protection and the read path did not. The close-scan — which pages
+ * through all 67,000 open postings to find the ones an employer has withdrawn —
+ * threw on its first refusal:
+ *
+ *   crawl failed: supabase close-scan failed: canceling statement due to
+ *   statement timeout
+ *
+ * That was one of the four crawl failures on record, and the shard's work was
+ * already written by then: what it actually cost was that run's closing pass
+ * plus a false alarm on a healthy crawl.
+ *
+ * TWO THINGS WORTH KNOWING ABOUT THE PAGING.
+ *
+ * It stops on an EMPTY page, not on a short one. A short page is ambiguous once
+ * the size can shrink — it may be the end of the data or merely a smaller ask —
+ * and guessing wrong silently truncates the scan, which would make the crawl
+ * think postings had vanished. One extra round trip per scan is a cheap price
+ * for that being unambiguous.
+ *
+ * It advances by the number of rows actually RECEIVED rather than by the size
+ * requested, so a halved page cannot skip the rows it did not fetch.
+ *
+ * `read` is injected so this can be tested without a database.
+ */
+export async function readInPages<T>(
+  read: (from: number, size: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+  opts: {
+    page?: number;
+    /** Below this, a timeout is the database's problem, not the page size. */
+    floor?: number;
+    onRetry?: (size: number, next: number, message: string) => void;
+    wait?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<T[]> {
+  const start = opts.page ?? PAGE;
+  const floor = opts.floor ?? 50;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  const out: T[] = [];
+  let from = 0;
+  let size = start;
+  for (;;) {
+    const { data, error } = await read(from, size);
+    if (error) {
+      if (!isTransientWriteError(error.message) || size <= floor) {
+        throw new Error(`supabase close-scan failed: ${error.message}`);
+      }
+      const next = Math.max(floor, Math.floor(size / 2));
+      opts.onRetry?.(size, next, error.message);
+      size = next;
+      // The other three shards are writing into this table right now; a moment's
+      // pause is as much of the remedy as the smaller page.
+      await wait(250);
+      continue;
+    }
+    const batch = data ?? [];
+    // Empty, not short — see above.
+    if (batch.length === 0) return out;
+    out.push(...batch);
+    from += batch.length;
+  }
 }
 
 /**
@@ -454,19 +574,23 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
     // open jobs, 72% of them were structurally unclosable — they stayed on the
     // site forever after the employer withdrew them. Ordered by key so the
     // page boundaries are stable across requests.
-    const open: { key: string; provider: string; board_token: string }[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await client
-        .from('jobs')
-        .select('key,provider,board_token')
-        .is('closed_at', null)
-        .order('key', { ascending: true })
-        .range(from, from + PAGE - 1);
-      if (error) throw new Error(`supabase close-scan failed: ${error.message}`);
-      const batch = (data ?? []) as unknown as typeof open;
-      open.push(...batch);
-      if (batch.length < PAGE) break;
-    }
+    type OpenRow = { key: string; provider: string; board_token: string };
+    const open: OpenRow[] = await readInPages<OpenRow>(
+      (from, size) =>
+        client
+          .from('jobs')
+          .select('key,provider,board_token')
+          .is('closed_at', null)
+          .order('key', { ascending: true })
+          .range(from, from + size - 1) as unknown as Promise<{
+          data: OpenRow[] | null;
+          error: { message: string } | null;
+        }>,
+      {
+        onRetry: (size, next, message) =>
+          console.warn(`  close-scan page of ${size} failed, retrying ${next} — ${message}`),
+      },
+    );
 
     const stale = open
       .filter((r) => healthyBoards.has(`${r.provider}:${r.board_token}`))
