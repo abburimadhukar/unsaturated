@@ -1,5 +1,5 @@
 import { extractSkills } from '../taxonomy/families.js';
-import { db, dbWrite } from '../db/supabase.js';
+import { dbWrite } from '../db/supabase.js';
 
 /**
  * User state: resume skills, and which jobs have been seen or opened.
@@ -76,7 +76,24 @@ async function load(userId: string): Promise<Cached> {
 
   const fresh: Cached = { profile: EMPTY_PROFILE, seen: new Set(), applied: new Set(), loadedAt: Date.now() };
   try {
-    const client = db();
+    // THE SECRET KEY, NOT THE PUBLISHABLE ONE, AND FOR READS.
+    //
+    // Everything in here belongs to one person: their name, the skills pulled
+    // out of their CV, the path to the file, every job they have opened. The
+    // publishable key is embedded in the deployed page and visible in any
+    // browser's network tab, so whatever it can read, the public can read.
+    //
+    // Verified on the live database, 11 Sep 2026, with nothing but that key:
+    // all seven rows came back, including three real people's full names and
+    // the size of their resumes. `identity.ts` already says a stranger must not
+    // be able to read someone's resume-derived skills; the RLS policy said
+    // otherwise, and this read is why the policy had to stay open.
+    //
+    // Reading server-side with the secret key is what lets that policy be
+    // closed — see the migration that narrows it. This call is only ever made
+    // from an API route; store.ts is imported by nothing in a client bundle,
+    // and the key comes from the environment, which a browser does not have.
+    const client = dbWrite();
     const [{ data: st }, { data: ev }] = await Promise.all([
       client.from('user_state').select('skills,resume_chars,updated_at,first_name,last_name,resume_name,resume_size,resume_path').eq('user_id', userId).maybeSingle(),
       client.from('job_events').select('job_key,seen,applied').eq('user_id', userId),

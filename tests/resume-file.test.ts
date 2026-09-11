@@ -166,3 +166,47 @@ test('every profile writer preserves the fields it does not own', () => {
     assert.match(body, /\.\.\.current,/, `${fn} must spread the current profile, not enumerate it`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Whose data is it
+//
+// Verified against the live database on 11 Sep 2026 with nothing but the
+// publishable key — the one embedded in the deployed page and visible in any
+// browser's network tab. All seven user_state rows came back, including three
+// real people's full names and the size of their resumes:
+//
+//   select user_id, first_name, last_name, skills, resume_path from user_state
+//   → 7 rows, HTTP 200, no authentication
+//
+// The cause was one policy, `using (true)`, and it could not simply be narrowed
+// because store.ts read profiles with that same public key — closing the policy
+// would have closed the app's own read. So the read moved to the secret key
+// first. These tests exist so neither half drifts back.
+// ---------------------------------------------------------------------------
+
+test('PROFILES ARE READ WITH THE SECRET KEY, NEVER THE PUBLISHABLE ONE', () => {
+  const src = readFileSync(new URL('../src/state/store.ts', import.meta.url), 'utf8');
+  const load = src.slice(src.indexOf('async function load('), src.indexOf('function invalidate('));
+  assert.match(load, /dbWrite\(\)/, 'the profile read must use the write client');
+  assert.doesNotMatch(
+    load,
+    /\bdb\(\)/,
+    'a single db() here republishes every name and every CV-derived skill',
+  );
+});
+
+test('store.ts does not even import the public client any more', () => {
+  // Dead imports are how this creeps back: the next person reaches for db()
+  // because it is already in scope.
+  const src = readFileSync(new URL('../src/state/store.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /import \{ db,/, 'db should not be imported at all');
+  assert.match(src, /import \{ dbWrite \}/);
+});
+
+test('nothing outside the admin route reads these tables with the public key', () => {
+  for (const f of ['../src/state/store.ts', '../app/api/me/route.ts', '../app/api/state/route.ts']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    if (!/user_state|job_events/.test(src)) continue;
+    assert.doesNotMatch(src, /\bdb\(\)\s*\n?\s*\.from\('(user_state|job_events)'\)/, f);
+  }
+});
