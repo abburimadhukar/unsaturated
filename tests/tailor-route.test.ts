@@ -304,3 +304,73 @@ test('the apply route deliberately has no rate limit', () => {
   assert.ok(!src.includes('sharedLimiter'), 'a limiter was added without revisiting the note');
   assert.match(src, /NO RATE LIMIT/i);
 });
+
+// ---------------------------------------------------------------------------
+// Editing the person's own file
+// ---------------------------------------------------------------------------
+
+const docxRoute = () =>
+  readFileSync(new URL('../app/api/tailor/docx/route.ts', import.meta.url), 'utf8');
+
+test('EDITING SOMEBODY OWN FILE REQUIRES A CLAIMED SEAT', () => {
+  const src = docxRoute();
+  assert.match(src, /if \(!session\)/);
+  const gateAt = src.indexOf('if (!session)');
+  const readAt = src.indexOf('storage.from(BUCKET)');
+  assert.ok(gateAt > 0 && readAt > gateAt, 'the stored file is read before the caller is checked');
+});
+
+test('A PDF IS REFUSED WITH A SENTENCE THAT SAYS WHAT TO DO INSTEAD', () => {
+  // Both resumes on the site are PDFs. A PDF places every line at fixed
+  // coordinates with no reflow and embeds fonts as subsets of the glyphs already
+  // used, so a longer replacement overlaps what follows and a new glyph may not
+  // exist. "Unsupported" would be useless; the message has to say upload the
+  // .docx and why.
+  const src = docxRoute();
+  assert.match(src, /\.endsWith\('\.docx'\)/);
+  assert.match(src, /your resume is a PDF/i);
+  assert.match(src, /fixed coordinates/i);
+  assert.match(src, /wrongType: true/);
+});
+
+test('somebody who only pasted text is told to upload a file', () => {
+  // resume_path is null for five of the seven profiles. The in-place edit has
+  // nothing to edit, and the fallback is the generated document.
+  const src = docxRoute();
+  assert.match(src, /needsFile: true/);
+  assert.match(src, /upload your resume as a file first/i);
+});
+
+test('ZERO EDITS APPLIED IS AN ERROR, NOT AN UNCHANGED FILE', () => {
+  // The commonest cause is a stored file older than the text the suggestions were
+  // computed from. Returning the original untouched would be a silent lie — the
+  // person would send an unedited CV believing it was tailored.
+  const src = docxRoute();
+  assert.match(src, /edited\.applied === 0/);
+  assert.match(src, /could be found in your uploaded file/i);
+});
+
+test('the file is returned as a download, with counts in the headers', () => {
+  // The body is the file, so the numbers cannot go in it.
+  const src = docxRoute();
+  assert.match(src, /content-disposition/);
+  assert.match(src, /x-edits-applied/);
+  assert.match(src, /x-edits-missed/);
+  assert.match(src, /'cache-control': 'no-store'/);
+});
+
+test('the download filename cannot carry path characters out of the stored name', () => {
+  // resume_name is whatever the browser sent at upload time.
+  // includes() rather than a regex: matching a regex with a regex needs a doubled
+  // backslash, and the first attempt at this silently matched nothing because \w
+  // in the pattern was read as "a word character" rather than as backslash-w.
+  assert.ok(
+    docxRoute().includes("replace(/[^" + String.fromCharCode(92) + "w .-]/g, '')"),
+    'the stored filename is not stripped of path characters',
+  );
+});
+
+test('the stored file size is capped before it is edited', () => {
+  assert.match(docxRoute(), /MAX_FILE_BYTES/);
+  assert.match(docxRoute(), /data\.size > MAX_FILE_BYTES/);
+});

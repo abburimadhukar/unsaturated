@@ -197,6 +197,52 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
   }
 
   /**
+   * The person's own file, edited.
+   *
+   * Preferred over the generated document whenever they uploaded a .docx, because
+   * it keeps their layout. The server does the editing — the original lives in a
+   * private bucket and the browser has no copy.
+   */
+  async function saveOriginalEdited(chosen: { original: string; replacement: string }[]) {
+    setSaving(true);
+    setBuildError('');
+    try {
+      const r = await fetch('/api/tailor/docx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ edits: chosen }),
+      });
+      if (!r.ok) {
+        // Every refusal from this route carries a sentence that says what to do —
+        // upload a file, upload the .docx rather than the PDF, re-save it.
+        const b = (await r.json().catch(() => ({}))) as { error?: string };
+        setBuildError(b.error ?? 'could not edit your file');
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      // The filename the server chose, which is the person's own name for it.
+      const disp = r.headers.get('content-disposition') ?? '';
+      a.download = /filename="([^"]+)"/.exec(disp)?.[1] ?? docxFileName(jobTitle);
+      a.click();
+      URL.revokeObjectURL(url);
+
+      const missed = Number(r.headers.get('x-edits-missed') ?? '0');
+      if (missed > 0) {
+        setBuildError(
+          `${missed} change${missed === 1 ? '' : 's'} could not be found in your file, so ${missed === 1 ? 'it was' : 'they were'} left out. The rest are in the download.`,
+        );
+      }
+    } catch {
+      setBuildError('could not reach the server — check your connection');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
    * PDF, via the browser's own print dialogue.
    *
    * NOT a hand-rolled PDF, deliberately. Constructing one means laying out the
@@ -466,13 +512,25 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
                     >
                       {copied ? 'Copied' : 'Copy the whole resume'}
                     </button>
+                    {/* First, and the one most people want: their own document with
+                        only the accepted sentences changed. The generated one is
+                        the fallback for somebody who pasted text rather than
+                        uploading a file. */}
+                    <button
+                      type="button"
+                      className="tcopy"
+                      onClick={() => void saveOriginalEdited(takenEdits)}
+                      disabled={saving}
+                    >
+                      {saving ? 'Editing your file…' : 'Download my .docx — keeps your layout'}
+                    </button>
                     <button
                       type="button"
                       className="tskip"
                       onClick={() => void saveDocx(built.text)}
                       disabled={saving}
                     >
-                      {saving ? 'Building…' : 'Download .docx'}
+                      Clean .docx instead
                     </button>
                     <button type="button" className="tskip" onClick={() => printable(built.text)}>
                       Save as PDF
