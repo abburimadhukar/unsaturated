@@ -1186,3 +1186,92 @@ a.stat:hover b { color: var(--accent); }
 .trefuse { padding: 4px 0; }
 .trefusewhat { display: block; font-size: 11.5px; color: var(--text-dim); }
 .trefusewhy { display: block; font-size: 11px; color: var(--text-faint); font-style: italic; }
+
+/* ---------------------------------------------------------------------------
+   The resume, shown as a document
+   --------------------------------------------------------------------------- */
+
+/* theme-exempt: this is a picture of paper. The sheet is white with black text
+   because that is what the document IS and what an employer will see, so a
+   preview that went dark with the rest of the site would be showing something
+   nobody will ever look at. Tokenising these would make the preview wrong rather
+   than consistent. */
+
+.sheet {
+  background: #ffffff;
+  color: #14130f;
+  padding: 34px 38px 40px;
+  border-radius: 6px;
+  /* A4 is 1:1.414. Not enforced as a height -- a resume runs to two pages and
+     cropping the preview at one would hide the half nobody checked. */
+  max-width: 62em;
+  margin: 4px 0 8px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 34px rgba(0, 0, 0, 0.45);
+  font-family: Calibri, Carlito, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.sname {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+  color: #14130f;
+}
+.scontact { font-size: 12px; color: #55514a; margin: 0; }
+.shead {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin: 16px 0 5px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #d8d3ca;
+  color: #14130f;
+}
+.sbody { margin: 0 0 3px; }
+
+/* Hanging indent. A wrapped bullet whose second line starts under the marker
+   reads as a separate point, which is how a three-bullet role becomes five. */
+.sbullet {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 3px;
+  padding-left: 2px;
+}
+.smarker { flex: 0 0 auto; color: #55514a; }
+
+/* A blank line in the source is real spacing, not nothing. */
+.sgap { height: 9px; }
+
+/* The accepted lines, marked in place. A left rule and a wash rather than a
+   highlighter: the point is to find them while still reading the document as a
+   document, and a block of yellow stops it looking like a resume at all. */
+.schanged {
+  background: #fff6e8;
+  box-shadow: inset 2px 0 0 #e08a63;
+  padding-left: 8px;
+  margin-left: -10px;
+  border-radius: 2px;
+}
+.sbullet.schanged { padding-left: 10px; }
+
+.tviews { margin-left: auto; display: inline-flex; gap: 4px; }
+.tbuiltmeta { display: flex; align-items: center; gap: 8px; }
+.tview {
+  padding: 3px 9px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.tview.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+@media (max-width: 620px) {
+  .sheet { padding: 20px 18px 24px; font-size: 13px; }
+}
+/* end theme-exempt */

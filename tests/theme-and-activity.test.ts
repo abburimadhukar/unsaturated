@@ -48,9 +48,49 @@ test('no colour is hard-coded outside the token blocks', () => {
   // swallowed that declaration's own value and reported it as a violation.
   const lightAt = css.indexOf(":root[data-theme='light']");
   const rules = css.slice(css.indexOf('}', lightAt) + 1);
-  const literals = [...rules.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)].map((m) => m[0]);
+  const literals = [...stripExempt(rules).matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)].map(
+    (m) => m[0],
+  );
   assert.deepEqual(literals, [], `hard-coded colours: ${literals.join(', ')}`);
 });
+
+/**
+ * Regions that may hold literal colours, and the reason they may.
+ *
+ * THE ONE LEGITIMATE CASE SO FAR
+ *
+ * The resume preview is a picture of PAPER. It is white with black text because
+ * that is what the document is and what an employer will see; a sheet that went
+ * dark with the rest of the site would be previewing something nobody will ever
+ * look at. Tokenising those colours would make the preview WRONG rather than
+ * consistent.
+ *
+ * So the rule gains an exemption rather than a workaround, and the exemption has
+ * to be declared and justified in the stylesheet itself:
+ *
+ *   theme-exempt: why these colours do not follow the theme
+ *   ...rules...
+ *   end theme-exempt
+ *
+ * A marker with no reason is refused, because the next person reaching for this
+ * will be doing it to save five minutes.
+ */
+function stripExempt(block: string): string {
+  const re = /\/\*\s*theme-exempt:([\s\S]*?)\*\/[\s\S]*?\/\*\s*end theme-exempt\s*\*\//g;
+  let seen = 0;
+  const out = block.replace(re, (_whole, reason: string) => {
+    seen++;
+    assert.ok(reason.trim().length > 20, `a theme-exempt block must say why: "${reason.trim()}"`);
+    return '';
+  });
+  // An opening marker with no closing one would silently exempt the whole rest of
+  // the file, which is the failure that would quietly retire this test.
+  const opens = (block.match(/theme-exempt:/g) ?? []).length;
+  const closes = (block.match(/end theme-exempt/g) ?? []).length;
+  assert.equal(opens, closes, 'an unclosed theme-exempt block would exempt the rest of the file');
+  assert.equal(seen, opens, 'a theme-exempt marker was not paired with its end');
+  return out;
+}
 
 test('the accent and the danger colour are not near-neighbours', () => {
   // They were #e08a63 and #f2705c — an "apply" link and a "this may be a ghost

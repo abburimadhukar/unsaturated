@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { changeRatio, diffWords } from '../../src/tailor/diff.js';
 import { CHIPS } from '../../src/tailor/prompts.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
+import { changedLines, readResume } from '../../src/ui/resume-render.js';
 
 /**
  * Tailoring one resume against one posting, with the changes shown.
@@ -91,6 +92,52 @@ function Diff({ before, after }: { before: string; after: string }) {
   );
 }
 
+/**
+ * The resume, shown as a document.
+ *
+ * A monospace textarea contains everything and looks like nothing. The one
+ * question a person has in front of a tailored CV is "would I send this?", and
+ * that cannot be answered from a text box — so this renders the thing.
+ *
+ * THE CHANGED LINES ARE MARKED IN PLACE
+ *
+ * Which is the reason to show the document at all rather than only the list of
+ * edits. A sentence reads differently inside the paragraph it belongs to: a bullet
+ * that looked like an improvement on its own can turn out to repeat the line above
+ * it, and nothing but seeing them together reveals that.
+ *
+ * NOT A FACSIMILE, AND THE PAGE SAYS SO
+ *
+ * It is a reading of the TEXT. For the generated .docx that is exactly what
+ * downloads. For the in-place edit of somebody's own file it is not — their layout
+ * survives there and this shows their words in a default one, so the caption below
+ * the sheet states which file the preview corresponds to rather than letting
+ * somebody assume.
+ */
+function Sheet({ text, changed }: { text: string; changed: Set<number> }) {
+  const blocks = useMemo(() => readResume(text), [text]);
+  return (
+    <div className="sheet" role="document" aria-label="your tailored resume">
+      {blocks.map((b, i) => {
+        if (b.kind === 'blank') return <div className="sgap" key={i} />;
+        const mark = changed.has(b.line) ? ' schanged' : '';
+        if (b.kind === 'name') return <h2 className={`sname${mark}`} key={i}>{b.text}</h2>;
+        if (b.kind === 'contact') return <p className={`scontact${mark}`} key={i}>{b.text}</p>;
+        if (b.kind === 'heading') return <h3 className={`shead${mark}`} key={i}>{b.text}</h3>;
+        if (b.kind === 'bullet') {
+          return (
+            <p className={`sbullet${mark}`} key={i}>
+              <span className="smarker">{b.marker ?? '·'}</span>
+              <span>{b.text}</span>
+            </p>
+          );
+        }
+        return <p className={`sbody${mark}`} key={i}>{b.text}</p>;
+      })}
+    </div>
+  );
+}
+
 export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorPanelProps) {
   const [chosen, setChosen] = useState<string[]>(['mirror', 'lead']);
   const [custom, setCustom] = useState('');
@@ -171,6 +218,8 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
   }
 
   const [saving, setSaving] = useState(false);
+  /** Which way the built resume is shown. The document first, deliberately. */
+  const [view, setView] = useState<'sheet' | 'text'>('sheet');
 
   /**
    * The .docx, built in the page.
@@ -261,19 +310,45 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
       setBuildError('your browser blocked the print window — allow pop-ups, or download the .docx');
       return;
     }
+
     // Escaped rather than inserted. It is the person's own CV, but it is still
     // text going into markup, and "<" in "C++ <algorithm>" would eat the rest.
-    const safe = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+    const esc = (t: string) =>
+      t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // The SAME block reading the preview uses, so what prints is what was on
+    // screen. Printing plain pre-wrapped text while the preview showed headings
+    // and bullets would make the preview a lie about the PDF.
+    const body = readResume(text)
+      .map((b) => {
+        if (b.kind === 'blank') return '<div class="gap"></div>';
+        if (b.kind === 'name') return `<h1>${esc(b.text)}</h1>`;
+        if (b.kind === 'contact') return `<p class="contact">${esc(b.text)}</p>`;
+        if (b.kind === 'heading') return `<h2>${esc(b.text)}</h2>`;
+        if (b.kind === 'bullet') {
+          return `<p class="bullet"><span class="m">${esc(b.marker ?? '·')}</span><span>${esc(b.text)}</span></p>`;
+        }
+        return `<p>${esc(b.text)}</p>`;
+      })
+      .join('');
+
     w.document.write(
       '<!doctype html><html><head><meta charset="utf-8">' +
         `<title>${docxFileName(jobTitle).replace(/\.docx$/, '')}</title>` +
         '<style>@page{size:A4;margin:18mm}' +
         'body{font:11pt/1.5 Calibri,Carlito,system-ui,sans-serif;color:#000;margin:0}' +
-        'pre{font:inherit;white-space:pre-wrap;margin:0}</style>' +
-        `</head><body><pre>${safe}</pre></body></html>`,
+        'h1{font-size:17pt;margin:0 0 2pt}' +
+        'h2{font-size:11pt;text-transform:uppercase;letter-spacing:.07em;margin:12pt 0 4pt;' +
+        'padding-bottom:2pt;border-bottom:.5pt solid #999}' +
+        '.contact{font-size:9.5pt;color:#444;margin:0}' +
+        'p{margin:0 0 2pt}' +
+        '.bullet{display:flex;gap:6pt}.m{flex:0 0 auto}' +
+        '.gap{height:7pt}' +
+        // Nothing should be marked in the printed copy. The highlight exists to
+        // help somebody review on screen; an employer receiving a CV with three
+        // lines shaded would wonder what was wrong with them.
+        '</style>' +
+        `</head><body>${body}</body></html>`,
     );
     w.document.close();
     w.focus();
@@ -476,18 +551,48 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
                   <div className="tbuiltmeta">
                     {built.applied} change{built.applied === 1 ? '' : 's'} applied
                     {built.refused.length > 0 && ` · ${built.refused.length} could not be`}
+                    <span className="tviews">
+                      <button
+                        type="button"
+                        className={`tview${view === 'sheet' ? ' on' : ''}`}
+                        onClick={() => setView('sheet')}
+                      >
+                        Resume
+                      </button>
+                      <button
+                        type="button"
+                        className={`tview${view === 'text' ? ' on' : ''}`}
+                        onClick={() => setView('text')}
+                      >
+                        Edit text
+                      </button>
+                    </span>
                   </div>
 
-                  {/* Editable on purpose. The most effective thing a person can do
-                      to a tailored CV is rewrite one phrase per bullet in their own
-                      voice, and a read-only box would send them elsewhere to do it. */}
-                  <textarea
-                    className="tbuilt"
-                    value={built.text}
-                    onChange={(e) => setBuilt({ ...built, text: e.target.value })}
-                    rows={18}
-                    spellCheck
-                  />
+                  {view === 'sheet' ? (
+                    <>
+                      <Sheet
+                        text={built.text}
+                        changed={changedLines(built.text, takenEdits.map((e) => e.replacement))}
+                      />
+                      <span className="tnote">
+                        The highlighted lines are the ones you accepted. This is a
+                        reading of your words — if you download your own .docx it
+                        keeps your real layout, and only those lines change.
+                      </span>
+                    </>
+                  ) : (
+                    /* Editable on purpose. The most effective thing a person can do
+                       to a tailored CV is rewrite one phrase per bullet in their own
+                       voice, and a read-only view would send them elsewhere to do it. */
+                    <textarea
+                      className="tbuilt"
+                      value={built.text}
+                      onChange={(e) => setBuilt({ ...built, text: e.target.value })}
+                      rows={18}
+                      spellCheck
+                    />
+                  )}
 
                   {built.refused.length > 0 && (
                     <div className="trefused">
