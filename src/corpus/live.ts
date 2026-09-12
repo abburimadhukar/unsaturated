@@ -9,6 +9,7 @@ import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
 import { scoreFit } from '../scoring/fit.js';
 import { classifyRole, type Family, type RoleClassification } from '../taxonomy/families.js';
+import { digestFor, digestHash } from '../matching/digest.js';
 import { classifyAdjacent, FORCE_ADJACENT } from '../taxonomy/adjacent.js';
 import { classifySector } from '../taxonomy/sector.js';
 import { ProviderLimiter } from './rate-limit.js';
@@ -97,6 +98,39 @@ function annualiseStructured(value: number | undefined): number | undefined {
   if (value >= 15_000) return Math.round(value);
   if (value >= 8) return Math.round(value * HOURS_PER_YEAR);
   return undefined;
+}
+
+/**
+ * The digest and its fingerprint, for a job that is in scope.
+ *
+ * Split out of the job-building expression only because it is async and the rest
+ * of that object is not. Returns a spreadable pair so the caller stays one
+ * expression.
+ *
+ * Never throws. A digest is an enhancement; a crawl that lost 16,000 postings
+ * because a hash failed would be a catastrophically bad trade.
+ */
+async function matchFields(
+  job: NormalizedJob,
+  cls: RoleClassification,
+  family: Family,
+  spec: { specialization: string | null } | null | undefined,
+): Promise<{ matchDigest?: string; matchHash?: string }> {
+  try {
+    const digest = digestFor({
+      title: job.title,
+      seniority: job.seniority ?? null,
+      family,
+      specialization: spec?.specialization ?? null,
+      matchedSkills: cls.allSkills.length > 0 ? cls.allSkills : cls.matchedSkills,
+      description: job.descriptionText ?? null,
+    });
+    if (!digest) return {};
+    return { matchDigest: digest, matchHash: await digestHash(digest) };
+  } catch (err) {
+    console.error('digest failed for', job.title, err instanceof Error ? err.message : err);
+    return {};
+  }
 }
 
 async function loadBoard(board: CorpusBoard, now: number) {
@@ -327,6 +361,14 @@ async function loadBoard(board: CorpusBoard, now: number) {
         // against it.
         matchedSkills: cls.allSkills.length > 0 ? cls.allSkills : cls.matchedSkills,
         skillScore: cls.score,
+        // Built HERE because this is the last moment the description exists.
+        // There is no `description` column and there never has been, so a
+        // backfill pass over the database is impossible — whatever is embedded
+        // has to be composed while the body is still in memory.
+        //
+        // Only for in-scope roles: nothing embeds a posting the feed will never
+        // show, and out-of-scope is ~187,000 an hour.
+        ...(family !== null ? await matchFields(job, cls, family, spec) : {}),
       });
     }
 

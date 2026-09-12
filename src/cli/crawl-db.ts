@@ -14,6 +14,7 @@ function argOf(name: string): string | undefined {
 }
 import { writeFeed } from '../corpus/db-feed.js';
 import { recordCrawlOutcomes } from '../corpus/board-store.js';
+import { embedNewJobs } from '../matching/run.js';
 import { tallyExclusions, recordExclusions } from '../corpus/exclusions.js';
 import { config } from '../config.js';
 import { db } from '../db/supabase.js';
@@ -89,6 +90,17 @@ async function main(): Promise<void> {
     jobs: feed.jobs.filter((j) => j.inScope),
     scanned: feed.jobs.length,
   });
+
+  // The map, for resume matching. Runs here because live.ts has already composed
+  // each in-scope job's digest — the only moment the description exists — and
+  // because by now the postings are safely written, so nothing this does can
+  // cost the run. embedNewJobs returns its failures rather than throwing; see the
+  // rule at the top of src/matching/run.ts.
+  const match = await embedNewJobs(feed.jobs.filter((j) => j.inScope));
+  console.log(`  ${match.note}`);
+  if (match.needsAttention) {
+    console.log('  ^ this will not fix itself — a person has to change something');
+  }
 
   // Both of these are bookkeeping, and neither may fail a crawl that has
   // already stored its jobs correctly.

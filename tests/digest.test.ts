@@ -193,6 +193,26 @@ test('specialization is preferred over family, never both', () => {
   assert.match(familyOnly, /Field: software/);
 });
 
+test("'unsorted' IS NOT A FIELD, SO IT IS NOT WRITTEN DOWN", () => {
+  // Found by running a real crawl and reading a sample digest, which began
+  // "Vended Application Lead Consultant. Seniority: lead. Field: unsorted."
+  // 43% of the open corpus carries that value — 28,107 postings — and it means
+  // "we could not tell", not a field. Emitting it spends a token saying nothing
+  // and pulls every one of those jobs toward each other.
+  const d = digestFor({ title: 'Vended Application Lead Consultant', family: 'unsorted' });
+  assert.doesNotMatch(d, /unsorted/);
+  assert.doesNotMatch(d, /Field:/);
+  assert.equal(d, 'Vended Application Lead Consultant');
+
+  // A real family is still written.
+  assert.match(digestFor({ title: 'Dev', family: 'software' }), /Field: software/);
+  // And a specialization still wins over either.
+  assert.match(
+    digestFor({ title: 'Dev', family: 'unsorted', specialization: 'backend' }),
+    /Specialization: backend/,
+  );
+});
+
 test('missing fields are left out, not rendered as null', () => {
   const d = digestFor({ title: 'Engineer' });
   assert.equal(d, 'Engineer');

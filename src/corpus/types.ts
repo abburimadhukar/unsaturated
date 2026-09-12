@@ -81,6 +81,21 @@ export interface FeedJob {
   ai: boolean;
   matchedSkills: string[];
   skillScore: number;
+  /**
+   * The text this job would be embedded as, and a fingerprint of it.
+   *
+   * Carried here because this is the only place it can be built. The digest
+   * needs the description, there is no `description` column, and the crawler
+   * discards the body as soon as it has classified from it — so by the time
+   * anything downstream sees a FeedJob the text is already gone.
+   *
+   * The DIGEST and not the description: ~1,500 characters rather than the 8,260
+   * a median body runs to, and it is the thing that actually gets sent. Absent
+   * when the posting is out of scope, since nothing embeds what the feed will
+   * never show.
+   */
+  matchDigest?: string;
+  matchHash?: string;
 }
 
 export interface BoardHealth {
