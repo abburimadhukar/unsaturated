@@ -77,8 +77,25 @@ export async function embedNewJobs(
     embedded: 0, unchanged: 0, deferred: 0, note: '', needsAttention: false,
   };
 
-  const accountId = opts.accountId ?? process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = opts.token ?? process.env.CLOUDFLARE_AI_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN;
+  // `||` and not `??`, and this is not a style choice.
+  //
+  // GitHub Actions sets an environment variable from a MISSING secret to the
+  // empty string rather than leaving it unset. `'' ?? next` is `''`, because
+  // nullish coalescing only falls through on null and undefined — so with
+  // CLOUDFLARE_AI_TOKEN absent, a `??` chain would stop at the empty string and
+  // never reach the deploy token that is actually configured. The whole feature
+  // would report "skipped" with a perfectly good token sitting next to it.
+  //
+  // Found by checking rather than by running: the symptom is silence.
+  const firstSet = (...values: (string | undefined)[]) =>
+    values.find((v) => v !== undefined && v.trim() !== '');
+
+  const accountId = firstSet(opts.accountId, process.env.CLOUDFLARE_ACCOUNT_ID);
+  const token = firstSet(
+    opts.token,
+    process.env.CLOUDFLARE_AI_TOKEN,
+    process.env.CLOUDFLARE_API_TOKEN,
+  );
   if (!accountId || !token) {
     return {
       ...idle,

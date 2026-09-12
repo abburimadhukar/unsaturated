@@ -127,6 +127,42 @@ test('NO CREDENTIALS MEANS SKIP, NOT THROW', async () => {
   assert.equal(res.needsAttention, false, 'not configured is not the same as broken');
 });
 
+test('AN EMPTY AI TOKEN FALLS THROUGH TO THE DEPLOY TOKEN', async () => {
+  // GitHub Actions sets a variable from a MISSING secret to the empty string,
+  // not to nothing. `'' ?? next` is `''`, so a nullish chain stops there and
+  // never reaches the token that is actually configured — the feature would
+  // report "skipped" with a working token sitting beside it.
+  const { client } = fakeDb();
+  const { fetchImpl, batches } = fakeAi();
+  const before = {
+    ai: process.env.CLOUDFLARE_AI_TOKEN,
+    api: process.env.CLOUDFLARE_API_TOKEN,
+    acct: process.env.CLOUDFLARE_ACCOUNT_ID,
+  };
+  try {
+    process.env.CLOUDFLARE_ACCOUNT_ID = 'acct';
+    process.env.CLOUDFLARE_AI_TOKEN = ''; // the missing secret
+    process.env.CLOUDFLARE_API_TOKEN = 'deploy-token'; // the one that exists
+
+    const res = await embedNewJobs([job('a')], { client, fetchImpl, wait: noWait });
+    assert.equal(res.embedded, 1, 'the deploy token was used');
+    assert.equal(batches.length, 1);
+  } finally {
+    if (before.ai === undefined) delete process.env.CLOUDFLARE_AI_TOKEN;
+    else process.env.CLOUDFLARE_AI_TOKEN = before.ai;
+    if (before.api === undefined) delete process.env.CLOUDFLARE_API_TOKEN;
+    else process.env.CLOUDFLARE_API_TOKEN = before.api;
+    if (before.acct === undefined) delete process.env.CLOUDFLARE_ACCOUNT_ID;
+    else process.env.CLOUDFLARE_ACCOUNT_ID = before.acct;
+  }
+});
+
+test('whitespace is not a credential either', async () => {
+  const { client } = fakeDb();
+  const res = await embedNewJobs([job('a')], { client, accountId: '  ', token: '  ' });
+  assert.match(res.note, /no CLOUDFLARE_ACCOUNT_ID/);
+});
+
 test('A REFUSED TOKEN IS REPORTED, NOT THROWN, AND FLAGGED FOR A HUMAN', async () => {
   // The expected first failure: the only Cloudflare token here was made to
   // deploy a Worker, and deploy tokens carry no Workers AI access.

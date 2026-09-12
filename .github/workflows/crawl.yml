@@ -93,6 +93,19 @@ jobs:
           CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
           CRAWLER_CONCURRENCY: '8'
           CRAWLER_DELAY_MS: '120'
+          # Resume matching: each in-scope job gets a vector so a CV can be
+          # compared against it. Absent, the crawl logs "embeddings: skipped" and
+          # carries on exactly as before — which is how a contributor's laptop and
+          # a fork both run it.
+          #
+          # CLOUDFLARE_AI_TOKEN is preferred and need not exist. It is a token
+          # scoped to "Workers AI: Read" and nothing else; the deploy token below
+          # is the fallback and can edit Workers, which is more power than an
+          # hourly crawl should hold. Whether the deploy token carries AI access
+          # at all is what the first run answers.
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run crawl:db -- --shard ${{ matrix.shard }} --of 4 ${{ inputs.force && '--force' || '' }}
 
       # No Supabase key means the crawl cannot store anything, and there is no
