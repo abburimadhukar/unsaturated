@@ -1,10 +1,13 @@
 import { getAdapter } from '../ats/adapters/index.js';
 import { fetchDetail } from '../ats/describe.js';
+// The same HTML stripper the adapters use. Workable's description field is HTML
+// and this route is the only one that reads it without an adapter in between.
+import { stripHtml } from '../ats/normalize.js';
 import type { AtsProvider, BoardRef, FetchContext, NormalizedJob } from '../ats/types.js';
 import { config } from '../config.js';
 // Shared with the feed, which decides whether to offer the button at all. One
 // list, so the UI and the fetcher cannot disagree about what is possible.
-import { FROM_DETAIL, FROM_LISTING, canDescribe } from './providers.js';
+import { FROM_DETAIL, FROM_LISTING, WITH_DETAILS_PARAM, canDescribe } from './providers.js';
 
 /**
  * Getting one job's description, at the moment somebody asks for it.
@@ -114,6 +117,8 @@ export interface DescribeOptions {
    * that has one — a wrong answer rather than a slow one.
    */
   maxJobs?: number;
+  /** Overrides MAX_BODY_BYTES. Only the tests set this. */
+  maxBytes?: number;
 }
 
 const DEFAULT_MAX_JOBS = 5_000;
@@ -139,6 +144,123 @@ function stubJob(id: JobIdentity, title: string): NormalizedJob {
     externalId: id.externalId,
     title,
     raw: { externalPath: id.externalId },
+  };
+}
+
+/**
+ * Most bytes read from a vendor in one go.
+ *
+ * 8 MB. Workable's details listing applies to a whole account, and one recruiting
+ * agency in the corpus publishes 2,141 postings for 15.5 MB — in a Worker that is
+ * a parse nobody asked for, to find one job. The median board is 2 jobs, so this
+ * ceiling refuses the outlier and is invisible to everything else.
+ */
+export const MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A response body, or null if it exceeds the ceiling.
+ *
+ * STREAMED, BECAUSE THE HEADER CANNOT BE TRUSTED
+ *
+ * The obvious implementation checks content-length first. Measured against the
+ * live vendor on 12 September 2026, Workable sends NO content-length on this
+ * endpoint — the response is chunked — so a header check would wave through a
+ * body of any size and the ceiling would be decoration.
+ *
+ * So the bytes are counted as they arrive and the read is abandoned the moment it
+ * goes over, which also means the ceiling costs nothing on a small board.
+ */
+async function readCapped(res: Response, maxBytes = MAX_BODY_BYTES): Promise<string | null> {
+  const body = res.body;
+  // No stream available (some fetch implementations in tests). Fall back to
+  // buffering and then checking, which is still correct, merely less frugal.
+  if (!body) {
+    const text = await res.text();
+    return text.length > maxBytes ? null : text;
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > maxBytes) {
+        void reader.cancel();
+        return null;
+      }
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    return parts.join('');
+  } finally {
+    reader.releaseLock?.();
+  }
+}
+
+/**
+ * Workable, whose descriptions live only in the whole-account listing.
+ *
+ * Its per-posting endpoint returns 404 for every shape tried, so there is nothing
+ * to ask about one job. The account listing with ?details=true carries a
+ * `description` per posting, and the posting is found by shortcode — which is what
+ * the adapter stored as the externalId.
+ */
+async function workableDescription(
+  id: JobIdentity,
+  opts: DescribeOptions,
+): Promise<JdResult> {
+  const url =
+    `https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(id.token)}` +
+    '?details=true';
+  const doFetch = opts.fetchImpl ?? fetch;
+  const res = await doFetch(url, {
+    headers: { 'user-agent': config.userAgent, accept: 'application/json' },
+    signal: AbortSignal.timeout(opts.timeoutMs ?? config.timeoutMs),
+  });
+  if (!res.ok) {
+    return {
+      ok: false,
+      reason: `Workable answered ${res.status} for this employer — try again shortly`,
+      retryable: true,
+    };
+  }
+
+  const text = await readCapped(res, opts.maxBytes);
+  if (text === null) {
+    // Honest rather than silent. This employer publishes more postings than is
+    // worth downloading to read one of them.
+    return {
+      ok: false,
+      reason: 'this employer publishes too many postings for us to read one of them',
+      retryable: false,
+    };
+  }
+
+  let jobs: { shortcode?: string; description?: string }[] = [];
+  try {
+    jobs = (JSON.parse(text) as { jobs?: typeof jobs }).jobs ?? [];
+  } catch {
+    return { ok: false, reason: 'Workable returned something unreadable', retryable: true };
+  }
+
+  const found = jobs.find((j) => j.shortcode === id.externalId);
+  if (!found) {
+    return {
+      ok: false,
+      reason: 'this posting is no longer on the employer board — it may have closed',
+      retryable: false,
+    };
+  }
+  const body = (stripHtml(found.description ?? '') ?? '').trim();
+  if (body.length >= MIN_USEFUL_CHARS) return { ok: true, text: body, via: 'listing' };
+  return {
+    ok: false,
+    reason: 'the employer did not publish a description for this posting',
+    retryable: true,
   };
 }
 
@@ -184,6 +306,10 @@ export async function describeJob(
   }
 
   try {
+    if (WITH_DETAILS_PARAM.includes(id.provider)) {
+      return await workableDescription(id, opts);
+    }
+
     if (FROM_DETAIL.includes(id.provider)) {
       const detail = await fetchDetail(board, stubJob(id, job.title), context(opts));
       const text = (detail?.description ?? '').trim();

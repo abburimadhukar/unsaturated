@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFileSync } from 'node:fs';
+
 import { MIN_USEFUL_CHARS, canDescribe, describeJob, parseJobKey } from '../src/tailor/jd.js';
+import { FROM_DETAIL, WITH_DETAILS_PARAM } from '../src/tailor/providers.js';
 
 /**
  * Finding one job's description, on demand.
@@ -68,13 +71,16 @@ test('a malformed key is refused rather than half-read', () => {
 // Which vendors can be asked at all
 // ---------------------------------------------------------------------------
 
-test('the two reachable groups are recognised, and the rest are not', () => {
-  for (const p of ['workday', 'smartrecruiters', 'workable', 'bamboohr']) {
-    assert.equal(canDescribe(p), true, `${p} has a detail endpoint`);
+test('the three reachable groups are recognised, and the rest are not', () => {
+  for (const p of ['workday', 'smartrecruiters', 'bamboohr']) {
+    assert.equal(canDescribe(p), true, `${p} has a working per-posting endpoint`);
   }
   for (const p of ['greenhouse', 'lever', 'ashby']) {
-    assert.equal(canDescribe(p), true, `${p} carries descriptions in its listing`);
+    assert.equal(canDescribe(p), true, `${p} carries descriptions in its plain listing`);
   }
+  // Workable is its own case: no per-posting endpoint exists, and its listing
+  // carries descriptions only when asked with ?details=true.
+  assert.equal(canDescribe('workable'), true);
   for (const p of ['personio', 'breezy', 'rippling', 'teamtailor', 'recruitee', 'ukg']) {
     assert.equal(canDescribe(p), false, `${p} has no description path`);
   }
@@ -250,4 +256,128 @@ test('an unreadable vendor response is reported as worth retrying', () => {
     assert.equal(res.ok, false);
     if (!res.ok) assert.equal(res.retryable, true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Workable, whose per-posting endpoint does not exist
+// ---------------------------------------------------------------------------
+
+/**
+ * Probed against the live vendor on 12 September 2026:
+ *
+ *   apply.workable.com/api/v1/widget/accounts/pavago/jobs/ACDE8B58F1     404
+ *   ...same with ?details=true                                          404
+ *   apply.workable.com/api/v3/accounts/pavago/jobs/ACDE8B58F1           404
+ *   apply.workable.com/api/v1/widget/accounts/pavago                    200, no
+ *                                                                       description
+ *   ...with ?details=true                                               200, 7,832
+ *                                                                       chars of it
+ *
+ * So describe.ts's workableDetail has been asking a URL that does not exist, and
+ * the only reachable description is in the whole-account listing. Four real boards
+ * verified end to end through this route: 3,185 to 4,713 characters each.
+ */
+
+const workableBoard = (jobs: { shortcode: string; description?: string }[]) =>
+  JSON.stringify({ jobs: jobs.map((j) => ({ title: `Role ${j.shortcode}`, ...j })) });
+
+test('WORKABLE IS ASKED FOR THE ACCOUNT LISTING WITH DETAILS, NOT FOR ONE JOB', () => {
+  // The per-posting URL 404s for every shortcode. Asking it anyway is how 2,413
+  // open postings came to have a button that could never work.
+  const s = spy(() => new Response(workableBoard([{ shortcode: 'ABC', description: `<p>${LONG}</p>` }]), { status: 200 }));
+  return describeJob({ key: 'workable:acme:ABC', title: 'T' }, s).then((res) => {
+    assert.equal(res.ok, true, res.ok ? '' : res.reason);
+    assert.equal(s.urls.length, 1);
+    assert.equal(s.urls[0], 'https://apply.workable.com/api/v1/widget/accounts/acme?details=true');
+    assert.ok(!s.urls[0]!.includes('/jobs/'), 'it asked the endpoint that returns 404');
+  });
+});
+
+test('the posting is found by shortcode, which is what the adapter stored', () => {
+  const s = spy(() =>
+    new Response(
+      workableBoard([
+        { shortcode: 'WRONG', description: `<p>Not this one. ${LONG}</p>` },
+        { shortcode: 'RIGHT', description: `<p>This one. ${LONG}</p>` },
+      ]),
+      { status: 200 },
+    ),
+  );
+  return describeJob({ key: 'workable:acme:RIGHT', title: 'T' }, s).then((res) => {
+    assert.equal(res.ok, true, res.ok ? '' : res.reason);
+    if (res.ok) {
+      assert.ok(res.text.includes('This one'));
+      assert.ok(!res.text.includes('Not this one'));
+    }
+  });
+});
+
+test("WORKABLE'S HTML IS STRIPPED BEFORE IT REACHES THE MODEL", () => {
+  // The only route that reads a description without an adapter in between, so it
+  // is the only one that has to strip the markup itself. Tags reaching the prompt
+  // would be paid for by the token and would teach the model to emit them.
+  const html = `<div><h2>About us</h2><ul><li>Point one</li><li>Point two</li></ul><p>${LONG}</p></div>`;
+  const s = spy(() => new Response(workableBoard([{ shortcode: 'ABC', description: html }]), { status: 200 }));
+  return describeJob({ key: 'workable:acme:ABC', title: 'T' }, s).then((res) => {
+    assert.equal(res.ok, true);
+    if (res.ok) {
+      assert.ok(!res.text.includes('<'), `markup survived: ${res.text.slice(0, 80)}`);
+      assert.ok(res.text.includes('Point one'), 'the list content was lost with the tags');
+    }
+  });
+});
+
+test('A BOARD TOO LARGE TO READ IS REFUSED, NOT DOWNLOADED', () => {
+  // ?details=true applies to the whole account. One recruiting agency in the
+  // corpus publishes 2,141 postings for 15.5 MB, which in a Worker is a parse
+  // nobody asked for to find one job. Verified against the live vendor: pavago is
+  // refused and four normal boards are not.
+  const huge = 'x'.repeat(200_000);
+  const s = spy(() => new Response(workableBoard([{ shortcode: 'ABC', description: huge }]), { status: 200 }));
+  return describeJob({ key: 'workable:acme:ABC', title: 'T' }, { ...s, maxBytes: 50_000 }).then((res) => {
+    assert.equal(res.ok, false);
+    if (!res.ok) {
+      assert.match(res.reason, /too many postings/i);
+      // Not worth retrying: the employer will still be that size in a minute.
+      assert.equal(res.retryable, false);
+    }
+  });
+});
+
+test('the byte ceiling is counted as the body arrives, not read from a header', () => {
+  // Measured on 12 September 2026: Workable sends NO content-length on this
+  // endpoint — the response is chunked. A header check would wave through a body
+  // of any size and the ceiling would be decoration.
+  const src = readFileSync(new URL('../src/tailor/jd.ts', import.meta.url), 'utf8');
+  assert.match(src, /getReader\(\)/, 'the body must be streamed to be capped');
+  assert.ok(
+    !src.includes("headers.get('content-length')"),
+    'the ceiling trusts a header this vendor does not send',
+  );
+});
+
+test('a shortcode missing from the listing reads as closed', () => {
+  const s = spy(() => new Response(workableBoard([{ shortcode: 'OTHER', description: LONG }]), { status: 200 }));
+  return describeJob({ key: 'workable:acme:GONE', title: 'T' }, s).then((res) => {
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.match(res.reason, /no longer on the employer board|closed/i);
+  });
+});
+
+test('unreadable JSON from Workable is reported, not thrown', () => {
+  const s = spy(() => new Response('<html>maintenance</html>', { status: 200 }));
+  return describeJob({ key: 'workable:acme:ABC', title: 'T' }, s).then((res) => {
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.equal(res.retryable, true);
+  });
+});
+
+test('WORKABLE IS NO LONGER CLAIMED TO HAVE A DETAIL ENDPOINT', () => {
+  // The list means "we have written the fetcher AND it returns a description from
+  // the live vendor". Leaving Workable in FROM_DETAIL is what made the button
+  // appear on 2,413 postings it could never work for.
+  assert.equal(FROM_DETAIL.includes('workable' as never), false);
+  assert.equal(WITH_DETAILS_PARAM.includes('workable' as never), true);
+  // But it is still offered, because the description IS reachable.
+  assert.equal(canDescribe('workable'), true);
 });
