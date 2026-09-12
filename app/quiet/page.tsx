@@ -58,6 +58,15 @@ export default function QuietRoles() {
   const [noEntry, setNoEntry] = useState(false);
   const [midMarket, setMidMarket] = useState(false);
   const [shown, setShown] = useState(PAGE);
+  /**
+   * The sidebar, collapsed on a phone.
+   *
+   * Open on a wide screen and closed on a narrow one, which is what the main feed
+   * does — without it a phone scrolls past the whole control panel before reaching
+   * a single job.
+   */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const narrowCount = [onSite, noEntry, midMarket].filter(Boolean).length;
 
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,95 +129,121 @@ export default function QuietRoles() {
         <a className="navlink" href="/">← All roles</a>
       </header>
 
-      <main className="listpage page-quiet">
-        <div className="quietintro">
-          <h2>Quiet roles</h2>
-          <p>
-            The same work, advertised under a title people do not search for. A
-            “Cloud Operations Analyst” and a “Cloud Engineer” can be the same job —
-            but only one of them is what everybody types into the box.
-          </p>
-        </div>
+      {/* Families sit above the layout, exactly as they do on the main feed.
+          They are navigation, not a filter, and putting them in the sidebar here
+          while they are a top bar there is what made the two pages feel like
+          different products. */}
+      <nav className="families" aria-label="Role family">
+        {FAMILIES.map((f) => (
+          <button
+            key={f}
+            className={f === family ? `fam-${f} on` : `fam-${f}`}
+            onClick={() => pick(f)}
+            aria-pressed={f === family}
+          >
+            {FAMILY_LABELS[f]}
+            {data?.counts?.[f] !== undefined && (
+              <span className="n tnum">{data.counts[f]!.toLocaleString()}</span>
+            )}
+          </button>
+        ))}
+      </nav>
 
-        <nav className="families quietfams" aria-label="Role family">
-          {FAMILIES.map((f) => (
+      <main className="page-quiet">
+        <div className="layout">
+          <aside className={`sidebar${filtersOpen ? '' : ' collapsed'}`}>
+            {/* Visible only under 940px, like the feed's. Without it a phone
+                scrolls past the whole control panel before reaching a job. */}
             <button
-              key={f}
-              className={f === family ? `fam-${f} on` : `fam-${f}`}
-              onClick={() => pick(f)}
-              aria-pressed={f === family}
+              className="filtertoggle"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((o) => !o)}
             >
-              {FAMILY_LABELS[f]}
-              {data?.counts?.[f] !== undefined && (
-                <span className="n tnum">{data.counts[f]!.toLocaleString()}</span>
-              )}
+              <span>Narrow{narrowCount > 0 ? ` · ${narrowCount}` : ''}</span>
+              <span>{filtersOpen ? '▲' : '▼'}</span>
             </button>
-          ))}
-        </nav>
 
-        {/* Each of these is a real, measurable reason fewer people see a role —
-            not a preference. They are off by default so the page opens with the
-            widest honest answer. */}
-        <div className="quietnarrow">
-          <span className="lbl">Quieter still:</span>
-          <button className={onSite ? 'on' : ''} onClick={() => toggle(setOnSite, !onSite)}>
-            not fully remote
-          </button>
-          <button className={noEntry ? 'on' : ''} onClick={() => toggle(setNoEntry, !noEntry)}>
-            not entry level
-          </button>
-          <button className={midMarket ? 'on' : ''} onClick={() => toggle(setMidMarket, !midMarket)}>
-            rarely-syndicated board
-          </button>
+            <div className="panel">
+              <h2 className="panelhead">Quiet roles</h2>
+              <p className="panelnote">
+                The same work, advertised under a title people do not search for. A
+                “Cloud Operations Analyst” and a “Cloud Engineer” can be the same
+                job — but only one of them is what everybody types into the box.
+              </p>
+            </div>
+
+            {/* Each of these is a real, measurable reason fewer people see a role —
+                not a preference. They are off by default so the page opens with the
+                widest honest answer. */}
+            <div className="panel">
+              <h3>Quieter still</h3>
+              <label className="check">
+                <input type="checkbox" checked={onSite} onChange={() => toggle(setOnSite, !onSite)} />
+                not fully remote
+              </label>
+              <label className="check">
+                <input type="checkbox" checked={noEntry} onChange={() => toggle(setNoEntry, !noEntry)} />
+                not entry level
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={midMarket}
+                  onChange={() => toggle(setMidMarket, !midMarket)}
+                />
+                rarely-syndicated board
+              </label>
+            </div>
+          </aside>
+
+          <section>
+            {failed && <p className="empty">{failed}</p>}
+
+            {data && !failed && (
+              <p className="results">
+                <span className="count">
+                  <b className="tnum">{data.matched.toLocaleString()}</b> quiet{' '}
+                  {FAMILY_LABELS[family].toLowerCase()} roles · last {data.maxAgeDays} days
+                </span>
+              </p>
+            )}
+
+            {loading && !data && <p className="empty">Loading…</p>}
+
+            {data && data.jobs.length === 0 && !loading && (
+              <p className="empty">Nothing quiet here right now. Try turning a narrowing off.</p>
+            )}
+
+            <div className="joblist">
+              {data?.jobs.map((j) => (
+                <JobCard
+                  key={j.key}
+                  job={j}
+                  score={j.quietScore}
+                  reasons={j.reasons}
+                  chips={
+                    <>
+                      <span className={`chip fam fam-${family}`}>{FAMILY_LABELS[family]}</span>
+                      {j.specialization && SPECIALIZATION_LABELS[j.specialization as never] && (
+                        <span className="chip spec">
+                          {SPECIALIZATION_LABELS[j.specialization as never]}
+                        </span>
+                      )}
+                    </>
+                  }
+                />
+              ))}
+            </div>
+
+            {data?.hasMore && (
+              <div className="more">
+                <button onClick={() => setShown((n) => n + PAGE)} disabled={loading}>
+                  {loading ? 'Loading…' : `Show ${PAGE} more`}
+                </button>
+              </div>
+            )}
+          </section>
         </div>
-
-        {failed && (
-          <p className="empty">
-            {failed}
-          </p>
-        )}
-
-        {data && !failed && (
-          <p className="results">
-            <span className="count">
-              <b className="tnum">{data.matched.toLocaleString()}</b> quiet{' '}
-              {FAMILY_LABELS[family].toLowerCase()} roles · last {data.maxAgeDays} days
-            </span>
-          </p>
-        )}
-
-        {loading && !data && <p className="empty">Loading…</p>}
-
-        {data && data.jobs.length === 0 && !loading && (
-          <p className="empty">Nothing quiet here right now. Try turning a narrowing off.</p>
-        )}
-
-        <div className="joblist">
-          {data?.jobs.map((j) => (
-            <JobCard
-              key={j.key}
-              job={j}
-              score={j.quietScore}
-              reasons={j.reasons}
-              chips={
-                <>
-                  <span className={`chip fam fam-${family}`}>{FAMILY_LABELS[family]}</span>
-                  {j.specialization && SPECIALIZATION_LABELS[j.specialization as never] && (
-                    <span className="chip spec">
-                      {SPECIALIZATION_LABELS[j.specialization as never]}
-                    </span>
-                  )}
-                </>
-              }
-            />
-          ))}
-        </div>
-
-        {data?.hasMore && (
-          <button className="more" onClick={() => setShown((n) => n + PAGE)} disabled={loading}>
-            {loading ? 'Loading…' : `Show ${PAGE} more`}
-          </button>
-        )}
       </main>
     </>
   );

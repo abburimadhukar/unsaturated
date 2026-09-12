@@ -54,6 +54,17 @@ const MAX_RESUME_CHARS = 50_000;
  */
 const MAX_JD_CHARS = 12_000;
 
+/**
+ * How much of the description is sent back to the page.
+ *
+ * Less than is sent to the model. It is already fetched, so returning it costs
+ * nothing, and keeping the posting beside the resume is the thing that makes
+ * tailoring possible to judge — the whole reason every tool in this space puts
+ * them side by side. Capped lower than MAX_JD_CHARS because a person scrolling a
+ * 12,000-character advert in a side panel is not reading it.
+ */
+const MAX_JD_SHOWN = 6_000;
+
 interface JobRow {
   title: string;
   provider: string;
@@ -187,6 +198,10 @@ export async function POST(request: Request) {
     // So the UI can say where the text came from rather than implying it was
     // stored.
     via: described.via,
+    // The posting itself, so the page can show it beside the resume. Not stored
+    // anywhere — this is the copy that was just read from the employer.
+    jobDescription: described.text.slice(0, MAX_JD_SHOWN),
+    jobDescriptionTruncated: described.text.length > MAX_JD_SHOWN,
     // Told plainly rather than logged, because the only fix is a person changing
     // a key or topping up an account.
     needsAttention: result.needsAttention,

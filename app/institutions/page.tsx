@@ -55,6 +55,9 @@ export default function Institutions() {
   const [family, setFamily] = useState<Family | ''>('');
   const [quietOnly, setQuietOnly] = useState(false);
   const [shown, setShown] = useState(PAGE);
+  /** The sidebar, closed on a phone and open on a wide screen, like the feed's. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const narrowCount = [family !== '', quietOnly].filter(Boolean).length;
 
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,104 +113,131 @@ export default function Institutions() {
         <a className="navlink" href="/">← All roles</a>
       </header>
 
-      <main className="listpage page-inst">
-        <div className="quietintro">
-          <h2>Institutions</h2>
-          <p>
-            Universities, hospitals, charities and public bodies. They hire the same
-            engineers as everyone else and lose candidates to tech firms on pay and
-            flexibility — so their postings sit longer and draw fewer people.
-          </p>
-        </div>
-
-        <nav className="families quietfams" aria-label="Sector">
-          <button className={sector === '' ? 'on' : ''} onClick={() => { setSector(''); setShown(PAGE); }}>
-            All
-            {total !== null && <span className="n tnum">{total.toLocaleString()}</span>}
-          </button>
-          {SECTOR_ORDER.map((s) => (
-            <button
-              key={s}
-              className={s === sector ? 'on' : ''}
-              onClick={() => { setSector(s); setShown(PAGE); }}
-              aria-pressed={s === sector}
-            >
-              {SECTOR_LABELS[s]}
-              {data?.counts?.[s] !== undefined && (
-                <span className="n tnum">{data.counts[s]!.toLocaleString()}</span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        <div className="quietnarrow">
-          <span className="lbl">Narrow to:</span>
-          {FAMILIES.map((f) => (
-            <button
-              key={f}
-              className={family === f ? 'on' : ''}
-              onClick={() => { setFamily(family === f ? '' : f); setShown(PAGE); }}
-            >
-              {FAMILY_LABELS[f]}
-            </button>
-          ))}
-          {/* The two pages compose. An institution role ALSO under a title
-              nobody searches for is the least contested thing on the site. */}
+      {/* Sectors sit above the layout, where the main feed puts its families.
+          Same bar, same place, same behaviour — the thing that made these pages
+          feel like separate products was that their primary navigation lived
+          somewhere else. */}
+      <nav className="families" aria-label="Sector">
+        <button className={sector === '' ? 'on' : ''} onClick={() => { setSector(''); setShown(PAGE); }}>
+          All
+          {total !== null && <span className="n tnum">{total.toLocaleString()}</span>}
+        </button>
+        {SECTOR_ORDER.map((s) => (
           <button
-            className={quietOnly ? 'on' : ''}
-            onClick={() => { setQuietOnly(!quietOnly); setShown(PAGE); }}
-            title="Only roles whose title is not one people search for"
+            key={s}
+            className={s === sector ? 'on' : ''}
+            onClick={() => { setSector(s); setShown(PAGE); }}
+            aria-pressed={s === sector}
           >
-            quiet titles only
+            {SECTOR_LABELS[s]}
+            {data?.counts?.[s] !== undefined && (
+              <span className="n tnum">{data.counts[s]!.toLocaleString()}</span>
+            )}
           </button>
+        ))}
+      </nav>
+
+      <main className="page-inst">
+        <div className="layout">
+          <aside className={`sidebar${filtersOpen ? '' : ' collapsed'}`}>
+            <button
+              className="filtertoggle"
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((o) => !o)}
+            >
+              <span>Narrow{narrowCount > 0 ? ` · ${narrowCount}` : ''}</span>
+              <span>{filtersOpen ? '▲' : '▼'}</span>
+            </button>
+
+            <div className="panel">
+              <h2 className="panelhead">Institutions</h2>
+              <p className="panelnote">
+                Universities, hospitals, charities and public bodies. They hire the
+                same engineers as everyone else and lose candidates to tech firms on
+                pay and flexibility — so their postings sit longer and draw fewer
+                people.
+              </p>
+            </div>
+
+            <div className="panel">
+              <h3>Narrow to</h3>
+              <div className="chips pickchips">
+                {FAMILIES.map((f) => (
+                  <button
+                    key={f}
+                    className={`pick${family === f ? ' on' : ''}`}
+                    onClick={() => { setFamily(family === f ? '' : f); setShown(PAGE); }}
+                    aria-pressed={family === f}
+                  >
+                    {FAMILY_LABELS[f]}
+                  </button>
+                ))}
+              </div>
+
+              {/* The two pages compose. An institution role ALSO under a title
+                  nobody searches for is the least contested thing on the site. */}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={quietOnly}
+                  onChange={() => { setQuietOnly(!quietOnly); setShown(PAGE); }}
+                />
+                quiet titles only
+              </label>
+            </div>
+          </aside>
+
+          <section>
+            {failed && <p className="empty">{failed}</p>}
+
+            {data && !failed && (
+              <p className="results">
+                <span className="count">
+                  <b className="tnum">{data.matched.toLocaleString()}</b>{' '}
+                  {sector ? SECTOR_LABELS[sector].toLowerCase() : 'institution'} roles · last{' '}
+                  {data.maxAgeDays} days
+                </span>
+              </p>
+            )}
+
+            {loading && !data && <p className="empty">Loading…</p>}
+
+            {data && data.jobs.length === 0 && !loading && (
+              <p className="empty">
+                Nothing here yet. Sector is read from each advert as it is crawled, so
+                this fills in over the next few hours rather than all at once.
+              </p>
+            )}
+
+            <div className="joblist">
+              {data?.jobs.map((j) => (
+                <JobCard
+                  key={j.key}
+                  job={j}
+                  chips={
+                    <>
+                      {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}
+                      {j.family && (
+                        <span className={`chip fam fam-${j.family}`}>
+                          {FAMILY_LABELS[j.family as Family]}
+                        </span>
+                      )}
+                      {j.quiet && <span className="chip quiet">quiet title</span>}
+                    </>
+                  }
+                />
+              ))}
+            </div>
+
+            {data?.hasMore && (
+              <div className="more">
+                <button onClick={() => setShown((n) => n + PAGE)} disabled={loading}>
+                  {loading ? 'Loading…' : `Show ${PAGE} more`}
+                </button>
+              </div>
+            )}
+          </section>
         </div>
-
-        {failed && <p className="empty">{failed}</p>}
-
-        {data && !failed && (
-          <p className="results">
-            <span className="count">
-              <b className="tnum">{data.matched.toLocaleString()}</b>{' '}
-              {sector ? SECTOR_LABELS[sector].toLowerCase() : 'institution'} roles · last{' '}
-              {data.maxAgeDays} days
-            </span>
-          </p>
-        )}
-
-        {loading && !data && <p className="empty">Loading…</p>}
-
-        {data && data.jobs.length === 0 && !loading && (
-          <p className="empty">
-            Nothing here yet. Sector is read from each advert as it is crawled, so this
-            fills in over the next few hours rather than all at once.
-          </p>
-        )}
-
-        <div className="joblist">
-          {data?.jobs.map((j) => (
-            <JobCard
-              key={j.key}
-              job={j}
-              chips={
-                <>
-                  {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}
-                  {j.family && (
-                    <span className={`chip fam fam-${j.family}`}>
-                      {FAMILY_LABELS[j.family as Family]}
-                    </span>
-                  )}
-                  {j.quiet && <span className="chip quiet">quiet title</span>}
-                </>
-              }
-            />
-          ))}
-        </div>
-
-        {data?.hasMore && (
-          <button className="more" onClick={() => setShown((n) => n + PAGE)} disabled={loading}>
-            {loading ? 'Loading…' : `Show ${PAGE} more`}
-          </button>
-        )}
       </main>
     </>
   );

@@ -62,6 +62,9 @@ interface TailorResponse {
   note?: string;
   model?: string;
   via?: string;
+  /** The posting, so it can be shown beside the resume. Never stored. */
+  jobDescription?: string;
+  jobDescriptionTruncated?: boolean;
   error?: string;
   needsResume?: boolean;
   retryable?: boolean;
@@ -442,6 +445,8 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
 
       {res && !res.error && (
         <div className="tresult">
+          <div className="tcols">
+            <div className="tleft">
           <div className="tsummary">
             {res.accepted ?? 0} verified · {res.flagged ?? 0} need your judgement ·{' '}
             {res.rejected ?? 0} discarded
@@ -527,134 +532,6 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
             </details>
           )}
 
-          {takenEdits.length > 0 && (
-            <div className="ttaken">
-              {!built ? (
-                <>
-                  <button
-                    type="button"
-                    className="tcopy"
-                    onClick={() => void build(takenEdits)}
-                    disabled={building}
-                  >
-                    {building
-                      ? 'Building…'
-                      : `Build my resume with ${takenEdits.length} change${takenEdits.length === 1 ? '' : 's'}`}
-                  </button>
-                  <span className="tnote">
-                    Your whole resume, with these changes spliced in. Every one is
-                    checked again on the way.
-                  </span>
-                </>
-              ) : (
-                <>
-                  <div className="tbuiltmeta">
-                    {built.applied} change{built.applied === 1 ? '' : 's'} applied
-                    {built.refused.length > 0 && ` · ${built.refused.length} could not be`}
-                    <span className="tviews">
-                      <button
-                        type="button"
-                        className={`tview${view === 'sheet' ? ' on' : ''}`}
-                        onClick={() => setView('sheet')}
-                      >
-                        Resume
-                      </button>
-                      <button
-                        type="button"
-                        className={`tview${view === 'text' ? ' on' : ''}`}
-                        onClick={() => setView('text')}
-                      >
-                        Edit text
-                      </button>
-                    </span>
-                  </div>
-
-                  {view === 'sheet' ? (
-                    <>
-                      <Sheet
-                        text={built.text}
-                        changed={changedLines(built.text, takenEdits.map((e) => e.replacement))}
-                      />
-                      <span className="tnote">
-                        The highlighted lines are the ones you accepted. This is a
-                        reading of your words — if you download your own .docx it
-                        keeps your real layout, and only those lines change.
-                      </span>
-                    </>
-                  ) : (
-                    /* Editable on purpose. The most effective thing a person can do
-                       to a tailored CV is rewrite one phrase per bullet in their own
-                       voice, and a read-only view would send them elsewhere to do it. */
-                    <textarea
-                      className="tbuilt"
-                      value={built.text}
-                      onChange={(e) => setBuilt({ ...built, text: e.target.value })}
-                      rows={18}
-                      spellCheck
-                    />
-                  )}
-
-                  {built.refused.length > 0 && (
-                    <div className="trefused">
-                      <strong>These could not be applied</strong>
-                      {built.refused.map((r, i) => (
-                        <div key={i} className="trefuse">
-                          <span className="trefusewhat">{r.original}</span>
-                          <span className="trefusewhy">{r.why}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="tbuiltactions">
-                    <button
-                      type="button"
-                      className="tcopy"
-                      onClick={() => {
-                        void navigator.clipboard?.writeText(built.text);
-                        setCopied(true);
-                      }}
-                    >
-                      {copied ? 'Copied' : 'Copy the whole resume'}
-                    </button>
-                    {/* First, and the one most people want: their own document with
-                        only the accepted sentences changed. The generated one is
-                        the fallback for somebody who pasted text rather than
-                        uploading a file. */}
-                    <button
-                      type="button"
-                      className="tcopy"
-                      onClick={() => void saveOriginalEdited(takenEdits)}
-                      disabled={saving}
-                    >
-                      {saving ? 'Editing your file…' : 'Download my .docx — keeps your layout'}
-                    </button>
-                    <button
-                      type="button"
-                      className="tskip"
-                      onClick={() => void saveDocx(built.text)}
-                      disabled={saving}
-                    >
-                      Clean .docx instead
-                    </button>
-                    <button type="button" className="tskip" onClick={() => printable(built.text)}>
-                      Save as PDF
-                    </button>
-                    <button type="button" className="tlink" onClick={() => setBuilt(null)}>
-                      start again
-                    </button>
-                  </div>
-
-                  <span className="tnote">
-                    Now change a phrase or two in your own words. That is the single
-                    thing that keeps a tailored CV from reading like every other one
-                    in the pile.
-                  </span>
-                </>
-              )}
-              {buildError && <div className="terror">{buildError}</div>}
-            </div>
-          )}
 
           {res.model && (
             <div className="tfoot">
@@ -670,6 +547,160 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
               This will not fix itself.
             </div>
           )}
+            </div>
+
+            {/* The resume on the right, and the posting above it. Every tool in this
+                space puts them side by side for the same reason: a tailored line can
+                only be judged against the advert that asked for it, and against the
+                paragraph it now sits in. Sticky, so the document stays in view while
+                the edits are worked through on the left. */}
+            <aside className="tright">
+              {res.jobDescription && (
+                <details className="tjd">
+                  <summary>What the posting asks for</summary>
+                  <div className="tjdbody">{res.jobDescription}</div>
+                  {res.jobDescriptionTruncated && (
+                    <p className="tnote">Shortened for this panel.</p>
+                  )}
+                </details>
+              )}
+
+            {takenEdits.length > 0 && (
+              <div className="ttaken">
+                {!built ? (
+                  <>
+                    <button
+                      type="button"
+                      className="tcopy"
+                      onClick={() => void build(takenEdits)}
+                      disabled={building}
+                    >
+                      {building
+                        ? 'Building…'
+                        : `Build my resume with ${takenEdits.length} change${takenEdits.length === 1 ? '' : 's'}`}
+                    </button>
+                    <span className="tnote">
+                      Your whole resume, with these changes spliced in. Every one is
+                      checked again on the way.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div className="tbuiltmeta">
+                      {built.applied} change{built.applied === 1 ? '' : 's'} applied
+                      {built.refused.length > 0 && ` · ${built.refused.length} could not be`}
+                      <span className="tviews">
+                        <button
+                          type="button"
+                          className={`tview${view === 'sheet' ? ' on' : ''}`}
+                          onClick={() => setView('sheet')}
+                        >
+                          Resume
+                        </button>
+                        <button
+                          type="button"
+                          className={`tview${view === 'text' ? ' on' : ''}`}
+                          onClick={() => setView('text')}
+                        >
+                          Edit text
+                        </button>
+                      </span>
+                    </div>
+
+                    {view === 'sheet' ? (
+                      <>
+                        <Sheet
+                          text={built.text}
+                          changed={changedLines(built.text, takenEdits.map((e) => e.replacement))}
+                        />
+                        <span className="tnote">
+                          The highlighted lines are the ones you accepted. This is a
+                          reading of your words — if you download your own .docx it
+                          keeps your real layout, and only those lines change.
+                        </span>
+                      </>
+                    ) : (
+                      /* Editable on purpose. The most effective thing a person can do
+                         to a tailored CV is rewrite one phrase per bullet in their own
+                         voice, and a read-only view would send them elsewhere to do it. */
+                      <textarea
+                        className="tbuilt"
+                        value={built.text}
+                        onChange={(e) => setBuilt({ ...built, text: e.target.value })}
+                        rows={18}
+                        spellCheck
+                      />
+                    )}
+
+                    {built.refused.length > 0 && (
+                      <div className="trefused">
+                        <strong>These could not be applied</strong>
+                        {built.refused.map((r, i) => (
+                          <div key={i} className="trefuse">
+                            <span className="trefusewhat">{r.original}</span>
+                            <span className="trefusewhy">{r.why}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="tbuiltactions">
+                      <button
+                        type="button"
+                        className="tcopy"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(built.text);
+                          setCopied(true);
+                        }}
+                      >
+                        {copied ? 'Copied' : 'Copy the whole resume'}
+                      </button>
+                      {/* First, and the one most people want: their own document with
+                          only the accepted sentences changed. The generated one is
+                          the fallback for somebody who pasted text rather than
+                          uploading a file. */}
+                      <button
+                        type="button"
+                        className="tcopy"
+                        onClick={() => void saveOriginalEdited(takenEdits)}
+                        disabled={saving}
+                      >
+                        {saving ? 'Editing your file…' : 'Download my .docx — keeps your layout'}
+                      </button>
+                      <button
+                        type="button"
+                        className="tskip"
+                        onClick={() => void saveDocx(built.text)}
+                        disabled={saving}
+                      >
+                        Clean .docx instead
+                      </button>
+                      <button type="button" className="tskip" onClick={() => printable(built.text)}>
+                        Save as PDF
+                      </button>
+                      <button type="button" className="tlink" onClick={() => setBuilt(null)}>
+                        start again
+                      </button>
+                    </div>
+
+                    <span className="tnote">
+                      Now change a phrase or two in your own words. That is the single
+                      thing that keeps a tailored CV from reading like every other one
+                      in the pile.
+                    </span>
+                  </>
+                )}
+                {buildError && <div className="terror">{buildError}</div>}
+              </div>
+            )}
+
+              {takenEdits.length === 0 && usable.length > 0 && (
+                <p className="tawait">
+                  Accept a change on the left and your resume appears here.
+                </p>
+              )}
+            </aside>
+          </div>
         </div>
       )}
     </div>
