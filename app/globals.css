@@ -1157,3 +1157,32 @@ a.stat:hover b { color: var(--accent); }
 .tailormeta { color: var(--text-dim); font-size: 13px; margin: 0 0 18px; }
 .tclosed { color: var(--danger); }
 .tmissing { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+
+/* The assembled document. A wide monospace box on purpose: this is the thing
+   being pasted into a CV, and proportional text at body size hides the line
+   breaks that matter. */
+.tbuiltmeta { font-size: 11px; color: var(--text-dim); }
+.tbuilt {
+  width: 100%;
+  padding: 12px 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  resize: vertical;
+}
+.tbuiltactions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+.trefused {
+  padding: 9px 11px;
+  border: 1px solid var(--warm-line);
+  background: var(--warm-dim);
+  border-radius: 8px;
+}
+.trefused strong { display: block; font-size: 11.5px; margin-bottom: 6px; color: var(--warm); }
+.trefuse { padding: 4px 0; }
+.trefusewhat { display: block; font-size: 11.5px; color: var(--text-dim); }
+.trefusewhy { display: block; font-size: 11px; color: var(--text-faint); font-style: italic; }

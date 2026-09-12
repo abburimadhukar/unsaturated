@@ -99,6 +99,16 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
   /** Edit index to decision. Absent means undecided. */
   const [decided, setDecided] = useState<Record<number, 'taken' | 'skipped'>>({});
 
+  /** The assembled resume, once asked for. Null until then. */
+  const [built, setBuilt] = useState<{
+    text: string;
+    applied: number;
+    refused: { original: string; why: string }[];
+  } | null>(null);
+  const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState('');
+  const [copied, setCopied] = useState(false);
+
   const toggle = (id: string) =>
     setChosen((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
 
@@ -124,14 +134,56 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
     }
   }
 
+  /**
+   * Asks the server to splice the chosen changes into the stored resume.
+   *
+   * The browser does not hold the CV — it is deliberately kept off the profile the
+   * feed receives — so the document is assembled where the source of truth is and
+   * comes back whole.
+   */
+  async function build(chosenEdits: { original: string; replacement: string }[]) {
+    setBuilding(true);
+    setBuildError('');
+    setCopied(false);
+    try {
+      const r = await fetch('/api/tailor/apply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ edits: chosenEdits }),
+      });
+      const b = (await r.json().catch(() => ({}))) as {
+        text?: string;
+        applied?: number;
+        refused?: { original: string; why: string }[];
+        error?: string;
+      };
+      if (!r.ok || typeof b.text !== 'string') {
+        setBuildError(b.error ?? 'could not build your resume — try again');
+        return;
+      }
+      setBuilt({ text: b.text, applied: b.applied ?? 0, refused: b.refused ?? [] });
+    } catch {
+      setBuildError('could not reach the server — check your connection');
+    } finally {
+      setBuilding(false);
+    }
+  }
+
   const edits = res?.edits ?? [];
   const usable = edits
     .map((c, i) => ({ c, i }))
     .filter(({ c }) => c.verdict !== 'rejected');
   const discarded = edits.map((c, i) => ({ c, i })).filter(({ c }) => c.verdict === 'rejected');
 
-  /** The replacements the person has actually taken, for copying out. */
-  const taken = usable.filter(({ i }) => decided[i] === 'taken').map(({ c }) => c.edit.replacement);
+  /**
+   * The edits the person accepted, as pairs.
+   *
+   * The pair and not just the replacement: the server splices by finding the
+   * original, so a list of new lines on its own would be unusable.
+   */
+  const takenEdits = usable
+    .filter(({ i }) => decided[i] === 'taken')
+    .map(({ c }) => ({ original: c.edit.original, replacement: c.edit.replacement }));
 
   return (
     <div className={`tailor${wide ? ' wide' : ''}`}>
@@ -241,7 +293,7 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
                   <button
                     type="button"
                     className="ttake"
-                    onClick={() => setDecided((d) => ({ ...d, [i]: 'taken' }))}
+                    onClick={() => { setBuilt(null); setDecided((d) => ({ ...d, [i]: 'taken' })); }}
                     disabled={decision === 'taken'}
                   >
                     {decision === 'taken' ? 'Using this' : c.verdict === 'flagged' ? 'It is true — use it' : 'Use this'}
@@ -249,7 +301,7 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
                   <button
                     type="button"
                     className="tskip"
-                    onClick={() => setDecided((d) => ({ ...d, [i]: 'skipped' }))}
+                    onClick={() => { setBuilt(null); setDecided((d) => ({ ...d, [i]: 'skipped' })); }}
                     disabled={decision === 'skipped'}
                   >
                     {decision === 'skipped' ? 'Skipped' : 'Skip'}
@@ -289,19 +341,96 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
             </details>
           )}
 
-          {taken.length > 0 && (
+          {takenEdits.length > 0 && (
             <div className="ttaken">
-              <button
-                type="button"
-                className="tcopy"
-                onClick={() => void navigator.clipboard?.writeText(taken.join('\n'))}
-              >
-                Copy the {taken.length} line{taken.length === 1 ? '' : 's'} you chose
-              </button>
-              <span className="tnote">
-                Paste them over the originals, then change a phrase in your own
-                words — that last step is what keeps a CV sounding like you.
-              </span>
+              {!built ? (
+                <>
+                  <button
+                    type="button"
+                    className="tcopy"
+                    onClick={() => void build(takenEdits)}
+                    disabled={building}
+                  >
+                    {building
+                      ? 'Building…'
+                      : `Build my resume with ${takenEdits.length} change${takenEdits.length === 1 ? '' : 's'}`}
+                  </button>
+                  <span className="tnote">
+                    Your whole resume, with these changes spliced in. Every one is
+                    checked again on the way.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="tbuiltmeta">
+                    {built.applied} change{built.applied === 1 ? '' : 's'} applied
+                    {built.refused.length > 0 && ` · ${built.refused.length} could not be`}
+                  </div>
+
+                  {/* Editable on purpose. The most effective thing a person can do
+                      to a tailored CV is rewrite one phrase per bullet in their own
+                      voice, and a read-only box would send them elsewhere to do it. */}
+                  <textarea
+                    className="tbuilt"
+                    value={built.text}
+                    onChange={(e) => setBuilt({ ...built, text: e.target.value })}
+                    rows={18}
+                    spellCheck
+                  />
+
+                  {built.refused.length > 0 && (
+                    <div className="trefused">
+                      <strong>These could not be applied</strong>
+                      {built.refused.map((r, i) => (
+                        <div key={i} className="trefuse">
+                          <span className="trefusewhat">{r.original}</span>
+                          <span className="trefusewhy">{r.why}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="tbuiltactions">
+                    <button
+                      type="button"
+                      className="tcopy"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(built.text);
+                        setCopied(true);
+                      }}
+                    >
+                      {copied ? 'Copied' : 'Copy the whole resume'}
+                    </button>
+                    <button
+                      type="button"
+                      className="tskip"
+                      onClick={() => {
+                        // A plain-text file built in the page. Nothing is stored and
+                        // nothing is uploaded to produce it.
+                        const blob = new Blob([built.text], { type: 'text/plain;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `resume-${jobTitle.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40)}.txt`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as .txt
+                    </button>
+                    <button type="button" className="tlink" onClick={() => setBuilt(null)}>
+                      start again
+                    </button>
+                  </div>
+
+                  <span className="tnote">
+                    Now change a phrase or two in your own words. That is the single
+                    thing that keeps a tailored CV from reading like every other one
+                    in the pile.
+                  </span>
+                </>
+              )}
+              {buildError && <div className="terror">{buildError}</div>}
             </div>
           )}
 

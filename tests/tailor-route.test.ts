@@ -233,3 +233,74 @@ test('only Workday pays for the extra board read', () => {
   const src = route();
   assert.match(src, /if \(row\.provider !== 'workday'\) return \{ job: row, extra: undefined \}/);
 });
+
+// ---------------------------------------------------------------------------
+// Building the document
+// ---------------------------------------------------------------------------
+
+const applyRoute = () =>
+  readFileSync(new URL('../app/api/tailor/apply/route.ts', import.meta.url), 'utf8');
+
+test('BUILDING THE DOCUMENT ALSO REQUIRES A CLAIMED SEAT', () => {
+  // It reads a named person's CV and returns it whole. That is the one response on
+  // the site that contains a resume, so the gate matters at least as much here as
+  // on the endpoint that spends money.
+  const src = applyRoute();
+  assert.match(src, /if \(!session\)/);
+  assert.match(src, /401/);
+  const gateAt = src.indexOf('if (!session)');
+  const readAt = src.indexOf('getResumeText(');
+  assert.ok(gateAt > 0 && readAt > gateAt, 'the CV is read before the caller is checked');
+});
+
+test('THE EDITS FROM THE BROWSER ARE RE-CHECKED, NOT TRUSTED', () => {
+  // The promise is that no number and no tool reaches the document unless it is
+  // already in the resume. Checking only when edits are PROPOSED would make that a
+  // property of one request path behaving well rather than of the document.
+  assert.match(applyRoute(), /applyEdits\(resumeText, edits\)/);
+  const assemble = readFileSync(new URL('../src/tailor/assemble.ts', import.meta.url), 'utf8');
+  assert.match(assemble, /verifyEdit\(edit, resumeText\)/, 'assembly must re-verify');
+});
+
+test('the posted edits are rebuilt field by field rather than spread', () => {
+  // A spread would let any shape through to the splice. Rebuilding means a missing
+  // field becomes an empty string, which applyEdits refuses and reports.
+  const src = applyRoute();
+  assert.match(src, /typeof row\.original === 'string' \? row\.original : ''/);
+  assert.ok(!src.includes('...e'), 'the posted object is spread into the edit');
+});
+
+test('REFUSED EDITS ARE NAMED IN THE RESPONSE', () => {
+  // Somebody clicked "use this". An edit that did not make it into the document,
+  // with nothing saying so, means the document is not what they approved and they
+  // have no way to find out.
+  assert.match(applyRoute(), /refused: result\.refused\.map/);
+});
+
+test('the number of accepted edits is capped', () => {
+  assert.match(applyRoute(), /MAX_ACCEPTED = 30/);
+  assert.match(applyRoute(), /\.slice\(0, MAX_ACCEPTED\)/);
+});
+
+test('an empty selection is refused before the CV is read', () => {
+  const src = applyRoute();
+  const emptyAt = src.indexOf('choose at least one change');
+  const readAt = src.indexOf('getResumeText(');
+  assert.ok(emptyAt > 0 && emptyAt < readAt, 'it reads the resume to build nothing');
+});
+
+test('A MISSING RESUME IS REPORTED THE SAME WAY AS ON THE OTHER ROUTE', () => {
+  // Both endpoints can hit it, and the fix is the same — go and paste a CV. Two
+  // different messages for one cause is how a UI ends up with two code paths.
+  assert.match(applyRoute(), /needsResume: true/);
+  assert.match(applyRoute(), /409/);
+});
+
+test('the apply route deliberately has no rate limit', () => {
+  // It spends nothing: one narrow read and some string work. The seat gate bounds
+  // it to four people, and a limiter could only refuse somebody their own finished
+  // document. Stated in the file so the absence reads as a decision.
+  const src = applyRoute();
+  assert.ok(!src.includes('sharedLimiter'), 'a limiter was added without revisiting the note');
+  assert.match(src, /NO RATE LIMIT/i);
+});
