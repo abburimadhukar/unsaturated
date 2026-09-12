@@ -4,6 +4,7 @@ import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
 import { cleanLocation, inferCountry } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
 import { parseSalary } from '../ats/salary.js';
+import { isPlausibleAnnual } from '../ats/currency.js';
 import { AtsFetchError, type AtsProvider, type BoardRef, type NormalizedJob } from '../ats/types.js';
 import { config } from '../config.js';
 import { scoreJob } from '../scoring/saturation.js';
@@ -91,12 +92,29 @@ const HOURS_PER_YEAR = 2080;
  * hourly; anything below even a plausible hourly rate is discarded rather than
  * displayed, because a wrong number is worse than none.
  */
-function annualiseStructured(value: number | undefined): number | undefined {
+function annualiseStructured(
+  value: number | undefined,
+  currency: string | null | undefined,
+): number | undefined {
   if (value === undefined || value === null || !Number.isFinite(value) || value <= 0) {
     return undefined;
   }
-  if (value >= 15_000) return Math.round(value);
-  if (value >= 8) return Math.round(value * HOURS_PER_YEAR);
+  // A CEILING AS WELL AS A FLOOR, and both in dollars.
+  //
+  // This only ever had a floor, so it caught an hourly rate written into the
+  // annual column and let the opposite through untouched. Measured on the live
+  // corpus 12 Sep 2026: "Gage PBL Test Job" stored $27,924,000 and a policy
+  // fellowship stored $15,600,000, both at the top of "highest paid".
+  //
+  // Currency-aware, because a single numeric ceiling cannot tell ₹10,000,000 —
+  // an ordinary Indian salary — from $10,000,000, and rejecting the first would
+  // turn this fix into a worse bug. See src/ats/currency.ts.
+  if (isPlausibleAnnual(value, currency)) return Math.round(value);
+  // Below a plausible annual wage, read as hourly — the original reason this
+  // function exists. Re-checked after multiplying, so an hourly rate that
+  // annualises to something absurd is still refused.
+  const annualised = Math.round(value * HOURS_PER_YEAR);
+  if (value >= 8 && isPlausibleAnnual(annualised, currency)) return annualised;
   return undefined;
 }
 
@@ -300,6 +318,11 @@ async function loadBoard(board: CorpusBoard, now: number) {
         job.salaryMin === undefined && job.salaryMax === undefined
           ? parseSalary(job.descriptionText)
           : undefined;
+      // Resolved before the amounts, because the plausibility check needs it:
+      // ₹10,000,000 is an ordinary salary and $10,000,000 is not, and the two are
+      // the same number. Same precedence the stored field has always used — the
+      // provider's own currency first, then whatever the description said.
+      const currency = job.salaryCurrency ?? parsedPay?.currency ?? null;
       const scored = scoreJob({
         job,
         provider: board.provider,
@@ -325,9 +348,9 @@ async function loadBoard(board: CorpusBoard, now: number) {
         // annualiseStructured, because a structured field is not always annual:
         // one provider published an hourly interval and it was written straight
         // into the annual column, so a role showed as "$120–$134" a year.
-        salaryMin: annualiseStructured(job.salaryMin) ?? parsedPay?.min ?? null,
-        salaryMax: annualiseStructured(job.salaryMax) ?? parsedPay?.max ?? null,
-        salaryCurrency: job.salaryCurrency ?? parsedPay?.currency ?? null,
+        salaryMin: annualiseStructured(job.salaryMin, currency) ?? parsedPay?.min ?? null,
+        salaryMax: annualiseStructured(job.salaryMax, currency) ?? parsedPay?.max ?? null,
+        salaryCurrency: currency,
         postedAt: job.postedAt?.toISOString() ?? null,
         ageDays,
         applyUrl: job.applyUrl ?? null,

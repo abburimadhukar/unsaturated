@@ -36,6 +36,13 @@ create table if not exists public.jobs (
   salary_min      numeric,
   salary_max      numeric,
   salary_currency text,
+  -- The same pay in dollars, for ORDERING only -- never shown. 'Highest paid'
+  -- compared raw numbers, so one employer's 19 rupee postings (Rs 500,000 to
+  -- Rs 10,000,000, about $6k-$120k) owned the whole first page, apparently
+  -- offering $10 million for a frontend engineer. Generated, so it cannot drift
+  -- from the amount it derives from. Rates in migrations/2026-09-12-salary-usd.sql,
+  -- mirroring src/ats/currency.ts; a test asserts the two agree.
+  -- salary_usd numeric generated always as (...) stored,  -- see that migration
   posted_at       timestamptz,
   apply_url       text,
   family          text,
