@@ -52,3 +52,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: printf '%s' "$SUPABASE_SECRET_KEY" | npx wrangler secret put SUPABASE_SECRET_KEY
+
+      # Same reasoning as the Supabase key above: a runtime binding, uploaded
+      # after the Worker exists. Without this the tailoring route reports
+      # "not configured" on a deployed site while the secret sits perfectly
+      # happily in GitHub — a failure with no error anywhere to find.
+      #
+      # `printf` rather than `echo` so no trailing newline becomes part of the
+      # key, which would make every OpenAI call a 401 for a reason nothing says.
+      - name: Upload the OpenAI key to the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: printf '%s' "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY

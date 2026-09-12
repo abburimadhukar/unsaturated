@@ -144,6 +144,68 @@ export async function getProfile(userId: string): Promise<Profile> {
   return (await load(userId)).profile;
 }
 
+/**
+ * The CV text, for tailoring. Server-side only.
+ *
+ * DELIBERATELY NOT PART OF `Profile`
+ *
+ * Profile is what the browser gets: /api/me, /api/profile, /api/profile/name and
+ * /api/profile/resume-file all return one. Putting the CV on it would send
+ * thousands of characters of someone's resume down the wire on every page load,
+ * and would make a leak exactly one forgotten line away — five routes, each of
+ * which would have to remember to strip it. Keeping it off the type means no
+ * route can return it by accident, because no route has it.
+ *
+ * Read fresh every time rather than through the profile cache. It is one narrow
+ * column on a seven-row table, read once per tailoring request, and a cache here
+ * would only create the chance of tailoring a CV the person has already changed.
+ *
+ * Returns '' rather than throwing when there is no row, no text, or no database:
+ * the caller's next move is the same in all three cases, which is to say "add
+ * your resume first".
+ */
+export async function getResumeText(userId: string): Promise<string> {
+  try {
+    const { data, error } = await dbWrite()
+      .from('user_state')
+      .select('resume_text')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) {
+      console.error('resume text read failed:', error.message);
+      return '';
+    }
+    return (data as { resume_text?: string | null } | null)?.resume_text ?? '';
+  } catch (err) {
+    console.error('resume text read failed:', err);
+    return '';
+  }
+}
+
+/**
+ * Stores the CV text on an existing row.
+ *
+ * UPDATE and not upsert, naming one column. That is the whole reason this is
+ * separate from persistProfile: an UPDATE that does not mention a column cannot
+ * touch it, so none of the other writers — setProfileName, setResumeFile,
+ * clearResumeFile — can clobber the text, and this cannot clobber them. No
+ * assumption about what an upsert does with an absent column is involved.
+ *
+ * Throws on failure. The caller has just been handed a resume by a person who is
+ * waiting to hear whether it was saved, and reporting success for a CV that was
+ * not stored would show them skills with no tailoring and no explanation.
+ */
+async function writeResumeText(userId: string, text: string): Promise<void> {
+  const { error } = await dbWrite()
+    .from('user_state')
+    .update({ resume_text: text })
+    .eq('user_id', userId);
+  if (error) {
+    console.error('resume text save failed:', error.message);
+    throw new Error(`could not save resume text: ${error.message}`);
+  }
+}
+
 export async function setProfileFromResume(userId: string, text: string): Promise<Profile> {
   // The name is not part of a resume upload and must survive one. Reading the
   // current profile first is what stops saving a CV wiping it.
@@ -159,7 +221,15 @@ export async function setProfileFromResume(userId: string, text: string): Promis
     skills: extractSkills(text),
     resumeChars: text.length,
   };
-  return await persistProfile(userId, profile);
+  const saved = await persistProfile(userId, profile);
+  // AFTER persistProfile, not before, and not merged into it.
+  //
+  // persistProfile upserts, so it is what creates the row for somebody saving a
+  // CV before they have any other state — and an UPDATE against a row that does
+  // not exist yet silently affects nothing. Ordering this second is what makes a
+  // first-ever resume actually store its text.
+  await writeResumeText(userId, text);
+  return saved;
 }
 
 export async function setProfileSkills(userId: string, skills: string[]): Promise<Profile> {

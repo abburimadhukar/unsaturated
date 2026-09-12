@@ -17,6 +17,8 @@ import {
 } from '../src/ui/filter-state.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 import { initialsOf } from '../src/ui/initials.js';
+import { TailorPanel } from './_components/TailorPanel.js';
+import { FROM_DETAIL, FROM_LISTING } from '../src/tailor/providers.js';
 
 interface Job {
   key: string;
@@ -203,6 +205,27 @@ export default function Page() {
   // whose check has not finished — otherwise the feed flashes up before the
   // redirect, which looks like a broken page.
   const [meChecked, setMeChecked] = useState(false);
+
+  /**
+   * Which job's tailoring panel is open, if any.
+   *
+   * One at a time. Several open at once would mean several people's worth of
+   * OpenAI calls a click apart, and the panel is tall enough that two of them
+   * push the feed off the screen.
+   */
+  const [tailorFor, setTailorFor] = useState<string | null>(null);
+
+  /**
+   * The vendors a description can be read from, as a Set for the card to test.
+   *
+   * Built from the same two lists the server fetches with, so the button cannot
+   * appear for a vendor the route would refuse. Outside the render path because it
+   * never changes.
+   */
+  const CAN_TAILOR = useMemo(
+    () => new Set<string>([...FROM_DETAIL, ...FROM_LISTING]),
+    [],
+  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   /**
@@ -1021,8 +1044,25 @@ export default function Page() {
                             Open posting ↗
                           </a>
                         )}
+                        {/* Not shown for the six vendors that publish no
+                            description anywhere we can read — 5,727 open
+                            postings. A button that can only ever explain why it
+                            cannot work is worse than no button. */}
+                        {CAN_TAILOR.has(j.provider) && (
+                          <button
+                            type="button"
+                            className="tailorbtn"
+                            onClick={() => setTailorFor(tailorFor === j.key ? null : j.key)}
+                          >
+                            {tailorFor === j.key ? 'Close tailoring' : 'Tailor my resume'}
+                          </button>
+                        )}
                         <span className="src">{j.provider}</span>
                       </div>
+
+                      {tailorFor === j.key && (
+                        <TailorPanel jobKey={j.key} jobTitle={j.title} company={j.company} />
+                      )}
                     </div>
                   </article>
                 );

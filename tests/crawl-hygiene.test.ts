@@ -326,3 +326,40 @@ test('a healthy batch says nothing alarming', () => {
   ]);
   assert.doesNotMatch(out, /WARNING/);
 });
+
+// ---------------------------------------------------------------------------
+// 5. schema.sql must describe the boards table the crawler actually writes
+// ---------------------------------------------------------------------------
+
+test('SCHEMA.SQL DECLARES boards.site AND THE THREE-COLUMN UNIQUE KEY', () => {
+  // The third time this file has drifted from the live database, and the same
+  // fault twice over: 2026-09-07-workday-sites.sql added a generated `site`
+  // column and widened the unique key to (provider, token, site), and schema.sql
+  // went on declaring `unique (provider, token)` with no site column at all.
+  //
+  // A fresh database built from it would therefore hold exactly ONE career site
+  // per employer — reintroducing the precise bug that migration exists to fix,
+  // and rejecting every additional Workday portal on insert — while also lacking
+  // a column the crawler writes through `extra`.
+  //
+  // Verified against the live database on 12 September 2026:
+  //   boards_provider_token_site_key  UNIQUE (provider, token, site)
+  const schema = readFileSync(new URL('../src/db/schema.sql', import.meta.url), 'utf8');
+  const block = schema.slice(schema.indexOf('create table if not exists public.boards'));
+  const declared = block.slice(0, block.indexOf('\n);'));
+
+  assert.ok(declared.includes('site'), 'schema.sql does not declare boards.site');
+  assert.match(
+    declared,
+    /generated always as \(coalesce\(extra->>'site', ''\)\) stored/,
+    'site must be generated from extra, so no caller has to remember to write it',
+  );
+  // '' and not null: under a unique index every null is distinct, so a nullable
+  // site would let the duplicates back in while looking correct.
+  assert.ok(!declared.includes('unique (provider, token)'), 'the narrow unique key is still here');
+  assert.match(
+    schema,
+    /on public\.boards \(provider, token, site\)/,
+    'the three-column unique key is missing',
+  );
+});

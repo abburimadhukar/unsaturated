@@ -111,8 +111,27 @@ create table if not exists public.boards (
   job_count            integer not null default 0,
   verified_at          timestamptz,
   last_ok_at           timestamptz,
-  unique (provider, token)
+  -- 2026-09-07-workday-sites.sql -- ONE employer, SEVERAL career sites.
+  --
+  -- A Workday address is {tenant}.{shard}.myworkdayjobs.com/{site}: the tenant is
+  -- the customer account and the site is one portal inside it, and two sites of
+  -- one tenant share no job ids at all. Generated rather than written, so no
+  -- caller has to remember it, and '' rather than null for the providers that
+  -- have no site -- a null would make every such row distinct under the unique
+  -- index below and let duplicates straight back in.
+  site                 text generated always as (coalesce(extra->>'site', '')) stored
 );
+
+-- (provider, token, site), NOT (provider, token).
+--
+-- This file declared the narrower pair for five days after the migration widened
+-- it, which is the second time schema.sql has drifted from the live database and
+-- the same fault the `site` column itself was added to fix: with the pair, the
+-- table holds exactly one career site per employer and every other portal is
+-- silently rejected on insert. A fresh database built from this file would have
+-- reintroduced the bug the migration exists to fix.
+create unique index if not exists boards_provider_token_site_key
+  on public.boards (provider, token, site);
 
 create index if not exists boards_active_idx on public.boards (provider, token) where active;
 
@@ -192,7 +211,12 @@ create table if not exists public.user_state (
   resume_embedded_at timestamptz,
   -- Bumped when the resume changes, so cached per-job explanations written
   -- against an older version fall out of use without being deleted.
-  resume_version     integer not null default 0
+  resume_version     integer not null default 0,
+  -- 2026-09-12-resume-text.sql -- the CV itself, needed at request time by
+  -- tailoring. Only defensible because this table has no anon select policy:
+  -- see 2026-09-11-private-profiles.sql. Never part of the Profile the browser
+  -- receives; read server-side by getResumeText.
+  resume_text        text
 );
 
 create table if not exists public.job_events (
