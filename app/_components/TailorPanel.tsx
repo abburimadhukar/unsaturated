@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 
 import { changeRatio, diffWords } from '../../src/tailor/diff.js';
 import { CHIPS } from '../../src/tailor/prompts.js';
+import { docxBlob, docxFileName } from '../../src/ui/docx.js';
 
 /**
  * Tailoring one resume against one posting, with the changes shown.
@@ -167,6 +168,70 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
     } finally {
       setBuilding(false);
     }
+  }
+
+  const [saving, setSaving] = useState(false);
+
+  /**
+   * The .docx, built in the page.
+   *
+   * Nothing is uploaded and nothing is stored to produce it: the text is already
+   * here, and the browser's own deflater does the compression — see
+   * src/ui/docx.ts, which is the mirror of the unzipper the upload path uses.
+   */
+  async function saveDocx(text: string) {
+    setSaving(true);
+    try {
+      const blob = await docxBlob(text);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = docxFileName(jobTitle);
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setBuildError('could not build the .docx — copy the text instead');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * PDF, via the browser's own print dialogue.
+   *
+   * NOT a hand-rolled PDF, deliberately. Constructing one means laying out the
+   * text layer by hand, and getting the spacing wrong produces a file that looks
+   * right and extracts as "Ranmulti-regionAWS" — which is the failure that
+   * matters, because the first reader of a resume is usually a parser. The browser
+   * handles fonts, kerning and the text layer properly and for free.
+   *
+   * A separate window rather than a print stylesheet over this page: the feed is a
+   * long document with a sticky header, and hiding all of it reliably takes more
+   * CSS than it takes to render the one thing being printed on its own.
+   */
+  function printable(text: string) {
+    const w = window.open('', '_blank', 'width=820,height=1000');
+    if (!w) {
+      setBuildError('your browser blocked the print window — allow pop-ups, or download the .docx');
+      return;
+    }
+    // Escaped rather than inserted. It is the person's own CV, but it is still
+    // text going into markup, and "<" in "C++ <algorithm>" would eat the rest.
+    const safe = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    w.document.write(
+      '<!doctype html><html><head><meta charset="utf-8">' +
+        `<title>${docxFileName(jobTitle).replace(/\.docx$/, '')}</title>` +
+        '<style>@page{size:A4;margin:18mm}' +
+        'body{font:11pt/1.5 Calibri,Carlito,system-ui,sans-serif;color:#000;margin:0}' +
+        'pre{font:inherit;white-space:pre-wrap;margin:0}</style>' +
+        `</head><body><pre>${safe}</pre></body></html>`,
+    );
+    w.document.close();
+    w.focus();
+    w.print();
   }
 
   const edits = res?.edits ?? [];
@@ -404,19 +469,13 @@ export function TailorPanel({ jobKey, jobTitle, company, wide = false }: TailorP
                     <button
                       type="button"
                       className="tskip"
-                      onClick={() => {
-                        // A plain-text file built in the page. Nothing is stored and
-                        // nothing is uploaded to produce it.
-                        const blob = new Blob([built.text], { type: 'text/plain;charset=utf-8' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `resume-${jobTitle.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40)}.txt`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                      }}
+                      onClick={() => void saveDocx(built.text)}
+                      disabled={saving}
                     >
-                      Download as .txt
+                      {saving ? 'Building…' : 'Download .docx'}
+                    </button>
+                    <button type="button" className="tskip" onClick={() => printable(built.text)}>
+                      Save as PDF
                     </button>
                     <button type="button" className="tlink" onClick={() => setBuilt(null)}>
                       start again
