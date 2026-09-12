@@ -59,6 +59,14 @@ const DEFAULT_BUDGET = 1_000;
 /** A job as the crawl has it: in scope, with a digest composed in live.ts. */
 export interface EmbeddableJob {
   key: string;
+  /**
+   * Which ATS it came from.
+   *
+   * Carried through so the budget can be split fairly between vendors. Without
+   * it the run embedded the head of a saturation-sorted list, which was one
+   * vendor's postings and nothing else — see plan.ts.
+   */
+  provider: string;
   matchDigest?: string | undefined;
   matchHash?: string | undefined;
 }
@@ -111,7 +119,12 @@ export async function embedNewJobs(
   const candidates: Candidate[] = [];
   for (const j of jobs) {
     if (j.matchDigest && j.matchHash) {
-      candidates.push({ key: j.key, digest: j.matchDigest, hash: j.matchHash });
+      candidates.push({
+        key: j.key,
+        digest: j.matchDigest,
+        hash: j.matchHash,
+        provider: j.provider,
+      });
     }
   }
   if (candidates.length === 0) return { ...idle, note: 'embeddings: nothing in scope this run' };

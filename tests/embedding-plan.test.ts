@@ -21,10 +21,16 @@ import {
  * again unless its digest actually changed. These tests are that rule.
  */
 
-const c = (key: string, hash: string, digest = `digest for ${key}`): Candidate => ({
+const c = (
+  key: string,
+  hash: string,
+  digest = `digest for ${key}`,
+  provider = 'workday',
+): Candidate => ({
   key,
   digest,
   hash,
+  provider,
 });
 const storedAs = (...rows: [string, string, string?][]): Map<string, Stored> =>
   new Map(rows.map(([key, hash, model]) => [key, { hash, model: model ?? 'bge-small' }]));
@@ -206,4 +212,178 @@ test('A FULL CRAWL OF AN ALREADY-EMBEDDED CORPUS COSTS NOTHING', () => {
     sent += planEmbeddings(jobs, stored, MODEL, 2_000).toEmbed.length;
   }
   assert.equal(sent, 0, 'eleven runs over an embedded corpus sent ' + sent);
+});
+
+// ---------------------------------------------------------------------------
+// Fair shares between vendors — the bug that cost the feature a day
+// ---------------------------------------------------------------------------
+
+/**
+ * Open jobs per ATS, read from the live database on 12 September 2026.
+ *
+ * Kept as real numbers rather than a tidy fake because the fault only appears at
+ * this shape: one vendor holding 47% of the corpus, a long tail holding less than
+ * 1% each, and a budget of 1,000 against 66,978 jobs. A test with three equal
+ * vendors passes whether the code is fixed or not.
+ */
+const CORPUS: [string, number][] = [
+  ['workday', 31_390],
+  ['greenhouse', 13_455],
+  ['ashby', 5_776],
+  ['smartrecruiters', 5_004],
+  ['lever', 2_449],
+  ['workable', 2_407],
+  ['ukg', 2_056],
+  ['rippling', 1_809],
+  ['teamtailor', 1_151],
+  ['bamboohr', 716],
+  ['recruitee', 395],
+  ['personio', 323],
+  ['socrata', 37],
+  ['breezy', 10],
+];
+
+const TOTAL = CORPUS.reduce((n, [, size]) => n + size, 0);
+const BUDGET = 1_000;
+
+/**
+ * The corpus in the order the crawl actually hands it over.
+ *
+ * GROUPED BY VENDOR, because that is what the real input looks like: refreshFeed
+ * sorts by saturation descending, and saturation tracks employer size closely
+ * enough that the big enterprise boards occupy the entire head of the list.
+ * Shuffling this input would hide the bug completely.
+ */
+const groupedByVendor = (): Candidate[] => {
+  const out: Candidate[] = [];
+  for (const [provider, size] of CORPUS) {
+    for (let i = 0; i < size; i++) {
+      out.push(c(`${provider}:${i}`, 'h1', `digest ${provider} ${i}`, provider));
+    }
+  }
+  return out;
+};
+
+const countByProvider = (list: readonly Candidate[]): Map<string, number> => {
+  const n = new Map<string, number>();
+  for (const x of list) n.set(x.provider, (n.get(x.provider) ?? 0) + 1);
+  return n;
+};
+
+test('ONE VENDOR CANNOT TAKE THE WHOLE BUDGET', () => {
+  // The measured failure. Every one of the first 3,990 vectors in the live
+  // database was Workday: 3,415 of its 31,390 open jobs, and zero from the other
+  // thirteen vendors. The crawl log said "1,000 to send" and was correct.
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, BUDGET);
+  const got = countByProvider(plan.toEmbed);
+
+  assert.equal(plan.toEmbed.length, BUDGET);
+  assert.notEqual(got.get('workday'), BUDGET, 'Workday took the entire budget again');
+
+  const fair = Math.round((BUDGET * 31_390) / TOTAL); // ~469
+  assert.ok(
+    got.get('workday')! < fair * 1.3,
+    `Workday took ${got.get('workday')} of ${BUDGET}, fair share is about ${fair}`,
+  );
+});
+
+test('the vendors that were getting NOTHING now get a share', () => {
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, BUDGET);
+  const got = countByProvider(plan.toEmbed);
+
+  // Every vendor holding at least 1% of the corpus. All of these sat at exactly
+  // zero vectors while Workday filled, and Greenhouse alone is 13,455 jobs.
+  for (const [provider, size] of CORPUS) {
+    if (size / TOTAL < 0.01) continue;
+    assert.ok((got.get(provider) ?? 0) > 0, `${provider} (${size} jobs) still got nothing`);
+  }
+
+  const greenhouse = Math.round((BUDGET * 13_455) / TOTAL); // ~201
+  assert.ok(
+    got.get('greenhouse')! > greenhouse * 0.7,
+    `greenhouse got ${got.get('greenhouse')}, expected about ${greenhouse}`,
+  );
+});
+
+test('no vendor takes much more than the share of the work it holds', () => {
+  // The general property, rather than a list of the vendors that happened to
+  // break. Proportional shares are what make every vendor finish at about the
+  // same time instead of the largest one finishing last.
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, BUDGET);
+  const got = countByProvider(plan.toEmbed);
+
+  for (const [provider, size] of CORPUS) {
+    const fair = (BUDGET * size) / TOTAL;
+    const mine = got.get(provider) ?? 0;
+    // +2 of slack so a vendor whose fair share is a fraction of one job is not
+    // judged against zero.
+    assert.ok(
+      mine <= fair * 1.5 + 2,
+      `${provider} took ${mine} of ${BUDGET}; its share of the work is ${fair.toFixed(1)}`,
+    );
+  }
+});
+
+test('A KNOWN CONSEQUENCE: the two smallest vendors wait for a later run', () => {
+  // Honest about what proportional allocation does at the bottom end. breezy has
+  // 10 open jobs and socrata 37, so their fair share of a 1,000 budget is under
+  // one job and they are legitimately skipped this run.
+  //
+  // Recorded rather than fixed because it self-corrects: the corpus only has to
+  // fill once, every run shifts the proportions, and a vendor with 10 jobs is
+  // complete the moment it gets a single share. Reserving a slot per vendor would
+  // take it from the 13,455 Greenhouse jobs that have no score at all.
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, BUDGET);
+  const got = countByProvider(plan.toEmbed);
+  assert.equal(got.get('breezy') ?? 0, 0, 'breezy now fits, so update this note');
+  assert.ok(plan.deferred > 0, 'the rest must be waiting, not lost');
+});
+
+test('URGENCY STILL OUTRANKS FAIRNESS', () => {
+  // The mistake that would look like a simplification: interleaving the three
+  // tiers together instead of each one separately. A job with no vector has no
+  // match score at all; a job whose digest shifted still has a usable one. So one
+  // vendor's never-embedded jobs must beat another vendor's re-embeds, even
+  // though that is "unfair" by vendor.
+  const candidates = [
+    ...Array.from({ length: 5 }, (_, i) => c(`new:${i}`, 'h1', 'd', 'greenhouse')),
+    ...Array.from({ length: 500 }, (_, i) => c(`old:${i}`, 'NEW', 'd', 'workday')),
+  ];
+  const stored = new Map(
+    Array.from({ length: 500 }, (_, i) => [`old:${i}`, { hash: 'OLD', model: MODEL }] as const),
+  );
+
+  const plan = planEmbeddings(candidates, stored, MODEL, 5);
+  assert.deepEqual(
+    plan.toEmbed.map((x) => x.provider),
+    ['greenhouse', 'greenhouse', 'greenhouse', 'greenhouse', 'greenhouse'],
+    'a vendor with no vectors at all waited behind another vendor re-embedding',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Making it visible, which is why it survived a day
+// ---------------------------------------------------------------------------
+
+test('THE LOG LINE SAYS HOW MANY VENDORS WERE REACHED', () => {
+  // The whole reason this went unnoticed: a run covering one vendor and a run
+  // covering fourteen printed the same line.
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, BUDGET);
+  assert.ok(plan.providers > 1, `only reached ${plan.providers} vendor`);
+  assert.match(describePlan(plan), new RegExp(`across ${plan.providers} vendors`));
+});
+
+test('the vendor count describes what is SENT, not what was considered', () => {
+  // A budget of one, out of fourteen vendors' work, reaches exactly one vendor,
+  // and the line must say one — counting the candidates instead would report
+  // fourteen and hide precisely the failure this number exists to show.
+  const plan = planEmbeddings(groupedByVendor(), new Map(), MODEL, 1);
+  assert.equal(plan.toEmbed.length, 1);
+  assert.equal(plan.providers, 1);
+  assert.match(describePlan(plan), /across 1 vendor,/);
+});
+
+test('an empty plan reports no vendors rather than crashing', () => {
+  const plan = planEmbeddings([], new Map(), MODEL, BUDGET);
+  assert.equal(plan.providers, 0);
 });

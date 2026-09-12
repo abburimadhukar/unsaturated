@@ -14,6 +14,7 @@ import { digestFor, digestHash } from '../matching/digest.js';
 import { classifyAdjacent, FORCE_ADJACENT } from '../taxonomy/adjacent.js';
 import { classifySector } from '../taxonomy/sector.js';
 import { ProviderLimiter } from './rate-limit.js';
+import { interleaveByProvider } from './interleave.js';
 import { belongsInReviewPile } from '../taxonomy/unsorted.js';
 import { classifySpecialization } from '../taxonomy/specializations.js';
 import { loadBoardsAsync, type CorpusBoard } from './boards.js';
@@ -431,43 +432,6 @@ function sliceForShard<T>(items: T[], shard?: Shard): T[] {
   return items.filter((_, i) => i % shard.of === shard.index);
 }
 
-/**
- * Spreads every vendor evenly across the run instead of crawling them in blocks.
- *
- * The registry comes back ordered by (provider, token), and the worker pool
- * walks that order — so all eight workers sat on ONE vendor at a time, times
- * four shards, which is up to 32 simultaneous requests at a single company.
- * Measured result: 42% of Workable boards and 66% of Recruitee boards were
- * carrying HTTP 429 at any moment, yielding 0.26 and 0.25 jobs per board
- * against Workday's 9.00. We were storing 3,014 Workable boards and reading
- * almost none of them.
- *
- * Each board is placed at its fractional position within its own provider, and
- * the whole list is sorted by that. A provider with 5,271 boards and one with
- * 525 both end up smeared across the entire run, so consecutive boards are
- * nearly always different vendors and no vendor ever sees a burst. Plain
- * round-robin would not do this: it drains the small providers early and leaves
- * a long single-vendor tail, which is the same problem again at the end.
- *
- * Deterministic — same input, same order — so a shard still covers exactly the
- * boards it covered before, and the split stays reproducible.
- */
-export function interleaveByProvider<T extends { provider: string }>(boards: T[]): T[] {
-  const seen = new Map<string, number>();
-  const sizes = new Map<string, number>();
-  for (const b of boards) sizes.set(b.provider, (sizes.get(b.provider) ?? 0) + 1);
-
-  return boards
-    .map((board) => {
-      const i = seen.get(board.provider) ?? 0;
-      seen.set(board.provider, i + 1);
-      // +0.5 centres each board in its slot, so two providers of the same size
-      // interleave rather than colliding on identical positions.
-      return { board, at: (i + 0.5) / (sizes.get(board.provider) ?? 1) };
-    })
-    .sort((a, b) => a.at - b.at)
-    .map((x) => x.board);
-}
 
 export async function refreshFeed(shard?: Shard): Promise<Feed> {
   const c = cache();

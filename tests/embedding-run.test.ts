@@ -22,8 +22,9 @@ import type { MatchClient } from '../src/matching/store.js';
 const noWait = async () => {};
 const vec = () => Array.from({ length: EMBED_DIMENSIONS }, () => 0.1);
 
-const job = (key: string, hash = `h-${key}`): EmbeddableJob => ({
+const job = (key: string, hash = `h-${key}`, provider = 'workday'): EmbeddableJob => ({
   key,
+  provider,
   matchDigest: `digest for ${key}`,
   matchHash: hash,
 });
@@ -299,4 +300,51 @@ test('the digest is composed where the description still exists', () => {
   const types = readFileSync(new URL('../src/corpus/types.ts', import.meta.url), 'utf8');
   assert.match(types, /matchDigest\?/, 'and FeedJob must carry it');
   assert.doesNotMatch(types, /descriptionText/, 'but never the description itself');
+});
+
+// ---------------------------------------------------------------------------
+// The vendor the budget reaches
+// ---------------------------------------------------------------------------
+
+test('A TIGHT BUDGET STILL REACHES MORE THAN ONE VENDOR', async () => {
+  // End to end, because the fair-share split is only worth anything if the
+  // provider survives the trip from the crawl into the plan. plan.ts is tested
+  // directly; this is the wiring, and the wiring is what was broken.
+  //
+  // The live failure, 12 September 2026: all 3,990 vectors in the database
+  // belonged to Workday and the other thirteen vendors had none. The input order
+  // here is the one the crawl produces — the big vendor first, because refreshFeed
+  // sorts by saturation before handing the list over.
+  const { client, written } = fakeDb();
+  const { fetchImpl } = fakeAi();
+
+  const jobs = [
+    ...Array.from({ length: 500 }, (_, i) => job(`workday:${i}`, `h${i}`, 'workday')),
+    ...Array.from({ length: 100 }, (_, i) => job(`greenhouse:${i}`, `g${i}`, 'greenhouse')),
+  ];
+
+  const res = await embedNewJobs(jobs, { ...creds, client, fetchImpl, budget: 60 });
+
+  assert.equal(res.embedded, 60);
+  const keys = written.map((r) => String(r.job_key));
+  assert.ok(
+    keys.some((k) => k.startsWith('greenhouse:')),
+    'the smaller vendor got nothing again — the provider is not reaching the plan',
+  );
+  assert.ok(keys.some((k) => k.startsWith('workday:')), 'and the larger vendor still progresses');
+  assert.match(res.note, /across 2 vendors/);
+});
+
+test('the crawl hands the provider over, not just the digest', () => {
+  // A type-level guarantee in src/, but tests/ is outside tsconfig's include, so
+  // a fake can omit the field and quietly pass. This reads the source instead.
+  const run = readFileSync(new URL('../src/matching/run.ts', import.meta.url), 'utf8');
+  assert.match(run, /provider: j\.provider/, 'run.ts must pass the provider into the plan');
+
+  const plan = readFileSync(new URL('../src/matching/plan.ts', import.meta.url), 'utf8');
+  assert.match(
+    plan,
+    /interleaveByProvider\(missing\)/,
+    'and the plan must spread the budget across vendors',
+  );
 });

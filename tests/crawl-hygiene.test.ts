@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { backfillDescriptions, fetchDetail, needsBackfill } from '../src/ats/describe.js';
 import { getJson } from '../src/ats/http.js';
-import { interleaveByProvider } from '../src/corpus/live.js';
+import { interleaveByProvider } from '../src/corpus/interleave.js';
 import { summariseVerification, type VerifyResult } from '../src/discovery/verify.js';
 import type { BoardRef, FetchContext, NormalizedJob } from '../src/ats/types.js';
 
