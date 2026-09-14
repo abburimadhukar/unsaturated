@@ -282,11 +282,27 @@ test('the number of accepted edits is capped', () => {
   assert.match(applyRoute(), /\.slice\(0, MAX_ACCEPTED\)/);
 });
 
-test('an empty selection is refused before the CV is read', () => {
+test('a malformed body is refused before the CV is read', () => {
   const src = applyRoute();
-  const emptyAt = src.indexOf('choose at least one change');
+  const badAt = src.indexOf('edits must be a list');
   const readAt = src.indexOf('getResumeText(');
-  assert.ok(emptyAt > 0 && emptyAt < readAt, 'it reads the resume to build nothing');
+  assert.ok(badAt > 0 && badAt < readAt, 'it reads the resume to build nothing');
+});
+
+test('AN EMPTY SELECTION IS ALLOWED, AND IS NOT THE SAME AS A MALFORMED ONE', () => {
+  // The workspace shows the resume from the moment it opens, before anything has
+  // been suggested or accepted — so that changes land INTO a document rather than
+  // conjuring one. "My resume with nothing applied" is that request.
+  //
+  // It used to 400. The guard now tests the SHAPE and not the length, and an
+  // `edits.length === 0` check creeping back in would silently blank the right
+  // pane on every page load.
+  const src = applyRoute();
+  assert.match(src, /if \(!Array\.isArray\(body\.edits\)\) \{/);
+  assert.ok(
+    !/body\.edits\.length === 0/.test(src),
+    'the empty-list refusal is back — the workspace opens on a blank resume',
+  );
 });
 
 test('A MISSING RESUME IS REPORTED THE SAME WAY AS ON THE OTHER ROUTE', () => {

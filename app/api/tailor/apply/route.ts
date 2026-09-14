@@ -59,8 +59,15 @@ export async function POST(request: Request) {
     return bad('body must be JSON', 400);
   }
 
-  if (!Array.isArray(body.edits) || body.edits.length === 0) {
-    return bad('choose at least one change first', 400);
+  // An EMPTY list is allowed, and is not the same thing as a malformed one.
+  //
+  // The workspace shows the resume from the moment it opens, before anything has
+  // been suggested or accepted — so that the screen makes sense immediately and
+  // the changes land INTO a document rather than conjuring one. "My resume with
+  // nothing applied" is that request, and it is the person asking for their own
+  // CV back exactly as the rest of this route already is.
+  if (!Array.isArray(body.edits)) {
+    return bad('edits must be a list', 400);
   }
 
   // Rebuilt field by field rather than trusted as a shape. Anything missing

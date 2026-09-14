@@ -2,15 +2,16 @@ import Link from 'next/link';
 
 import { dbWrite } from '../../src/db/supabase.js';
 import { canDescribe } from '../../src/tailor/providers.js';
-import { TailorPanel } from '../_components/TailorPanel.js';
+import { TailorWorkspace } from '../_components/TailorWorkspace.js';
 
 /**
- * The full-width tailoring workspace.
+ * The full-screen tailoring workspace.
  *
  * The feed panel is for a quick look while deciding whether a job is worth the
- * effort. This is for doing the work: the same component with room to read a long
- * bullet without it wrapping four times, reached by a link rather than replacing
- * the inline version.
+ * effort. This is for doing the work, and it takes the whole viewport: the
+ * document is sized first, at the measure it will actually be read at, and the
+ * changes column takes what is left. See TailorWorkspace for why that order
+ * matters.
  *
  * A SERVER COMPONENT, SO THE URL IS JUST THE KEY
  *
@@ -71,33 +72,33 @@ export default async function TailorPage({
     );
   }
 
-  return (
-    <main className="tailorpage">
-      <nav className="tailornav">
-        <Link href="/">← Back to the feed</Link>
-        {job.apply_url && (
-          <a href={job.apply_url} target="_blank" rel="noopener noreferrer">
-            Open the posting ↗
-          </a>
-        )}
-      </nav>
-
-      <h1>{job.title}</h1>
-      <p className="tailormeta">
-        {job.company}
-        {/* Said plainly. Tailoring a CV for a role that has been withdrawn is
-            wasted effort, and the feed cannot always know before the fetch does. */}
-        {job.closed_at && <span className="tclosed"> · this posting has closed</span>}
-      </p>
-
-      {canDescribe(job.provider) ? (
-        <TailorPanel jobKey={job.key} jobTitle={job.title} company={job.company} wide />
-      ) : (
+  if (!canDescribe(job.provider)) {
+    return (
+      <main className="tailorpage">
+        <nav className="tailornav">
+          <Link href="/">← Back to the feed</Link>
+        </nav>
+        <h1>{job.title}</h1>
+        <p className="tailormeta">{job.company}</p>
         <p className="tmissing">
           {job.provider} does not publish job descriptions anywhere we can read
           them, so there is nothing to tailor against for this posting.
         </p>
-      )}
-    </main>
+      </main>
+    );
+  }
+
+  // No <main className="tailorpage"> around it: the workspace is a fixed-height
+  // shell with its own header, two scrolling panes and an action bar. Wrapping it
+  // in the centred, padded page container is what produced the 350px document in
+  // the first place.
+  return (
+    <TailorWorkspace
+      jobKey={job.key}
+      jobTitle={job.title}
+      company={job.company}
+      applyUrl={job.apply_url}
+      closed={Boolean(job.closed_at)}
+    />
   );
 }
