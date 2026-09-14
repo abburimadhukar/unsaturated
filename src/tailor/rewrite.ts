@@ -1,3 +1,4 @@
+import { checkRequirements, tally, type Requirement, type Tally } from './coverage.js';
 import { claimTokens, containsClaim, normalise } from './edits.js';
 import { evidenceFor, readShape, type ResumeShape } from './sections.js';
 import { voiceProblems, uniformity, VOICE_RULES } from './voice.js';
@@ -64,12 +65,23 @@ export interface RewriteAnswer {
   companies: RewrittenCompany[];
   /** Lines deliberately left out, and why. Never silent. */
   dropped: { text: string; why: string }[];
+  /** What the posting asks for, and the honest answer for each. */
+  requirements: Requirement[];
 }
 
 export type LineVerdict = 'kept' | 'ask' | 'dropped';
 
 export interface CheckedLine {
   text: string;
+  /**
+   * The line this replaced, when it replaced one.
+   *
+   * Kept so the person can put their own sentence back. Every review of this
+   * category says the same thing about the tools that get it wrong — "no
+   * selective approval, all changes apply wholesale" — and a rewrite you cannot
+   * partly reject is a rewrite you have to take on trust.
+   */
+  original: string;
   verdict: LineVerdict;
   /** Empty when kept. The words that could not be traced, or the rule broken. */
   note: string;
@@ -91,6 +103,8 @@ export interface CheckedRewrite {
   skills: CheckedLine[];
   companies: CheckedCompany[];
   dropped: { text: string; why: string }[];
+  requirements: Requirement[];
+  tally: Tally;
   kept: number;
   asked: number;
   discarded: number;
@@ -128,6 +142,10 @@ export function checkBullet(
   const text = bullet.text.trim();
   const base: Omit<CheckedLine, 'verdict' | 'note'> = {
     text,
+    // The first source line, which is the one it reads as a rewrite of. A bullet
+    // merged from two lines reverts to the first; reverting to both would put
+    // back something the person never had as a single line.
+    original: (bullet.from[0] ?? '').trim(),
     unverified: [],
     why: bullet.why,
   };
@@ -188,15 +206,21 @@ export function checkBullet(
  * a claim about a career, and the career is the whole document. A bullet under one
  * employer is a claim about that job. Different claims, different evidence.
  */
-function checkWhole(text: string, wholeResume: string, why: string): CheckedLine {
+function checkWhole(
+  text: string,
+  wholeResume: string,
+  why: string,
+  original = '',
+): CheckedLine {
   const t = text.trim();
-  if (!t) return { text: t, verdict: 'dropped', note: 'empty', unverified: [], why };
+  if (!t) return { text: t, original, verdict: 'dropped', note: 'empty', unverified: [], why };
 
   const problems = voiceProblems([t]);
   if (problems.length > 0) {
     const p = problems[0]!;
     return {
       text: t,
+      original,
       verdict: 'dropped',
       unverified: [],
       why,
@@ -208,9 +232,12 @@ function checkWhole(text: string, wholeResume: string, why: string): CheckedLine
   }
 
   const unverified = supportedBy(wholeResume, t);
-  if (unverified.length === 0) return { text: t, verdict: 'kept', note: '', unverified: [], why };
+  if (unverified.length === 0) {
+    return { text: t, original, verdict: 'kept', note: '', unverified: [], why };
+  }
   return {
     text: t,
+    original,
     verdict: 'ask',
     unverified,
     why,
@@ -231,8 +258,19 @@ export function checkRewrite(answer: RewriteAnswer, resumeText: string): Checked
   const shape: ResumeShape = readShape(resumeText);
   const whole = resumeText;
 
-  const summary = checkWhole(answer.summary, whole, answer.summaryWhy);
-  const skills = answer.skills.map((s) => checkWhole(s, whole, 'ordered for this posting'));
+  const summary = checkWhole(
+    answer.summary,
+    whole,
+    answer.summaryWhy,
+    shape.summary.join(' '),
+  );
+  // Matched to the original skills line by its label ("Cloud Technologies: ..."),
+  // so reordering a category can be reverted to the order it was in.
+  const skills = answer.skills.map((line) => {
+    const label = line.split(':')[0] ?? '';
+    const before = shape.skills.find((o) => o.split(':')[0] === label) ?? '';
+    return checkWhole(line, whole, 'ordered for this posting', before);
+  });
 
   const companies: CheckedCompany[] = [];
   const dropped = [...answer.dropped];
@@ -281,11 +319,15 @@ export function checkRewrite(answer: RewriteAnswer, resumeText: string): Checked
     if (u) voice.push(`${c.company}: ${u}`);
   }
 
+  const requirements = checkRequirements(answer.requirements, whole);
+
   return {
     summary,
     skills,
     companies,
     dropped,
+    requirements,
+    tally: tally(requirements),
     kept: count('kept'),
     asked: count('ask'),
     discarded: count('dropped'),
@@ -304,19 +346,24 @@ export function assembleRewrite(
   checked: CheckedRewrite,
   shape: ResumeShape,
   confirmed: ReadonlySet<string>,
+  reverted: ReadonlySet<string> = new Set(),
 ): string {
   const out: string[] = [];
   const take = (l: CheckedLine) => l.verdict === 'kept' || confirmed.has(l.text);
+  // A reverted line goes back to the person's own words. Reverting a line with
+  // no original removes it, which is the only honest reading of "undo" for a
+  // sentence that replaced nothing.
+  const wordsFor = (l: CheckedLine) => (reverted.has(l.text) ? l.original : l.text);
 
   if (shape.name) out.push(shape.name);
   for (const c of shape.contact) out.push(c);
   out.push('');
 
-  if (take(checked.summary)) {
-    out.push(checked.summary.text, '');
+  if (take(checked.summary) && wordsFor(checked.summary)) {
+    out.push(wordsFor(checked.summary), '');
   }
 
-  const skills = checked.skills.filter(take).map((l) => l.text);
+  const skills = checked.skills.filter(take).map(wordsFor).filter(Boolean);
   if (skills.length > 0) {
     out.push('TECHNICAL SKILLS');
     out.push(...skills);
@@ -326,11 +373,11 @@ export function assembleRewrite(
   if (checked.companies.length > 0) {
     out.push('PROFESSIONAL EXPERIENCE');
     for (const c of checked.companies) {
-      const lines = c.lines.filter(take);
+      const lines = c.lines.filter(take).map(wordsFor).filter(Boolean);
       if (lines.length === 0) continue;
       out.push(c.header);
       if (c.role) out.push(c.role);
-      for (const l of lines) out.push(`· ${l.text}`);
+      for (const l of lines) out.push(`· ${l}`);
       out.push('');
     }
   }

@@ -64,6 +64,7 @@ const answer = (over: Partial<RewriteAnswer> = {}): RewriteAnswer => ({
   skills: ['Cloud: Terraform, Docker, Azure DevOps'],
   companies: [],
   dropped: [],
+  requirements: [],
   ...over,
 });
 

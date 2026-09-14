@@ -1716,3 +1716,131 @@ footer.twbot {
 }
 .rwvoice strong { display: block; font-size: 12px; margin-bottom: 5px; }
 .rwvoice p { margin: 0 0 3px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+
+/* ---------------------------------------------------------------------------
+   Coverage, and the changes you can undo
+   ---------------------------------------------------------------------------
+   The list this replaced opened with eleven rows reading NOT FOUND, two of which
+   were not skills. Several were wrong in the way that matters: OpenTofu marked
+   missing against a resume listing Terraform, when OpenTofu is a FORK of it.
+
+   So there is a fifth answer — you have the equivalent, and here it is — and
+   eligibility is separated out, because work authorisation is a fact about a
+   person rather than a gap in their CV. */
+
+.cov { margin-bottom: 14px; padding-bottom: 13px; border-bottom: 1px solid var(--line-soft); }
+.covhead {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 640;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.covlist { display: flex; flex-direction: column; gap: 3px; }
+.covrow {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.covrow.shown { border-left-color: var(--hot); }
+.covrow.partial { border-left-color: var(--warm); }
+.covrow.adjacent { border-left-color: var(--fam-cloud); }
+.covrow.missing { border-left-color: var(--danger); }
+.covrow.unclear { border-left-color: var(--text-faint); }
+
+.covrow summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; cursor: pointer; list-style: none;
+}
+.covrow summary::-webkit-details-marker { display: none; }
+.covrow[open] summary { border-bottom: 1px solid var(--line-soft); }
+
+.covtag {
+  flex: 0 0 auto;
+  font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 700;
+  padding: 2px 6px; border-radius: 4px; min-width: 88px; text-align: center;
+}
+.covtag.shown { background: var(--hot-dim); color: var(--hot); border: 1px solid var(--hot-line); }
+.covtag.partial { background: var(--warm-dim); color: var(--warm); border: 1px solid var(--warm-line); }
+.covtag.adjacent { background: var(--fam-cloud-dim); color: var(--fam-cloud); border: 1px solid var(--fam-cloud); }
+.covtag.missing { background: var(--danger-dim); color: var(--danger); border: 1px solid var(--danger-line); }
+.covtag.unclear { background: var(--surface-2); color: var(--text-faint); border: 1px solid var(--line); }
+
+.covname { font-size: 12.5px; color: var(--text); line-height: 1.4; }
+.covneed {
+  margin-left: auto; font-size: 10px; color: var(--text-faint);
+  text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
+}
+.covbody { padding: 9px 10px 10px; }
+
+/* The line that makes the list worth reading. */
+.covinstead {
+  margin: 0 0 7px; padding: 7px 9px;
+  font-size: 12px; line-height: 1.55;
+  color: var(--text);
+  background: var(--fam-cloud-dim);
+  border: 1px solid var(--fam-cloud);
+  border-radius: 6px;
+}
+.covquote { margin: 0 0 5px; font-size: 11.5px; line-height: 1.55; color: var(--text-dim); }
+.covlabel {
+  font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-faint); margin-right: 5px;
+}
+.covnote {
+  margin: 0 0 6px; padding: 6px 8px;
+  font-size: 11.5px; line-height: 1.5; color: var(--warm);
+  background: var(--warm-dim); border: 1px solid var(--warm-line); border-radius: 6px;
+}
+.covadvice { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text); }
+
+.covelig {
+  margin-top: 11px; padding: 9px 11px;
+  border: 1px dashed var(--line); border-radius: 8px;
+}
+.covelig strong { display: block; font-size: 11.5px; margin-bottom: 5px; color: var(--text-dim); }
+.covelig p { margin: 0 0 3px; font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+
+/* Every line that changed, with a way to put the original back. */
+.chg { margin-bottom: 14px; }
+.chghead {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 9px; font-size: 12.5px;
+}
+.chgrow {
+  padding: 11px 12px; margin-bottom: 8px;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 8px; background: var(--surface);
+}
+.chgrow.undone { border-left-color: var(--text-faint); opacity: 0.72; }
+.chgmeta { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.chgwhere {
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint);
+}
+.chgkept {
+  margin-left: auto; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.chgwhy { margin: 0 0 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+
+/* Before and after, whole, as a mode rather than a layout. */
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 18px 22px 48px; }
+.cmpcol { min-width: 0; }
+.cmphead {
+  margin: 0 0 8px; font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.cmptext {
+  margin: 0; padding: 14px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px; line-height: 1.65;
+  white-space: pre-wrap; word-break: break-word;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+
+@media (max-width: 1100px) {
+  .cmp { grid-template-columns: 1fr; }
+}

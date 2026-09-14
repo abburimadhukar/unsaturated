@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { PRESETS } from '../../src/tailor/rewrite-prompt.js';
+import { Changes, CompareView } from './Changes.js';
+import { Coverage } from './Coverage.js';
 import { Sheet } from './tailor-parts.js';
 import { useRewrite } from './use-rewrite.js';
 
@@ -52,6 +54,8 @@ export function RewriteWorkspace({
   const [showAsk, setShowAsk] = useState(false);
   const [posting, setPosting] = useState(false);
   const [pane, setPane] = useState<'setup' | 'resume'>('setup');
+  /** Which way the document is shown. Tailored first, deliberately. */
+  const [view, setView] = useState<'tailored' | 'compare' | 'edit'>('tailored');
 
   const rewrite = s.res?.rewrite ?? null;
   const dropped = rewrite?.dropped ?? [];
@@ -206,6 +210,19 @@ export function RewriteWorkspace({
             </section>
           )}
 
+          {/* What they asked for, and the honest answer for each. Above the
+              changes, because "should I apply at all" is the larger question. */}
+          {rewrite && <Coverage requirements={rewrite.requirements} tally={rewrite.tally} />}
+
+          {rewrite && (
+            <Changes
+              rewrite={rewrite}
+              reverted={s.reverted}
+              onRevert={s.revert}
+              onRestore={s.restore}
+            />
+          )}
+
           {s.confirmed.size > 0 && (
             <p className="rwconfirmed">
               {s.confirmed.size} line{s.confirmed.size === 1 ? '' : 's'} added because you
@@ -272,15 +289,57 @@ export function RewriteWorkspace({
                       answer
                     </span>
                   )}
+                  {s.reverted.size > 0 && (
+                    <span className="twdim"> · {s.reverted.size} of your originals kept</span>
+                  )}
+                  {s.edited !== null && <span className="twedited"> · edited by you</span>}
+                </span>
+                <span className="tviews">
+                  {(['tailored', 'compare', 'edit'] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      className={`tview${view === v ? ' on' : ''}`}
+                      onClick={() => setView(v)}
+                    >
+                      {v === 'tailored' ? 'Tailored' : v === 'compare' ? 'Compare' : 'Edit'}
+                    </button>
+                  ))}
                 </span>
               </div>
-              <div className="twsheet">
-                <Sheet text={s.document} changed={new Set()} idPrefix="rw" />
-                <p className="twcaption">
-                  Every line here traces back to something already in your resume, checked
-                  employer by employer. Nothing was added that you did not already say.
-                </p>
-              </div>
+
+              {view === 'compare' ? (
+                <CompareView before={s.original} after={s.document} />
+              ) : view === 'edit' ? (
+                <div className="twsheet">
+                  {/* Editable, because the most effective thing anybody can do to a
+                      tailored CV is rewrite one phrase in their own voice — and a
+                      read-only view sends them elsewhere to do it. What is typed
+                      here survives reverting an unrelated line. */}
+                  <textarea
+                    className="tbuilt"
+                    value={s.document}
+                    onChange={(e) => s.setEdited(e.target.value)}
+                    spellCheck
+                  />
+                  {s.edited !== null && (
+                    <p className="twcaption">
+                      You have edited this by hand.{' '}
+                      <button type="button" className="tlink" onClick={() => s.setEdited(null)}>
+                        undo my edits
+                      </button>
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="twsheet">
+                  <Sheet text={s.document} changed={new Set()} idPrefix="rw" />
+                  <p className="twcaption">
+                    Every line here traces back to something already in your resume, checked
+                    employer by employer. Nothing was added that you did not already say.
+                  </p>
+                </div>
+              )}
             </>
           )}
         </section>

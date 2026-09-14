@@ -1,3 +1,4 @@
+import type { Answer, Need } from './coverage.js';
 import { checkRewrite, type CheckedRewrite, type RewriteAnswer } from './rewrite.js';
 import { buildRewriteMessages, type Preset, type RewriteInput } from './rewrite-prompt.js';
 import { OPENAI_URL, TAILOR_MODEL, extractJson } from './run.js';
@@ -16,6 +17,8 @@ const MAX_COMPANIES = 12;
 const MAX_BULLETS = 10;
 const MAX_SKILL_LINES = 12;
 const MAX_DROPPED = 20;
+/** A posting asking for more than this is listing adjectives. */
+const MAX_REQUIREMENTS = 24;
 const MAX_LINE_CHARS = 400;
 
 const RESPONSE_SCHEMA = {
@@ -24,7 +27,7 @@ const RESPONSE_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['summary', 'summaryWhy', 'skills', 'companies', 'dropped'],
+    required: ['summary', 'summaryWhy', 'skills', 'companies', 'dropped', 'requirements'],
     properties: {
       summary: { type: 'string', description: 'three sentences at most, aimed at this posting' },
       summaryWhy: { type: 'string', description: 'why it reads this way, one sentence' },
@@ -60,6 +63,38 @@ const RESPONSE_SCHEMA = {
                 },
               },
             },
+          },
+        },
+      },
+      requirements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'need', 'answer', 'fromPosting', 'fromResume', 'insteadYouHave', 'advice'],
+          properties: {
+            name: { type: 'string' },
+            need: {
+              type: 'string',
+              enum: ['must', 'nice', 'eligibility'],
+              description:
+                'eligibility for work authorisation, location, clearance — not a skill',
+            },
+            answer: {
+              type: 'string',
+              enum: ['shown', 'partial', 'adjacent', 'missing', 'unclear'],
+            },
+            fromPosting: { type: 'string', description: 'short quote from the posting' },
+            fromResume: {
+              type: 'string',
+              description: 'quote copied EXACTLY from the resume; empty unless shown or partial',
+            },
+            insteadYouHave: {
+              type: 'string',
+              description:
+                'for answer=adjacent ONLY: the equivalent the candidate does have, named, and it must be in the resume',
+            },
+            advice: { type: 'string', description: 'one sentence on what to do' },
           },
         },
       },
@@ -124,6 +159,29 @@ export function parseRewrite(body: unknown): RewriteAnswer {
         };
       })
       .filter((c) => c.company.length > 0),
+    // Anything unreadable becomes `unclear` and `must`, which is the safe
+    // direction: "they want this and we could not confirm you have it" is true of
+    // a value we cannot read, and treating an unknown need as a must-have errs
+    // towards showing the person something rather than hiding it.
+    requirements: arr(root.requirements)
+      .slice(0, MAX_REQUIREMENTS)
+      .map((r) => {
+        const row = (r ?? {}) as Record<string, unknown>;
+        const need = trim(row.need, 20).toLowerCase();
+        const answer = trim(row.answer, 20).toLowerCase();
+        return {
+          name: trim(row.name, 160),
+          need: (['must', 'nice', 'eligibility'].includes(need) ? need : 'must') as Need,
+          answer: (['shown', 'partial', 'adjacent', 'missing', 'unclear'].includes(answer)
+            ? answer
+            : 'unclear') as Answer,
+          fromPosting: trim(row.fromPosting),
+          fromResume: trim(row.fromResume),
+          insteadYouHave: trim(row.insteadYouHave, 200),
+          advice: trim(row.advice),
+        };
+      })
+      .filter((r) => r.name.length > 0),
     dropped: arr(root.dropped)
       .slice(0, MAX_DROPPED)
       .map((d) => {

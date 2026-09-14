@@ -12,6 +12,7 @@ import { describeJob } from '../src/tailor/jd.js';
 import { assembleRewrite } from '../src/tailor/rewrite.js';
 import { rewriteResume } from '../src/tailor/rewrite-run.js';
 import { readShape } from '../src/tailor/sections.js';
+import { describeTally, orderForReading } from '../src/tailor/coverage.js';
 import { voiceProblems } from '../src/tailor/voice.js';
 
 const [resumePath, jobKey, title, company, presetArg] = process.argv.slice(2);
@@ -74,6 +75,18 @@ if (!result.checked) process.exit(1);
 const c = result.checked;
 
 const mark = (v: string) => (v === 'kept' ? 'OK ' : v === 'ask' ? 'ASK' : 'DROP');
+
+console.log(rule('WHAT THEY ASK FOR'));
+console.log(describeTally(c.tally));
+for (const r of orderForReading(c.requirements)) {
+  const tag = { shown: 'SHOWN   ', partial: 'PARTLY  ', adjacent: 'ADJACENT', missing: 'MISSING ', unclear: 'UNCLEAR ' }[r.answer];
+  console.log(`
+[${tag}] ${r.need.toUpperCase().padEnd(11)} ${r.name}`);
+  if (r.insteadYouHave) console.log(`  you have : ${r.insteadYouHave}`);
+  if (r.fromResume) console.log(`  resume   : ${r.fromResume.slice(0, 100)}`);
+  if (r.note) console.log(`  NOTE     : ${r.note}`);
+  console.log(`  advice   : ${r.advice}`);
+}
 
 console.log(rule('SUMMARY'));
 console.log(`[${mark(c.summary.verdict)}] ${c.summary.text}`);

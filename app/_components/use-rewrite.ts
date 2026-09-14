@@ -69,8 +69,18 @@ export interface RewriteSession {
   declined: Set<string>;
   decline: (line: string) => void;
 
+  /** Lines put back to the person's own words, by the rewrite's text. */
+  reverted: Set<string>;
+  revert: (text: string) => void;
+  restore: (text: string) => void;
+
   /** The finished document, as it currently stands. */
   document: string;
+  /** The resume as it was, for the side-by-side. */
+  original: string;
+  /** Hand edits to the finished document, which survive a revert. */
+  edited: string | null;
+  setEdited: (s: string | null) => void;
 
   saving: boolean;
   copied: boolean;
@@ -87,6 +97,8 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const [res, setRes] = useState<RewriteResponse | null>(null);
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [declined, setDeclined] = useState<Set<string>>(new Set());
+  const [reverted, setReverted] = useState<Set<string>>(new Set());
+  const [edited, setEdited] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
@@ -99,6 +111,8 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     setRes(null);
     setConfirmed(new Set());
     setDeclined(new Set());
+    setReverted(new Set());
+    setEdited(null);
     setError('');
     try {
       const r = await fetch('/api/tailor/rewrite', {
@@ -143,8 +157,52 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
       return next;
     });
 
-  const document_ =
-    rewrite && res?.shape ? assembleRewrite(rewrite, res.shape, confirmed) : '';
+  const revert = (text: string) =>
+    setReverted((r) => {
+      const next = new Set(r);
+      next.add(text);
+      return next;
+    });
+  const restore = (text: string) =>
+    setReverted((r) => {
+      const next = new Set(r);
+      next.delete(text);
+      return next;
+    });
+
+  const built =
+    rewrite && res?.shape ? assembleRewrite(rewrite, res.shape, confirmed, reverted) : '';
+
+  // A hand edit wins over the assembled document until it is cleared. Assembling
+  // over the top would throw away what somebody typed the moment they reverted an
+  // unrelated line, which is the bug the old screen had.
+  const document_ = edited ?? built;
+
+  const original = res?.shape
+    ? [
+        res.shape.name,
+        ...res.shape.contact,
+        '',
+        ...res.shape.summary,
+        '',
+        ...(res.shape.skills.length ? ['TECHNICAL SKILLS', ...res.shape.skills, ''] : []),
+        ...(res.shape.companies.length
+          ? [
+              'PROFESSIONAL EXPERIENCE',
+              ...res.shape.companies.flatMap((c) => [
+                c.header,
+                ...(c.role ? [c.role] : []),
+                ...c.bullets.map((b) => `\u00b7 ${b}`),
+                '',
+              ]),
+            ]
+          : []),
+        ...(res.shape.education.length ? ['EDUCATION', ...res.shape.education] : []),
+      ]
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+    : '';
 
   const copy = () => {
     if (!document_) return;
@@ -231,7 +289,13 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     open,
     declined,
     decline,
+    reverted,
+    revert,
+    restore,
     document: document_,
+    original,
+    edited,
+    setEdited,
     saving,
     copied,
     copy,
