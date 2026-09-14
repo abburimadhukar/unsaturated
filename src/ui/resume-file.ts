@@ -12,6 +12,8 @@
  * box — not to refuse the upload.
  */
 
+import { linesFromItems, type TextItem } from './pdf-lines.js';
+
 export const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
 export const ACCEPTED = '.pdf,.docx,.txt,.md';
@@ -94,12 +96,32 @@ async function docxText(buf: ArrayBuffer): Promise<string> {
  * Paragraph and line-break tags become newlines BEFORE the tags are stripped —
  * otherwise every heading runs into the sentence after it and "React Developer"
  * and "Skills" become one word the matcher never sees.
+ *
+ * TWO KINDS OF TEXT WORD DOES NOT SHOW, AND NOR SHOULD THIS
+ *
+ * Stripping tags keeps everything BETWEEN them, and not every text node in a
+ * .docx is text the document displays:
+ *
+ *   <w:instrText>  a field's instructions rather than its result — ` HYPERLINK
+ *                  "mailto:someone@example.com" `, ` PAGE `, ` REF _Ref4471 `.
+ *                  Word renders the result; this was pasting the instruction
+ *                  into the middle of somebody's CV.
+ *   <w:delText>    text DELETED under tracked changes. Word shows it struck
+ *                  through, or not at all once the changes are accepted. Keeping
+ *                  it puts sentences the person removed back into the document
+ *                  an employer receives, which is the worse of the two.
+ *
+ * Both are dropped with their contents, before the general strip can unwrap
+ * them. Everything else still unwraps, because <w:t> and its neighbours are the
+ * text the document actually shows.
  */
 function xmlToText(xml: string): string {
   return xml
     .replace(/<w:p[ >]/g, '\n<w:p ')
     .replace(/<w:br\s*\/?>/g, '\n')
     .replace(/<w:tab\s*\/?>/g, ' ')
+    .replace(/<w:instrText\b[^>]*>[\s\S]*?<\/w:instrText>/g, '')
+    .replace(/<w:delText\b[^>]*>[\s\S]*?<\/w:delText>/g, '')
     .replace(/<[^>]+>/g, '')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -135,12 +157,11 @@ async function pdfText(buf: ArrayBuffer): Promise<string> {
   for (let p = 1; p <= pages; p++) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
-    out.push(
-      content.items
-        .map((i) => ('str' in i ? i.str : ''))
-        .join(' ')
-        .replace(/\s+/g, ' '),
-    );
+    // Lines rebuilt from the glyph positions rather than joined with spaces.
+    // A PDF has no lines — it has glyphs at coordinates — and flattening a page
+    // into one string threw away the structure every later step reads back out:
+    // headings, bullets, the name on its own. See pdf-lines.ts.
+    out.push(linesFromItems(content.items as unknown as TextItem[]));
   }
   await doc.destroy();
   return out.join('\n\n').trim();
