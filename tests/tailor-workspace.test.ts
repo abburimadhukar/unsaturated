@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs';
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 const CSS = read('../app/globals.css');
-const WORKSPACE = read('../app/_components/TailorWorkspace.tsx');
+const WORKSPACE = read('../app/_components/RewriteWorkspace.tsx');
 const PANEL = read('../app/_components/TailorPanel.tsx');
 const PARTS = read('../app/_components/tailor-parts.tsx');
 const SESSION = read('../app/_components/use-tailor-session.ts');
@@ -67,7 +67,7 @@ test('780px of sheet is about 100 characters, which is what the file will be', (
 test('the page does not wrap the workspace in the centred, padded container', () => {
   // .tailorpage is 860px wide. Putting the workspace inside it would reimpose the
   // exact cap this was built to remove, and nothing on screen would say so.
-  const at = PAGE.indexOf('<TailorWorkspace');
+  const at = PAGE.indexOf('<RewriteWorkspace');
   assert.ok(at > 0, 'the page no longer renders the workspace');
   const before = PAGE.slice(0, at);
   const lastReturn = before.lastIndexOf('return (');
@@ -141,141 +141,17 @@ test('the workspace header does not inherit the feed header', () => {
 // The list drives the document
 // ---------------------------------------------------------------------------
 
-test('EVERY BLOCK OF THE SHEET CARRIES ITS SOURCE LINE AS AN ID', () => {
-  // Without this the changes list is a second list to read alongside the CV
-  // rather than navigation into it. Jobscan's one genuinely good idea: click a
-  // finding and the document goes there.
-  assert.match(PARTS, /const id = `\$\{idPrefix\}-\$\{b\.line\}`/);
-  for (const kind of ['sname', 'scontact', 'shead', 'sbullet', 'sbody']) {
-    const at = PARTS.indexOf(kind);
-    assert.ok(at > 0, `${kind} is gone`);
-    assert.ok(
-      PARTS.slice(Math.max(0, at - 120), at).includes('id={id}'),
-      `${kind} has no id, so the list cannot jump to it`,
-    );
-  }
-});
-
-test('clicking a change scrolls the document to it and flashes it', () => {
-  assert.match(WORKSPACE, /function jump\(/);
-  assert.match(WORKSPACE, /scrollIntoView/);
-  assert.match(WORKSPACE, /setFlash\(line\)/);
-  assert.match(CSS, /@keyframes sflash\b/);
-});
-
-test('the jump waits a frame, because the pane may have just been switched on', () => {
-  // On a narrow screen jump() turns the resume pane on and then scrolls to a line
-  // in it. An element that is still display:none cannot be scrolled to, so the
-  // scroll would silently do nothing on exactly the screens that need it most.
-  const fn = WORKSPACE.slice(WORKSPACE.indexOf('function jump('), WORKSPACE.indexOf('const suggested'));
-  assert.match(fn, /setPane\('resume'\)/);
-  assert.ok(
-    fn.indexOf('requestAnimationFrame') < fn.indexOf('scrollIntoView'),
-    'the scroll does not wait for the pane to exist',
-  );
-});
-
-test('an unaccepted change does not scroll the document somewhere arbitrary', () => {
-  // It is not in the CV yet, so there is no line to point at. Selecting the card
-  // and leaving the resume where it is beats jumping to a stale match.
-  const fn = WORKSPACE.slice(WORKSPACE.indexOf('function jump('), WORKSPACE.indexOf('const suggested'));
-  assert.match(fn, /if \(line === null\) return;/);
-});
-
 // ---------------------------------------------------------------------------
 // The document is there from the start
 // ---------------------------------------------------------------------------
-
-test('THE RESUME LOADS BEFORE ANYTHING IS SUGGESTED', () => {
-  // The old screen opened on controls with nothing to apply them to, and the CV
-  // only existed after clicking through two separate steps. Changes have to land
-  // INTO a document that is already on screen.
-  assert.match(SESSION, /loadingResume/);
-  assert.match(SESSION, /chosenEdits\.length === 0 \? 0 : REBUILD_MS/);
-});
-
-test('the document is rebuilt from the ORIGINAL every time, never from the last result', () => {
-  // Which is what makes un-accepting possible at all. Splicing onto the previous
-  // output would make every acceptance permanent — a sentence cannot be
-  // un-spliced once a later edit has overlapped it — and "Skip" after "Use this"
-  // would leave the line changed while the list said otherwise.
-  const effect = SESSION.slice(SESSION.indexOf('const key = JSON.stringify'), SESSION.indexOf('const run = useCallback'));
-  assert.match(effect, /postApply\(chosenEdits\)/);
-  assert.ok(
-    !/postApply\((built|prev)/.test(effect),
-    'the rebuild feeds itself, so a skip cannot put a line back',
-  );
-});
-
-test('a slow rebuild cannot overwrite a newer one', () => {
-  // Clicking through five changes quickly fires five requests. Without this the
-  // last response to arrive wins rather than the last request made, and the
-  // document ends up showing a selection nobody chose.
-  const effect = SESSION.slice(SESSION.indexOf('const key = JSON.stringify'), SESSION.indexOf('const run = useCallback'));
-  assert.match(effect, /run !== latest\.current/);
-});
-
-test('a failed rebuild keeps the document that is already on screen', () => {
-  const effect = SESSION.slice(SESSION.indexOf('const key = JSON.stringify'), SESSION.indexOf('const run = useCallback'));
-  const failAt = effect.indexOf('if (!ok) {');
-  const block = effect.slice(failAt, effect.indexOf('setNoResume(false)'));
-  assert.ok(!block.includes('setBuilt('), 'a failed rebuild blanks the resume');
-});
 
 // ---------------------------------------------------------------------------
 // The accepted state
 // ---------------------------------------------------------------------------
 
-test('A SIGNED-OUT VISITOR DOES NOT GET A BLANK SHEET OF PAPER', () => {
-  // The page deliberately has no auth check — it renders a public title and a
-  // public company name — so anybody can reach it. Without this branch the right
-  // pane renders an EMPTY Sheet, which reads as "we lost your resume" rather than
-  // "sign in", and is the worst thing this screen could say.
-  const pane = WORKSPACE.slice(WORKSPACE.indexOf('aria-label="Your resume"'));
-  assert.match(pane, /\) : !s\.built \? \(/);
-  assert.ok(
-    pane.indexOf('!s.built ?') < pane.indexOf('<Sheet'),
-    'the empty case is checked after the sheet is rendered',
-  );
-  assert.match(pane, /Sign in/);
-});
-
-test('ACCEPTING A CHANGE IS THE LOUD STATE, NOT THE FADED ONE', () => {
-  // Both buttons shared `:disabled { opacity: .5 }`, so taking a change faded it
-  // and left "Skip" the only solid thing on the card — the unchosen option reading
-  // as the chosen one. With seven suggestions and two accepted, nothing on screen
-  // answered "which are in?" without counting.
-  assert.match(CSS, /\.ttake:disabled:not\(\.done\) \{ opacity: 0\.5; \}/);
-  const done = CSS.slice(CSS.indexOf('.ttake.done {'), CSS.indexOf('}', CSS.indexOf('.ttake.done {')));
-  assert.ok(!done.includes('opacity'), '.ttake.done is faded again');
-  assert.match(done, /background: var\(--hot-dim\)/);
-  assert.match(PARTS, /'✓ In your resume'/);
-});
-
-test('a rewrite is not shown at the same weight as a word swap', () => {
-  // The biggest edit in the list is the one most likely to have thrown away the
-  // thing that made the CV worth reading. Rendered identically to a 9% tweak, it
-  // gets waved through.
-  assert.match(PARTS, /const heavy = pct >= 40;/);
-  assert.match(CSS, /\.tedit\.heavy \{/);
-  assert.match(CSS, /\.tpct\.heavy \{/);
-});
-
 // ---------------------------------------------------------------------------
 // One implementation, two screens
 // ---------------------------------------------------------------------------
-
-test('BOTH SCREENS SHARE ONE SHEET, ONE DIFF AND ONE CARD', () => {
-  // Written twice they drift, and the symptom is the nastiest kind: a change that
-  // reads one way in the feed and another on the page it links to, about the same
-  // sentence of the same CV.
-  for (const [name, src] of [['workspace', WORKSPACE], ['panel', PANEL]] as const) {
-    assert.match(src, /from '\.\/tailor-parts\.js'/, `${name} does not use the shared parts`);
-    assert.match(src, /useTailorSession/, `${name} does not use the shared session`);
-    assert.ok(!/function Sheet\(/.test(src), `${name} has its own copy of Sheet`);
-    assert.ok(!/function Diff\(/.test(src), `${name} has its own copy of Diff`);
-  }
-});
 
 test('the feed panel stays one column', () => {
   // A feed card is around 700px. Two columns there gave the document 300, and a

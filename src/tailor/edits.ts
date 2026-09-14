@@ -200,6 +200,24 @@ const COMMON_CAPITALISED = new Set<string>([
   'simplified', 'sourced', 'spearheaded', 'standardised', 'standardized', 'streamlined',
   'supervised', 'supported', 'tested', 'trained', 'transformed', 'upgraded', 'validated',
   'worked', 'wrote',
+  // The plain verbs a sentence opens with, which are not product names.
+  //
+  // Added after a real rewrite dropped "Used Dynatrace to diagnose bottlenecks"
+  // with the note `"used" is nowhere in your resume` — against a resume that said
+  // "using Dynatrace". The token was only a claim because it opened a sentence
+  // and so carried a capital, and the stem fallback cannot reach it because
+  // "used" minus "ed" is two letters, far too short to identify a word.
+  //
+  // Short and irregular verbs are exactly the ones the stemmer cannot help with,
+  // so they are listed. Every word here is ordinary English that asserts nothing
+  // on its own — none of them is a tool, a company or a number.
+  'used', 'using', 'use', 'ran', 'run', 'running', 'set', 'setting', 'took', 'taken',
+  'made', 'making', 'kept', 'keeping', 'gave', 'given', 'put', 'putting', 'got',
+  'helped', 'helping', 'moved', 'moving', 'added', 'adding', 'brought', 'writing',
+  'chose', 'chosen', 'began', 'sent', 'held', 'found', 'knew', 'known', 'saw',
+  'seen', 'told', 'went', 'came', 'left', 'let', 'paid', 'read', 'said', 'showed',
+  'shown', 'spent', 'stood', 'taught', 'thought', 'understood', 'won', 'cut',
+  'building', 'shipping', 'leading', 'owning', 'turning', 'rolling', 'picking',
   // Headings and the furniture around dates
   'experience', 'education', 'skills', 'summary', 'profile', 'projects', 'achievements',
   'certifications', 'references', 'interests', 'present', 'current', 'contact',

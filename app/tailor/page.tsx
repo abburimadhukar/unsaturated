@@ -2,7 +2,7 @@ import Link from 'next/link';
 
 import { dbWrite } from '../../src/db/supabase.js';
 import { canDescribe } from '../../src/tailor/providers.js';
-import { TailorWorkspace } from '../_components/TailorWorkspace.js';
+import { RewriteWorkspace } from '../_components/RewriteWorkspace.js';
 
 /**
  * The full-screen tailoring workspace.
@@ -93,7 +93,7 @@ export default async function TailorPage({
   // in the centred, padded page container is what produced the 350px document in
   // the first place.
   return (
-    <TailorWorkspace
+    <RewriteWorkspace
       jobKey={job.key}
       jobTitle={job.title}
       company={job.company}
