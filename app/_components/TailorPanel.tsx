@@ -4,7 +4,7 @@ import { useState } from 'react';
 
 import { CHIPS } from '../../src/tailor/prompts.js';
 import { changedLines } from '../../src/ui/resume-render.js';
-import { Discarded, EditCard, Gaps, Sheet } from './tailor-parts.js';
+import { Analysis, Discarded, EditCard, Gaps, Sheet } from './tailor-parts.js';
 import { useTailorSession } from './use-tailor-session.js';
 
 /**
@@ -126,6 +126,12 @@ export function TailorPanel({ jobKey, jobTitle, company }: TailorPanelProps) {
 
       {s.res && !s.res.error && (
         <div className="tresult">
+          <Analysis
+            requirements={s.res.requirements ?? []}
+            coverageNote={s.res.coverageNote ?? ''}
+            domain={s.res.domain}
+          />
+
           <div className="tsummary">
             {s.res.accepted ?? 0} verified · {s.res.flagged ?? 0} need your judgement ·{' '}
             {s.res.rejected ?? 0} discarded

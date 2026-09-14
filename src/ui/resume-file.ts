@@ -13,6 +13,7 @@
  */
 
 import { linesFromItems, type TextItem } from './pdf-lines.js';
+import { cleanResumeText } from './resume-clean.js';
 
 export const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
@@ -22,6 +23,10 @@ export interface ExtractResult {
   text: string;
   /** What to tell the person when the text is thin or absent. */
   warning: string | null;
+  /** Converter damage that was repaired, so the person is told rather than surprised. */
+  repairs?: string[];
+  /** Damage that cannot be repaired from the text alone, only reported. */
+  warnings?: string[];
 }
 
 /** Enough words that the skill matcher has something to work with. */
@@ -240,7 +245,14 @@ export async function extractResumeText(file: File): Promise<ExtractResult> {
     };
   }
 
-  const clean = stripControlChars(text);
+  // Converter damage undone before anything else sees the text. A CV that has
+  // been through PDF-to-Word arrives with ligatures where letters belong and the
+  // converter's own object ids pasted in as lines, and every later step — the
+  // skill matcher, the tailoring model, the employer reading the download —
+  // inherits both. See resume-clean.ts.
+  const repaired = cleanResumeText(stripControlChars(text));
+  const clean = repaired.text;
+
   if (clean.length < MIN_USEFUL_CHARS) {
     return {
       text: clean,
@@ -248,7 +260,9 @@ export async function extractResumeText(file: File): Promise<ExtractResult> {
       // retrying fixes — so say what to do instead of what went wrong.
       warning:
         'Almost no text came out of that file — it may be a scan. Your file is kept, but paste the text below for a match score.',
+      repairs: repaired.repairs,
+      warnings: repaired.warnings,
     };
   }
-  return { text: clean, warning: null };
+  return { text: clean, warning: null, repairs: repaired.repairs, warnings: repaired.warnings };
 }

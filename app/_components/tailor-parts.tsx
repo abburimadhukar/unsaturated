@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 
 import { changeRatio, diffWords } from '../../src/tailor/diff.js';
+import type { DomainRead, SkillMatch } from '../../src/tailor/analysis.js';
 import { changedLines, readResume } from '../../src/ui/resume-render.js';
 
 /**
@@ -83,9 +84,12 @@ export function Sheet({
   changed,
   idPrefix = 'tl',
   flash = null,
+  handEdited,
 }: {
   text: string;
   changed: Set<number>;
+  /** Lines the person typed themselves, marked apart from the accepted ones. */
+  handEdited?: Set<number>;
   idPrefix?: string;
   /** The line to pulse, having just been jumped to from the changes list. */
   flash?: number | null;
@@ -96,7 +100,9 @@ export function Sheet({
       {blocks.map((b, i) => {
         if (b.kind === 'blank') return <div className="sgap" key={i} />;
         const mark =
-          (changed.has(b.line) ? ' schanged' : '') + (flash === b.line ? ' sflash' : '');
+          (changed.has(b.line) ? ' schanged' : '') +
+          (handEdited?.has(b.line) ? ' shandedited' : '') +
+          (flash === b.line ? ' sflash' : '');
         const id = `${idPrefix}-${b.line}`;
         if (b.kind === 'name') return <h2 id={id} className={`sname${mark}`} key={i}>{b.text}</h2>;
         if (b.kind === 'contact') return <p id={id} className={`scontact${mark}`} key={i}>{b.text}</p>;
@@ -266,5 +272,92 @@ export function Discarded({ items }: { items: CheckedEdit[] }) {
         </div>
       ))}
     </details>
+  );
+}
+
+/**
+ * The analysis: what the posting asks for, and whether the CV shows it.
+ *
+ * WHY THIS SITS ABOVE THE CHANGES AND NOT BELOW THEM
+ *
+ * Because it answers the question somebody actually has. The first real run of
+ * this feature produced seven line rewrites, of which the most substantial moved
+ * "React.js" two words earlier — and, in the same call, told the candidate that a
+ * defence-autonomy employer wanted WebGL, geospatial work, C++ and experience of
+ * systems that keep working over intermittent radio links, none of which their CV
+ * showed. One of those is worth reading before applying. The other seven are
+ * housekeeping.
+ *
+ * NO SCORE, DELIBERATELY
+ *
+ * "4 of 13 required qualifications evidenced" is countable — the reader can open
+ * the list and check all thirteen. An 84% match is a number produced by a method
+ * nobody publishes, and this whole feature is built on the opposite idea.
+ */
+const STATUS_LABEL: Record<string, string> = {
+  strong: 'shown',
+  partial: 'partly',
+  missing: 'not found',
+  unknown: 'unconfirmed',
+};
+
+export function Analysis({
+  requirements,
+  coverageNote,
+  domain,
+}: {
+  requirements: SkillMatch[];
+  coverageNote: string;
+  domain?: DomainRead;
+}) {
+  if (requirements.length === 0) return null;
+
+  // Worst first. A requirement the candidate does not meet is the most useful
+  // line on the page, and burying it under the ones they do meet is how a person
+  // reads the top three and stops.
+  const order: Record<string, number> = { missing: 0, unknown: 1, partial: 2, strong: 3 };
+  const sorted = [...requirements].sort(
+    (a, b) =>
+      (a.kind === b.kind ? 0 : a.kind === 'required' ? -1 : 1) ||
+      (order[a.status] ?? 9) - (order[b.status] ?? 9),
+  );
+
+  return (
+    <section className="tan">
+      {domain?.name && (
+        <p className="tandomain">
+          <span className="tanlabel">They build</span> {domain.name}
+        </p>
+      )}
+      <p className="tancover">{coverageNote}</p>
+
+      <div className="tanlist">
+        {sorted.map((r, i) => (
+          <details key={i} className={`tanrow ${r.status}`}>
+            <summary>
+              <span className={`tanstatus ${r.status}`}>{STATUS_LABEL[r.status] ?? r.status}</span>
+              <span className="tanname">{r.name}</span>
+              {r.kind === 'preferred' && <span className="tankind">preferred</span>}
+            </summary>
+            <div className="tanbody">
+              {r.jdEvidence && (
+                <p className="tanquote">
+                  <span className="tanlabel">They ask</span> “{r.jdEvidence}”
+                </p>
+              )}
+              {r.resumeEvidence && (
+                <p className="tanquote">
+                  <span className="tanlabel">You wrote</span> “{r.resumeEvidence}”
+                </p>
+              )}
+              {/* Present only when the verifier disagreed with the model, which
+                  is exactly when the reader most needs to know. */}
+              {r.note && <p className="tannote">⚠ {r.note}</p>}
+              {r.action && <p className="tanaction">{r.action}</p>}
+            </div>
+          </details>
+        ))}
+      </div>
+    </section>
   );
 }

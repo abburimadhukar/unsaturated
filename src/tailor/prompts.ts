@@ -58,11 +58,58 @@ export const TAILOR_RULES = [
   '   leaving the line alone.',
   '6. If a posting requires something the resume does not support, do not write around it.',
   '   Put it in "gaps" so the candidate can decide.',
+  '7. NEVER DELETE EVIDENCE OF WHAT THE EMPLOYER ACTUALLY DOES. Read the posting for the',
+  "   employer's domain — what they build, the industry they build it in — and treat resume",
+  '   content in that domain as the most valuable thing on the page. Shortening a line must',
+  '   never remove a technology, industry or capability central to that domain, even when the',
+  '   job title does not mention it. A defence-autonomy company hiring a "Full Stack Engineer"',
+  '   still cares that the candidate has shipped machine learning.',
+  '8. Do not move a figure, tool or achievement from one employer to another. Each line stays',
+  '   the claim it was about the job it was about.',
   '',
   'Your proposals are checked by a program that compares every number and technical term',
   'against the resume and discards any edit it cannot trace. Inventing wastes the attempt.',
   '',
-  'Prefer few strong edits to many weak ones. An unchanged line is a valid outcome.',
+  'Prefer few strong edits to many weak ones. An unchanged line is a valid outcome. Do not',
+  'propose an edit that only reorders words without changing what the line communicates —',
+  'a rewrite nobody would notice is worse than no rewrite, because it spends the reader\'s',
+  'attention for nothing.',
+].join('\n');
+
+/**
+ * The part of the request that is not optional.
+ *
+ * The chips decide what REWRITING happens. This decides nothing — it always runs,
+ * because the first real run against a real posting showed the analysis is worth
+ * more than the rewrites by a wide margin. Leaving it behind a chip somebody has
+ * to discover meant the useful half of the feature was off by default.
+ */
+export const ALWAYS_ANALYSE = [
+  '=== ALWAYS DO THIS, WHATEVER ELSE IS ASKED ===',
+  '',
+  "A. Name the employer's DOMAIN in a few words — what they build and the industry they",
+  '   build it in — and list the terms in the posting that told you. This governs rule 7.',
+  '',
+  'B. List every skill, technology and qualification this posting asks for, as "requirements".',
+  '   For each one:',
+  '     - name        what is being asked for',
+  '     - kind        "required" if the posting treats it as a must, otherwise "preferred"',
+  '     - jdEvidence  a short quote FROM THE POSTING showing it is asked for',
+  '     - status      one of:',
+  '                     strong   demonstrated inside an experience or project line',
+  '                     partial  named in a skills, education or summary line, but not',
+  '                              demonstrated in any experience line',
+  '                     missing  not anywhere in the resume',
+  '                     unknown  the wording is too ambiguous to judge',
+  '     - resumeEvidence  for strong and partial ONLY: a quote copied EXACTLY from the',
+  '                       resume. For missing and unknown leave it empty. A quote that is',
+  '                       not in the resume is discarded and the requirement is downgraded,',
+  '                       so a remembered or tidied quote loses you the point you were making.',
+  '     - action      one sentence on what the candidate could do about it',
+  '',
+  '   Be complete and be honest. A requirement the candidate does not meet is the most useful',
+  '   thing on this list — do not soften it, do not omit it, and never mark something strong',
+  '   because the posting wants it.',
 ].join('\n');
 
 /** One preset instruction, as the UI shows it and as the model receives it. */
@@ -234,12 +281,17 @@ export function buildMessages(input: PromptInput): Messages {
       `Title: ${input.jobTitle}\n\n${input.jobDescription}`,
     ),
     '',
-    '=== WHAT TO DO ===',
+    ALWAYS_ANALYSE,
+    '',
+    '=== THEN, THE REWRITING ===',
     asks.length > 0 ? asks.join('\n\n') : 'Propose the edits that best fit this posting.',
     '',
     'Return edits whose "original" is copied exactly from the resume above, and put anything the',
     'posting needs that the resume cannot support in "gaps". Every number and every technical name',
     'in a replacement must already appear in the resume. This is checked.',
+    '',
+    'Propose FEWER edits rather than more. Only propose one where the line genuinely communicates',
+    'something different afterwards. Zero edits is a good answer for a resume that already fits.',
   ].join('\n');
 
   return { system: TAILOR_RULES, user, used };

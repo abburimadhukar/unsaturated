@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 import { CHIPS } from '../../src/tailor/prompts.js';
 import { changedLines } from '../../src/ui/resume-render.js';
-import { Discarded, EditCard, Gaps, Sheet, lineOf } from './tailor-parts.js';
+import { Analysis, Discarded, EditCard, Gaps, Sheet, lineOf } from './tailor-parts.js';
 import { useTailorSession } from './use-tailor-session.js';
 
 /**
@@ -230,7 +230,18 @@ export function TailorWorkspace({
 
           {s.res && !s.res.error && (
             <>
+              {/* The analysis first. It answers "should I apply at all", which is
+                  the question somebody has in front of a posting — the rewrites
+                  answer "how should this sentence read", which is the smaller
+                  one. Ordered accordingly. */}
+              <Analysis
+                requirements={s.res.requirements ?? []}
+                coverageNote={s.res.coverageNote ?? ''}
+                domain={s.res.domain}
+              />
+
               <div className="tsummary">
+                <strong className="tsuggested">Suggested rewrites</strong>{' '}
                 {s.res.accepted ?? 0} verified · {s.res.flagged ?? 0} need your judgement ·{' '}
                 {s.res.rejected ?? 0} discarded
               </div>
@@ -314,6 +325,20 @@ export function TailorWorkspace({
                     : `${taken} change${taken === 1 ? '' : 's'} in`}
                   {s.building && <span className="twbusy"> · updating…</span>}
                 </span>
+                {s.handEdited.size > 0 && (
+                  <span className="twedited">
+                    · {s.handEdited.size} line{s.handEdited.size === 1 ? '' : 's'} you wrote
+                    <button type="button" className="tlink" onClick={s.clearHandEdits}>
+                      undo mine
+                    </button>
+                  </span>
+                )}
+                {s.handEditsLost > 0 && (
+                  <span className="twerr">
+                    · {s.handEditsLost} of your edits could not be put back — a suggestion
+                    replaced the line
+                  </span>
+                )}
                 <span className="tviews">
                   <button
                     type="button"
@@ -334,7 +359,13 @@ export function TailorWorkspace({
 
               <div className="twsheet">
                 {view === 'sheet' ? (
-                  <Sheet text={text} changed={changed} idPrefix="tw" flash={flash} />
+                  <Sheet
+                    text={text}
+                    changed={changed}
+                    handEdited={s.handEdited}
+                    idPrefix="tw"
+                    flash={flash}
+                  />
                 ) : (
                   /* Editable on purpose. The most effective thing a person can do
                      to a tailored CV is rewrite one phrase per bullet in their own

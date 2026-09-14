@@ -296,6 +296,92 @@ export function containsClaim(source: string, token: string): boolean {
       if (new RegExp(`(^|[^\\w])${esc}($|[^\\w])`).test(hay)) return true;
     }
   }
+
+  return sameWordDifferentEnding(hay, needle);
+}
+
+/**
+ * How short a stem may get before it stops identifying a word.
+ *
+ * Four characters. "Ran"/"run" is not reachable this way and should not be —
+ * irregular verbs are a different problem — but "deploy", "optimis", "diagnos"
+ * all clear it, and nothing that short collides by accident with a tool name.
+ */
+const MIN_STEM = 4;
+
+/** Shortest token that gets the inflection fallback at all. */
+const MIN_INFLECTED = 5;
+
+/**
+ * The endings English adds to a verb that a resume writer swaps freely.
+ *
+ * Longest first, so "diagnosing" loses "ing" rather than "g", and "watches"
+ * loses "es" rather than "s".
+ */
+const ENDINGS = ['ing', 'ed', 'es', 's'];
+
+/** A word with its inflectional ending removed, or the word if it has none. */
+function stem(word: string): string {
+  for (const ending of ENDINGS) {
+    if (word.length - ending.length >= MIN_STEM && word.endsWith(ending)) {
+      return word.slice(0, -ending.length);
+    }
+  }
+  return word;
+}
+
+/**
+ * Whether the source says the same word with a different ending.
+ *
+ * THE BUG THIS FIXES, FROM A REAL RUN
+ *
+ * The resume said "diagnosing bottlenecks". The model rewrote the bullet to start
+ * "Diagnosed bottlenecks…", which is the same claim about the same work. The
+ * verifier reported `this adds "diagnosed", which is not in your resume` and made
+ * the person adjudicate a rewording — exactly the noise that teaches somebody to
+ * click through warnings without reading them, which is how a real fabrication
+ * gets accepted later.
+ *
+ * The token only became a claim at all because it had a capital, and it only had
+ * a capital because it opened a sentence. Adding "diagnosed" to the stoplist
+ * would fix that one word and leave the next hundred.
+ *
+ * DELIBERATELY NARROW
+ *
+ * Letters only, five characters or more. A token containing a digit is never
+ * loosened — numbers are the dangerous half and they stay exact — and neither is
+ * an acronym, a version or anything carrying a dot, slash or plus. So "40%",
+ * "2019", "AWS", "CI/CD" and "C++" are all untouched by this, and what it admits
+ * is the case it was written for: one English word, two endings.
+ *
+ * THE LETTERS-ONLY GUARD IS BELT AND BRACES, AND SAYING SO IS THE POINT
+ *
+ * Mutation testing found no test that distinguishes it: replacing the whole guard
+ * with a bare length check broke nothing. That is not a gap in the tests. The
+ * source is tokenised below with /[a-z]{3,}/g, which is letters only, so a token
+ * carrying a digit or a symbol has no candidate to match against however
+ * permissive this line is — probed with "log4js", "deploy3d", "ci/cds", "node.js"
+ * and "s3s", all of which return false either way.
+ *
+ * So the guard is redundant TODAY, and it is kept anyway because the redundancy
+ * is a coincidence of two separate decisions. Widen the source tokeniser to admit
+ * digits — an entirely reasonable thing for somebody to do later — and this line
+ * is the only thing standing between a number and an inflection rule. Recorded
+ * here rather than left for the next reader to mistake for a live check, because
+ * a safeguard nobody can tell is dead is worse than no safeguard at all.
+ */
+export function sameWordDifferentEnding(source: string, token: string): boolean {
+  if (!/^[a-z]{5,}$/.test(token) || token.length < MIN_INFLECTED) return false;
+  const wanted = stem(token);
+  if (wanted === token) {
+    // No ending to strip: an exact match was already tried and failed, and
+    // matching a bare stem against longer words would let "kafka" pass on
+    // "kafkaesque". Only an inflected token gets the fallback.
+    return false;
+  }
+  for (const word of source.match(/[a-z]{3,}/g) ?? []) {
+    if (stem(word) === wanted) return true;
+  }
   return false;
 }
 

@@ -1,3 +1,12 @@
+import {
+  coverage,
+  describeCoverage,
+  verifySkillMatches,
+  NO_DOMAIN,
+  type Coverage,
+  type DomainRead,
+  type SkillMatch,
+} from './analysis.js';
 import { verifyEdits, type CheckSummary, type CheckedEdit, type Edit } from './edits.js';
 import { buildMessages, type Chip } from './prompts.js';
 
@@ -62,6 +71,12 @@ export const MAX_EDITS = 12;
 export const MAX_GAPS = 8;
 /** Longest single gap note kept, in characters. */
 export const MAX_GAP_CHARS = 300;
+/** Most requirements analysed. A posting asking for more than this is listing adjectives. */
+export const MAX_REQUIREMENTS = 24;
+/** Longest requirement name or action kept. */
+export const MAX_REQ_CHARS = 200;
+/** Longest evidence quote kept, from either document. */
+export const MAX_QUOTE_CHARS = 400;
 
 export interface TailorInput {
   resumeText: string;
@@ -86,6 +101,13 @@ export interface TailorResult {
   edits: CheckedEdit[];
   /** What the posting wants that the resume does not show. Observations, not claims. */
   gaps: string[];
+  /** The analysis: every requirement the posting makes, and whether the CV shows it. */
+  requirements: SkillMatch[];
+  coverage: Coverage;
+  /** The one-line summary, counted from `requirements` rather than written by the model. */
+  coverageNote: string;
+  /** What the employer does, which governs what must not be trimmed away. */
+  domain: DomainRead;
   accepted: number;
   flagged: number;
   rejected: number;
@@ -129,8 +151,36 @@ const RESPONSE_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['edits', 'gaps'],
+    required: ['domain', 'domainSignals', 'requirements', 'edits', 'gaps'],
     properties: {
+      domain: {
+        type: 'string',
+        description: "what the employer builds and the industry, in a few words",
+      },
+      domainSignals: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'the terms in the posting that said so',
+      },
+      requirements: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'kind', 'status', 'jdEvidence', 'resumeEvidence', 'action'],
+          properties: {
+            name: { type: 'string' },
+            kind: { type: 'string', enum: ['required', 'preferred'] },
+            status: { type: 'string', enum: ['strong', 'partial', 'missing', 'unknown'] },
+            jdEvidence: { type: 'string', description: 'short quote from the posting' },
+            resumeEvidence: {
+              type: 'string',
+              description: 'quote copied EXACTLY from the resume; empty unless strong or partial',
+            },
+            action: { type: 'string' },
+          },
+        },
+      },
       edits: {
         type: 'array',
         items: {
@@ -197,8 +247,19 @@ function str(value: unknown): string {
  * decides an edit is acceptable — that is edits.ts's job, and keeping the two
  * apart is what stops a parsing convenience becoming a hole in the check.
  */
-export function parseAnswer(body: unknown): { edits: Edit[]; gaps: string[] } {
-  const root = (body ?? {}) as { edits?: unknown; gaps?: unknown };
+export function parseAnswer(body: unknown): {
+  edits: Edit[];
+  gaps: string[];
+  requirements: SkillMatch[];
+  domain: DomainRead;
+} {
+  const root = (body ?? {}) as {
+    edits?: unknown;
+    gaps?: unknown;
+    requirements?: unknown;
+    domain?: unknown;
+    domainSignals?: unknown;
+  };
 
   const rawEdits = Array.isArray(root.edits) ? root.edits : [];
   const edits: Edit[] = rawEdits.slice(0, MAX_EDITS).map((e) => {
@@ -218,12 +279,40 @@ export function parseAnswer(body: unknown): { edits: Edit[]; gaps: string[] } {
     .filter((g) => g.length > 0)
     .slice(0, MAX_GAPS);
 
-  return { edits, gaps };
+  // The analysis. Unknown is the safe landing for anything the model wrote that
+  // is not one of the four statuses — it says "the posting wants this and we
+  // could not confirm you have it", which is true of a value we cannot read.
+  const rawReqs = Array.isArray(root.requirements) ? root.requirements : [];
+  const requirements: SkillMatch[] = rawReqs.slice(0, MAX_REQUIREMENTS).map((r) => {
+    const row = (r ?? {}) as Record<string, unknown>;
+    const status = str(row.status).toLowerCase();
+    const kind = str(row.kind).toLowerCase();
+    return {
+      name: str(row.name).replace(/\s+/g, ' ').trim().slice(0, MAX_REQ_CHARS),
+      kind: (kind === 'preferred' ? 'preferred' : 'required') as SkillMatch['kind'],
+      status: (['strong', 'partial', 'missing', 'unknown'].includes(status)
+        ? status
+        : 'unknown') as SkillMatch['status'],
+      jdEvidence: str(row.jdEvidence).replace(/\s+/g, ' ').trim().slice(0, MAX_QUOTE_CHARS),
+      resumeEvidence: str(row.resumeEvidence).replace(/\s+/g, ' ').trim().slice(0, MAX_QUOTE_CHARS),
+      action: str(row.action).replace(/\s+/g, ' ').trim().slice(0, MAX_REQ_CHARS),
+    };
+  }).filter((r) => r.name.length > 0);
+
+  const signals = Array.isArray(root.domainSignals) ? root.domainSignals : [];
+  const domain: DomainRead = {
+    name: str(root.domain).replace(/\s+/g, ' ').trim().slice(0, MAX_REQ_CHARS),
+    signals: signals.map((x) => str(x).trim()).filter(Boolean).slice(0, 8),
+  };
+
+  return { edits, gaps, requirements, domain };
 }
 
 function idle(model: string, note: string, needsAttention = false): TailorResult {
+  const cover = coverage([]);
   return {
-    edits: [], gaps: [], accepted: 0, flagged: 0, rejected: 0, used: [],
+    edits: [], gaps: [], requirements: [], coverage: cover, coverageNote: '',
+    domain: NO_DOMAIN, accepted: 0, flagged: 0, rejected: 0, used: [],
     model, note, needsAttention,
   };
 }
@@ -329,9 +418,20 @@ export async function tailor(input: TailorInput, opts: TailorOptions = {}): Prom
     const parsed = parseAnswer(extractJson(content));
     const summary: CheckSummary = verifyEdits(parsed.edits, input.resumeText);
 
+    // Every claimed piece of evidence is looked for in the resume. A model that
+    // says "strong — your resume shows Kubernetes at scale" about a resume that
+    // says nothing of the sort is worse than no analysis at all, because it reads
+    // as reassurance. Unconfirmable claims are downgraded, never shown as met.
+    const requirements = verifySkillMatches(parsed.requirements, input.resumeText);
+    const cover = coverage(requirements);
+
     return {
       edits: summary.checked,
       gaps: parsed.gaps,
+      requirements,
+      coverage: cover,
+      coverageNote: describeCoverage(cover),
+      domain: parsed.domain,
       accepted: summary.accepted,
       flagged: summary.flagged,
       rejected: summary.rejected,

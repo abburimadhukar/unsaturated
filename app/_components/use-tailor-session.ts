@@ -2,8 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import {
+  diffHandEdits,
+  handEditedLines,
+  replayHandEdits,
+  type HandEdit,
+} from '../../src/tailor/hand-edits.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
 import { readResume } from '../../src/ui/resume-render.js';
+import type { Coverage, DomainRead, SkillMatch } from '../../src/tailor/analysis.js';
 import type { CheckedEdit } from './tailor-parts.js';
 
 /**
@@ -22,6 +29,11 @@ import type { CheckedEdit } from './tailor-parts.js';
 export interface TailorResponse {
   edits?: CheckedEdit[];
   gaps?: string[];
+  /** The analysis. Checked server-side before it ever reaches here. */
+  requirements?: SkillMatch[];
+  coverage?: Coverage;
+  coverageNote?: string;
+  domain?: DomainRead;
   accepted?: number;
   flagged?: number;
   rejected?: number;
@@ -84,6 +96,11 @@ export interface TailorSession {
   /** Set when there is no CV on the account at all. */
   noResume: boolean;
   editText: (s: string) => void;
+  /** Lines the person typed themselves, so the sheet can mark them. */
+  handEdited: Set<number>;
+  /** How many of their own edits could not be put back, and why. */
+  handEditsLost: number;
+  clearHandEdits: () => void;
 
   saving: boolean;
   copied: boolean;
@@ -122,6 +139,16 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
   const [noResume, setNoResume] = useState(false);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  /**
+   * What the person typed, as operations rather than as a document.
+   *
+   * The CV is rebuilt from the stored original on every accept and skip, so a
+   * hand-edited document is overwritten by the next click. Holding the edits as
+   * operations lets them be replayed on top of each rebuild — see
+   * src/tailor/hand-edits.ts.
+   */
+  const [hand, setHand] = useState<HandEdit[]>([]);
+  const [handLost, setHandLost] = useState(0);
 
   const toggleChip = (id: string) =>
     setChosen((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
@@ -238,12 +265,43 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
   const take = (i: number) => setDecided((d) => ({ ...d, [i]: 'taken' }));
   const skip = (i: number) => setDecided((d) => ({ ...d, [i]: 'skipped' }));
 
-  /** Hand editing. The rebuild is keyed on the selection, so this survives it. */
-  const editText = (s: string) => setBuilt((b) => (b ? { ...b, text: s } : b));
+  /**
+   * Hand editing.
+   *
+   * The new text is not stored as the document. It is DIFFED against the one on
+   * screen, and the difference is kept as operations anchored to line content —
+   * so when the next accept rebuilds the document from scratch, the person's
+   * sentences go back where they belong instead of disappearing.
+   */
+  const editText = (next: string) => {
+    if (!built) return;
+    setHand(diffHandEdits(built.text, next));
+  };
+
+  const clearHandEdits = () => {
+    setHand([]);
+    setHandLost(0);
+  };
+
+  // The document as shown and as downloaded: the verified rebuild, with the
+  // person's own words on top. One value, so the screen and every export agree.
+  const replayed = built ? replayHandEdits(built.text, hand) : null;
+  const shown: Built | null =
+    built && replayed ? { ...built, text: replayed.text } : built;
+  const handEdited = replayed ? handEditedLines(replayed.text, hand) : new Set<number>();
+
+  // Reported rather than forced somewhere approximate: an edit whose line a
+  // suggestion has since replaced has nowhere correct to go. In an effect and not
+  // in the render body, because setting state while rendering is how a render
+  // loop starts.
+  const lostNow = replayed ? replayed.lost.length : 0;
+  useEffect(() => {
+    setHandLost(lostNow);
+  }, [lostNow]);
 
   const copy = () => {
-    if (!built) return;
-    void navigator.clipboard?.writeText(built.text);
+    if (!shown) return;
+    void navigator.clipboard?.writeText(shown.text);
     setCopied(true);
   };
 
@@ -255,10 +313,10 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
    * src/ui/docx.ts, which is the mirror of the unzipper the upload path uses.
    */
   const saveDocx = async () => {
-    if (!built) return;
+    if (!shown) return;
     setSaving(true);
     try {
-      const blob = await docxBlob(built.text);
+      const blob = await docxBlob(shown.text);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -282,6 +340,15 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
   const saveOriginalEdited = async () => {
     setSaving(true);
     setBuildError('');
+    if (hand.length > 0) {
+      // Said before the file downloads, not after. This export edits the person's
+      // OWN .docx on the server, which re-verifies every edit it applies — and
+      // their own sentences are not the model's claims to verify, so they cannot
+      // travel that path. The clean .docx and the PDF do contain them.
+      setBuildError(
+        `Your ${hand.length} hand-written change${hand.length === 1 ? '' : 's'} are not in this file — it keeps your original layout, so only the accepted suggestions go in. "Clean .docx" and "Save as PDF" contain everything you see on screen.`,
+      );
+    }
     try {
       const r = await fetch('/api/tailor/docx', {
         method: 'POST',
@@ -332,7 +399,7 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
    * reliably takes more CSS than it takes to render the one thing being printed.
    */
   const printable = () => {
-    if (!built) return;
+    if (!shown) return;
     const w = window.open('', '_blank', 'width=820,height=1000');
     if (!w) {
       setBuildError('your browser blocked the print window — allow pop-ups, or download the .docx');
@@ -347,7 +414,7 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
     // The SAME block reading the preview uses, so what prints is what was on
     // screen. Printing plain pre-wrapped text while the preview showed headings
     // and bullets would make the preview a lie about the PDF.
-    const body = readResume(built.text)
+    const body = readResume(shown.text)
       .map((b) => {
         if (b.kind === 'blank') return '<div class="gap"></div>';
         if (b.kind === 'name') return `<h1>${esc(b.text)}</h1>`;
@@ -398,13 +465,16 @@ export function useTailorSession(jobKey: string, jobTitle: string): TailorSessio
     skip,
     takenEdits,
     undecided,
-    built,
+    built: shown,
     building,
     buildError,
     setBuildError,
     loadingResume,
     noResume,
     editText,
+    handEdited,
+    handEditsLost: handLost,
+    clearHandEdits,
     saving,
     copied,
     copy,

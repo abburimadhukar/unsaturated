@@ -189,6 +189,13 @@ export async function POST(request: Request) {
     // Verified, always — tailor() exposes no path to an unchecked edit.
     edits: result.edits,
     gaps: result.gaps,
+    // The analysis, which is the half of this feature worth reading. Every
+    // evidenced claim in it has already been checked against the stored CV by
+    // verifySkillMatches — see src/tailor/analysis.ts.
+    requirements: result.requirements,
+    coverage: result.coverage,
+    coverageNote: result.coverageNote,
+    domain: result.domain,
     accepted: result.accepted,
     flagged: result.flagged,
     rejected: result.rejected,

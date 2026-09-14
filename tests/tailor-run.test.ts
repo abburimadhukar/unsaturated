@@ -300,9 +300,19 @@ test('gaps are tidied and empty ones dropped', () => {
 });
 
 test('missing arrays are treated as empty rather than crashing', () => {
-  assert.deepEqual(parseAnswer({}), { edits: [], gaps: [] });
-  assert.deepEqual(parseAnswer(null), { edits: [], gaps: [] });
-  assert.deepEqual(parseAnswer({ edits: 'nope', gaps: 7 }), { edits: [], gaps: [] });
+  // The analysis joined this shape, so an empty answer now carries an empty
+  // requirements list and an unread domain. Asserted field by field rather than
+  // with deepEqual against a frozen literal: the previous version broke the
+  // moment a field was added, which said nothing about whether the parsing was
+  // right.
+  for (const body of [{}, null, { edits: 'nope', gaps: 7, requirements: 'no', domain: 9 }]) {
+    const parsed = parseAnswer(body);
+    assert.deepEqual(parsed.edits, []);
+    assert.deepEqual(parsed.gaps, []);
+    assert.deepEqual(parsed.requirements, []);
+    assert.equal(parsed.domain.name, '');
+    assert.deepEqual(parsed.domain.signals, []);
+  }
 });
 
 // ---------------------------------------------------------------------------

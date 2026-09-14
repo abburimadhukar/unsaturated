@@ -1295,6 +1295,117 @@ a.stat:hover b { color: var(--accent); }
 /* end theme-exempt */
 
 /* ---------------------------------------------------------------------------
+   The analysis: what the posting asks for, and whether the CV shows it
+   ---------------------------------------------------------------------------
+   Above the rewrites, because it answers the larger question. The first real run
+   of this feature produced seven line edits — the most substantial of which moved
+   "React.js" two words earlier — and, in the same call, told the candidate that a
+   defence-autonomy employer wanted WebGL, geospatial work, C++ and systems that
+   survive intermittent radio links, none of which their CV showed. One of those is
+   worth reading before applying.
+
+   No score anywhere. "4 of 13 required evidenced" can be checked by opening the
+   list; a percentage cannot be checked at all. */
+
+.tan {
+  margin-bottom: 14px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.tandomain { margin: 0 0 5px; font-size: 12.5px; color: var(--text); line-height: 1.5; }
+.tanlabel {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-right: 5px;
+}
+.tancover {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tanlist { display: flex; flex-direction: column; gap: 3px; }
+
+.tanrow {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+}
+.tanrow.strong { border-left-color: var(--hot); }
+.tanrow.partial { border-left-color: var(--warm); }
+.tanrow.missing { border-left-color: var(--danger); }
+.tanrow.unknown { border-left-color: var(--text-faint); }
+
+.tanrow summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+.tanrow summary::-webkit-details-marker { display: none; }
+.tanrow[open] summary { border-bottom: 1px solid var(--line-soft); }
+
+.tanstatus {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  min-width: 74px;
+  text-align: center;
+}
+.tanstatus.strong { background: var(--hot-dim); color: var(--hot); border: 1px solid var(--hot-line); }
+.tanstatus.partial { background: var(--warm-dim); color: var(--warm); border: 1px solid var(--warm-line); }
+.tanstatus.missing { background: var(--danger-dim); color: var(--danger); border: 1px solid var(--danger-line); }
+.tanstatus.unknown { background: var(--surface-2); color: var(--text-faint); border: 1px solid var(--line); }
+
+.tanname { font-size: 12.5px; color: var(--text); line-height: 1.4; }
+.tankind {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tanbody { padding: 9px 10px 10px; }
+.tanquote {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.tannote {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--warm);
+  background: var(--warm-dim);
+  border: 1px solid var(--warm-line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.tanaction { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--text); }
+
+/* The rewrites are a section now rather than the whole screen, so they say so. */
+.tsuggested { color: var(--text); font-size: 12px; margin-right: 4px; }
+
+/* A line the person typed themselves, which survives every rebuild. See
+   use-tailor-session.ts — the document is rebuilt from the stored original on
+   every accept, and a manual edit that was not replayed simply vanished. */
+.shandedited { box-shadow: inset 2px 0 0 var(--ai); }
+.twedited { color: var(--ai); font-size: 11.5px; }
+
+/* ---------------------------------------------------------------------------
    The full-screen tailoring workspace
    ---------------------------------------------------------------------------
    THE DOCUMENT IS SIZED FIRST AND THE PAGE IS SIZED AROUND IT.
