@@ -231,7 +231,7 @@ test('A POSTING THAT HAS LEFT THE BOARD IS REPORTED AS PROBABLY CLOSED', () => {
 // Failure, without an exception
 // ---------------------------------------------------------------------------
 
-test('NOTHING HERE THROWS, WHATEVER THE VENDOR DOES', () => {
+test('NOTHING HERE THROWS, WHATEVER THE VENDOR DOES', async () => {
   // A person is waiting on this behind a web request, and a vendor being slow,
   // broken or hostile is an ordinary Tuesday across 27,000 boards.
   const cases: (() => typeof fetch)[] = [
@@ -240,7 +240,7 @@ test('NOTHING HERE THROWS, WHATEVER THE VENDOR DOES', () => {
     () => (async () => new Response('not json', { status: 200 })) as unknown as typeof fetch,
     () => (async () => new Response('', { status: 404 })) as unknown as typeof fetch,
   ];
-  return Promise.all(
+  await Promise.all(
     cases.map((make) =>
       describeJob({ key: 'greenhouse:acme:222', title: 'T' }, { fetchImpl: make() }).then((res) => {
         assert.equal(res.ok, false);

@@ -57,8 +57,11 @@ test('A GENERATED .docx IS READABLE BY THE APP OWN READER', async () => {
   const bytes = await docxBytes(RESUME);
   const read = await extractResumeText(asFile(bytes));
 
-  assert.equal(read.error, undefined, `the reader refused it: ${read.error}`);
-  const text = read.text ?? '';
+  // The generated document is a full resume, so the reader should have no
+  // complaint at all about it. (The assertion used to read `read.error`, which
+  // ExtractResult has never had — undefined against undefined.)
+  assert.equal(read.warning, null, `the reader refused it: ${read.warning}`);
+  const text = read.text;
 
   // Every line of the original has to come back. Not byte-identical — the reader
   // normalises whitespace — but nothing may be missing.
@@ -106,7 +109,7 @@ test('an empty resume still produces a file the reader can open', async () => {
   const read = await extractResumeText(asFile(bytes));
   // Too short to be a useful resume, so the reader may object on length — what it
   // must not do is fail to UNZIP it.
-  assert.ok(!/zip|corrupt|not readable/i.test(read.error ?? ''), read.error);
+  assert.ok(!/zip|corrupt|not readable/i.test(read.warning ?? ''), read.warning ?? undefined);
 });
 
 // ---------------------------------------------------------------------------

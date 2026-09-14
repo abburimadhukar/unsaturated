@@ -21,7 +21,7 @@ import type { NormalizedJob } from '../src/ats/types.js';
  * isolation.
  */
 function classify(title: string, descriptionText = ''): { family: string | null; specialization: string | null } {
-  const job: NormalizedJob = { externalId: 't', title, descriptionText };
+  const job: NormalizedJob = { externalId: 't', title, descriptionText, raw: {} };
   const role = classifyRole(job);
   if (!role.family) return { family: null, specialization: null };
   const spec = classifySpecialization(role.family, title, descriptionText);

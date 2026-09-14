@@ -67,7 +67,7 @@ test('no family colour collides with a colour that means something else', () => 
   const gap = (a: string, b: string) => {
     const [x, y, z] = rgb(a);
     const [p, q, r] = rgb(b);
-    return Math.hypot(x - p, y - q, z - r);
+    return Math.hypot(x! - p!, y! - q!, z! - r!);
   };
   const meaningful = ['--hot', '--danger', '--ai', '--adjacent', '--accent'];
   // Both themes. The light palette is where this exact mistake was made before.
@@ -103,7 +103,7 @@ test('the families are distinguishable from each other', () => {
         assert.ok(a && b, `${sel}: missing ${names[i]} or ${names[j]}`);
         const [x, y, z] = rgb(a);
         const [p, q, r] = rgb(b);
-        const d = Math.hypot(x - p, y - q, z - r);
+        const d = Math.hypot(x! - p!, y! - q!, z! - r!);
         assert.ok(d > 60, `${sel} ${names[i]} and ${names[j]} are only ${d.toFixed(0)} apart`);
       }
     }

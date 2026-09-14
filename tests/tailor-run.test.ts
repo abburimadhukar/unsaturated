@@ -383,11 +383,11 @@ test('a transient failure that then succeeds returns the answer', () => {
   });
 });
 
-test('NOTHING HERE THROWS, WHATEVER THE RESPONSE', () => {
+test('NOTHING HERE THROWS, WHATEVER THE RESPONSE', async () => {
   // A person is waiting on this behind a web request. Every one of these used to
   // be a plausible way to turn a tailoring attempt into a 500.
   const bodies = ['', 'null', '[]', '{"choices":[]}', '{"choices":[{}]}', 'not json at all'];
-  return Promise.all(
+  await Promise.all(
     bodies.map((b) => {
       const fetchImpl = (async () => new Response(b, { status: 200 })) as unknown as typeof fetch;
       return tailor(INPUT, { ...creds, fetchImpl, attempts: 1 }).then((res) => {

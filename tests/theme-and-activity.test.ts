@@ -36,7 +36,7 @@ test('both themes define every colour token', () => {
   const light = names(block(":root[data-theme='light']"));
 
   // --radius* are shape, not colour, and are inherited from the dark block.
-  const colours = [...dark].filter((n) => !n.startsWith('--radius'));
+  const colours = [...dark].filter((n) => !n!.startsWith('--radius'));
   const missing = colours.filter((n) => !light.has(n));
   assert.deepEqual(missing, [], `light theme is missing: ${missing.join(', ')}`);
 });
@@ -107,7 +107,7 @@ test('the accent and the danger colour are not near-neighbours', () => {
     const rgb = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
     const [ar, ag, ab] = rgb(a);
     const [dr, dg, db] = rgb(d);
-    const distance = Math.hypot(ar - dr, ag - dg, ab - db);
+    const distance = Math.hypot(ar! - dr!, ag! - dg!, ab! - db!);
     assert.ok(distance > 60, `${block}: accent ${a} and danger ${d} are only ${distance.toFixed(0)} apart`);
   }
 });

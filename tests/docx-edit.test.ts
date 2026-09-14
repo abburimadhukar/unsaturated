@@ -45,8 +45,19 @@ const textOf = async (bytes: Uint8Array): Promise<string> => {
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
   const read = await extractResumeText(file);
-  assert.equal(read.error, undefined, `the reader refused the edited file: ${read.error}`);
-  return read.text ?? '';
+  // What matters is that the ZIP was readable and the text came back. These
+  // fixtures are three paragraphs long, so the reader also says "almost no text
+  // came out" — which is true of a three-paragraph file and not a failure.
+  //
+  // The assertion used to read `read.error`, a property ExtractResult has never
+  // had, so it compared undefined to undefined and passed for that reason.
+  // Typechecking the test directory is what found it.
+  assert.ok(
+    !/zip|corrupt|not readable|could not read/i.test(read.warning ?? ''),
+    `the reader refused the edited file: ${read.warning}`,
+  );
+  assert.ok(read.text.length > 0, 'no text came out of the edited file at all');
+  return read.text;
 };
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,6 @@
     "isolatedModules": true,
     "plugins": [{ "name": "next" }]
   },
-  "include": ["src/**/*.ts", "app/**/*.ts", "app/**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.mts", "app/**/*.ts", "app/**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
   "exclude": ["node_modules", ".next", "dist"]
 }

@@ -146,7 +146,10 @@ test('an empty digest is skipped rather than embedded', () => {
   // Cannot happen for a real job — digestFor always returns at least the title,
   // and title is NOT NULL — so this is the guard for a caller that got it wrong.
   const plan = planEmbeddings(
-    [{ key: 'a', digest: '', hash: 'h1' }, { key: 'b', digest: '   ', hash: 'h2' }],
+    [
+      { key: 'a', provider: 'greenhouse', digest: '', hash: 'h1' },
+      { key: 'b', provider: 'lever', digest: '   ', hash: 'h2' },
+    ],
     new Map(),
     MODEL,
     PLENTY,
@@ -156,7 +159,12 @@ test('an empty digest is skipped rather than embedded', () => {
 });
 
 test('a missing hash is skipped, since there would be nothing to compare later', () => {
-  const plan = planEmbeddings([{ key: 'a', digest: 'real text', hash: '' }], new Map(), MODEL, PLENTY);
+  const plan = planEmbeddings(
+    [{ key: 'a', provider: 'greenhouse', digest: 'real text', hash: '' }],
+    new Map(),
+    MODEL,
+    PLENTY,
+  );
   assert.deepEqual(plan.toEmbed, []);
 });
 

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { mergeBoards } from '../src/corpus/boards.js';
 import { blockKey } from '../src/corpus/blocklist.js';
 import { isTransientWriteError, upsertInChunks } from '../src/corpus/db-feed.js';
-import type { CorpusBoard } from '../src/corpus/types.js';
+import type { CorpusBoard } from '../src/corpus/boards.js';
 
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 

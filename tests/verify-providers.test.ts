@@ -35,7 +35,7 @@ test('every provider named in the discovery workflow can be verified', () => {
   const workflow = read('../.github/workflows/discover.yml');
   const line = workflow.match(/provider: \[([^\]]+)\]/);
   assert.ok(line, 'the discovery matrix is gone');
-  const providers = line[1].split(',').map((s) => s.trim()).filter(Boolean);
+  const providers = line[1]!.split(',').map((s) => s.trim()).filter(Boolean);
   assert.ok(providers.length >= 4, `matrix looks wrong: ${providers.join(', ')}`);
   const unverifiable = providers.filter((p) => !verify.includes(`case '${p}':`));
   assert.deepEqual(unverifiable, [],
@@ -63,7 +63,7 @@ test('a provider with no adapter is not in the discovery matrix', () => {
   // rows that fail every crawl forever.
   const workflow = read('../.github/workflows/discover.yml');
   const line = workflow.match(/provider: \[([^\]]+)\]/)![1];
-  for (const p of line.split(',').map((s) => s.trim()).filter(Boolean)) {
+  for (const p of line!.split(',').map((s) => s.trim()).filter(Boolean)) {
     assert.ok(adapters.includes(p), `${p} is discovered but has no adapter to crawl it`);
   }
 });
@@ -125,7 +125,7 @@ test('rippling is in the discovery matrix, not just in the code', () => {
   const line = workflow.match(/provider: \[([^\]]+)\]/);
   assert.ok(line);
   assert.ok(
-    line[1].split(',').map((s) => s.trim()).includes('rippling'),
+    line[1]!.split(',').map((s) => s.trim()).includes('rippling'),
     'the pattern and the verifier exist but nothing runs the harvest',
   );
 });

@@ -246,7 +246,12 @@ test('a job with no digest is skipped silently', async () => {
   // Out of scope, or nothing to compose from. Not an error.
   const { client } = fakeDb();
   const { fetchImpl, batches } = fakeAi();
-  const res = await embedNewJobs([{ key: 'a' }, { key: 'b', matchDigest: 'x' }], {
+  const res = await embedNewJobs(
+      [
+        { key: 'a', provider: 'greenhouse' },
+        { key: 'b', provider: 'lever', matchDigest: 'x' },
+      ],
+      {
     ...creds, client, fetchImpl,
   });
   assert.equal(batches.length, 0, 'neither had both a digest and a hash');
