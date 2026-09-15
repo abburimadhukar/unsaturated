@@ -9,7 +9,8 @@ import { assembleRewrite } from '../../src/tailor/rewrite.js';
 import type { ResumeShape } from '../../src/tailor/sections.js';
 import { fullAsText, type FullAnswer, type RolesAnswer, type SkillsAnswer, type SuggestMode, type SummaryAnswer } from '../../src/tailor/suggest.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
-import { changedLines, readResume } from '../../src/ui/resume-render.js';
+import { layoutResume } from '../../src/ui/resume-layout.js';
+import { changedLines } from '../../src/ui/resume-render.js';
 
 /**
  * A whole rewritten resume, and the small amount of judgement only a person has.
@@ -46,6 +47,8 @@ export interface RewriteResponse {
   model?: string;
   note?: string;
   needsAttention?: boolean;
+  /** The resume as stored — the document, before anything is ticked. */
+  resumeText?: string;
   /** Characters of the stored resume the model never saw. Zero in every real case. */
   resumeCutBy?: number;
   via?: string;
@@ -64,6 +67,7 @@ export interface SuggestResponse {
   roles?: RolesAnswer | null;
   summary?: SummaryAnswer | null;
   full?: FullAnswer | null;
+  resumeText?: string;
   shape?: ResumeShape;
   model?: string;
   note?: string;
@@ -130,6 +134,9 @@ export interface RewriteSession {
   printable: () => void;
   error: string;
 }
+
+/** Every mode, for looking through whichever answers have arrived. */
+const BUTTON_MODES: SuggestMode[] = ['summary', 'full', 'skills', 'roles'];
 
 export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const [ask, setAsk] = useState('');
@@ -247,7 +254,8 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const rewrite = res?.rewrite ?? null;
   // The rewrite's copy wins when both exist: it is the one the document is built
   // from, and two shapes of the same CV would differ only by being read twice.
-  const shape = res?.shape ?? sug.skills?.shape ?? sug.roles?.shape ?? null;
+  const shape =
+    res?.shape ?? BUTTON_MODES.map((m) => sug[m]?.shape).find(Boolean) ?? null;
 
   const suggestedSkills = sug.skills?.skills?.skills ?? [];
   const suggestedCompanies = sug.roles?.roles?.companies ?? [];
@@ -309,12 +317,21 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   //   edited     whatever they typed, which wins until they clear it
   //
   // Rebuilt rather than accumulated, so un-ticking a suggestion removes it again.
-  const original = shape ? documentFromShape(shape) : '';
+  // THE DOCUMENT IS THEIR RESUME, NOT A REBUILD OF IT.
+  //
+  // This used to be documentFromShape(shape), and it came back changed when
+  // nothing had been changed: readShape keeps a bullet's marker, so the rebuild
+  // put a second one in front of it, and its headings were hardcoded so "SKILLS"
+  // became "TECHNICAL SKILLS". The parse is still what finds employers and skills
+  // lines to tick things into — it is just no longer what the person reads.
+  const stored =
+    res?.resumeText ?? BUTTON_MODES.map((m) => sug[m]?.resumeText).find(Boolean) ?? '';
+  const original = stored || (shape ? documentFromShape(shape) : '');
 
   // The whole rewrite, if they took it, is the base the rest is layered onto —
   // so a ticked skill lands in the rewritten skills line rather than the old one.
   const rewritten =
-    fullChosen && fullAnswer && shape ? fullAsText(fullAnswer, shape) : null;
+    fullChosen && fullAnswer && shape ? fullAsText(fullAnswer, shape, original) : null;
   const base =
     rewritten ?? (rewrite && shape ? assembleRewrite(rewrite, shape, removed, reverted) : original);
 
@@ -385,28 +402,51 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     }
     const esc = (t: string) =>
       t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const body = readResume(document_)
-      .map((b) => {
-        if (b.kind === 'blank') return '<div class="gap"></div>';
-        if (b.kind === 'name') return `<h1>${esc(b.text)}</h1>`;
-        if (b.kind === 'contact') return `<p class="contact">${esc(b.text)}</p>`;
-        if (b.kind === 'heading') return `<h2>${esc(b.text)}</h2>`;
-        if (b.kind === 'bullet') {
-          return `<p class="bullet"><span class="m">${esc(b.marker ?? '·')}</span><span>${esc(b.text)}</span></p>`;
+
+    // The SAME layout the .docx is built from. This used to classify lines for
+    // itself, so the PDF and the Word file were two different documents from one
+    // resume — no bold skills labels, no right-aligned dates, no italic roles.
+    const body = layoutResume(document_)
+      .map((l) => {
+        switch (l.kind) {
+          case 'blank':
+            return '<div class="gap"></div>';
+          case 'name':
+            return `<h1>${esc(l.text)}</h1>`;
+          case 'contact':
+            return `<p class="contact">${esc(l.text)}</p>`;
+          case 'heading':
+            return `<h2>${esc(l.text)}</h2>`;
+          case 'employer':
+            return `<p class="emp"><span>${esc(l.text)}</span><span class="when">${esc(l.when ?? '')}</span></p>`;
+          case 'role':
+            return `<p class="role">${esc(l.text)}</p>`;
+          case 'bullet':
+            return `<p class="bullet"><span class="m">&bull;</span><span>${esc(l.text)}</span></p>`;
+          case 'skill':
+            return `<p><b>${esc(l.label ?? '')}</b>${esc(l.rest ?? '')}</p>`;
+          default:
+            return `<p>${esc(l.text)}</p>`;
         }
-        return `<p>${esc(b.text)}</p>`;
       })
       .join('');
+
     w.document.write(
       '<!doctype html><html><head><meta charset="utf-8">' +
         `<title>${docxFileName(jobTitle).replace(/\.docx$/, '')}</title>` +
-        '<style>@page{size:A4;margin:18mm}' +
-        'body{font:11pt/1.5 Calibri,Carlito,system-ui,sans-serif;color:#000;margin:0}' +
-        'h1{font-size:17pt;margin:0 0 2pt}' +
-        'h2{font-size:11pt;text-transform:uppercase;letter-spacing:.07em;margin:12pt 0 4pt;' +
-        'padding-bottom:2pt;border-bottom:.5pt solid #999}' +
-        '.contact{font-size:9.5pt;color:#444;margin:0}' +
-        'p{margin:0 0 2pt}.bullet{display:flex;gap:6pt}.m{flex:0 0 auto}.gap{height:7pt}' +
+        '<style>@page{size:A4;margin:20mm}' +
+        'body{font:11pt/1.32 Calibri,Carlito,system-ui,sans-serif;color:#000;margin:0}' +
+        // The same accent as the .docx, so the two files are the same document.
+        'h1{font-size:16pt;margin:0 0 2pt;text-align:center;color:#1F3864}' +
+        'h2{font-size:12pt;margin:10pt 0 4pt;color:#1F3864;' +
+        'padding-bottom:2pt;border-bottom:.75pt solid #1F3864;break-after:avoid}' +
+        '.contact{font-size:9.5pt;color:#444;margin:0 0 6pt;text-align:center}' +
+        'p{margin:0 0 2pt;break-inside:avoid}' +
+        '.emp{display:flex;justify-content:space-between;gap:12pt;font-weight:700;' +
+        'margin-top:6pt;break-after:avoid}' +
+        '.emp .when{font-weight:400;white-space:nowrap}' +
+        '.role{font-style:italic;margin-bottom:3pt;break-after:avoid}' +
+        '.bullet{display:flex;gap:6pt;padding-left:2pt}.m{flex:0 0 auto}.gap{height:6pt}' +
         '</style></head><body>' +
         body +
         '</body></html>',

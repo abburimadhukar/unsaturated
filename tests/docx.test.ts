@@ -119,8 +119,12 @@ test('A HEADING IS HELD TO WHAT FOLLOWS IT, AND NO PARAGRAPH SPLITS', () => {
   // degree on the next, an employer separated from its first bullet, a third of a
   // page left blank under a heading.
   const xml = documentXml(RESUME);
-  const beforeHeading = xml.slice(0, xml.indexOf('>EXPERIENCE<'));
-  assert.match(beforeHeading.slice(-400), /<w:keepNext\/>/, 'a heading can still end a page');
+  // The paragraph the heading sits in, not a fixed window before it — the run
+  // properties grew when the font was named on every run, and a byte count is
+  // the wrong thing to assert about.
+  const at = xml.indexOf('>EXPERIENCE<');
+  const paragraph = xml.slice(xml.lastIndexOf('<w:p>', at), at);
+  assert.match(paragraph, /<w:keepNext\/>/, 'a heading can still end a page');
   assert.ok((xml.match(/<w:keepLines\/>/g) ?? []).length > 10, 'paragraphs can still split');
 });
 

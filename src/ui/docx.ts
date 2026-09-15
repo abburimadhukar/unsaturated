@@ -35,29 +35,9 @@ const NAME_HALF_POINTS = 32;
 /** A section heading. 24 = 12pt. */
 const HEADING_HALF_POINTS = 24;
 
-/** Longest line treated as a possible heading. */
-const MAX_HEADING_CHARS = 40;
+import { layoutResume } from './resume-layout.js';
 
-/**
- * Whether a line is a section heading.
- *
- * Conservative on purpose, and the test is shape rather than vocabulary: short,
- * no sentence-ending punctuation, and no lowercase letters. "EXPERIENCE" and
- * "TECHNICAL SKILLS" match; "Managed AWS and Azure" does not, because of the
- * lowercase; "AWS, Azure, Kubernetes, Terraform, Docker, CI/CD" does not, because
- * of the length.
- *
- * Getting this wrong costs a line of bold text, not a broken document — so the
- * bias is towards missing a heading rather than bolding a bullet.
- */
-export function looksLikeHeading(line: string): boolean {
-  const t = line.trim();
-  if (t.length === 0 || t.length > MAX_HEADING_CHARS) return false;
-  if (/[.!?,;:]$/.test(t)) return false;
-  if (/[a-z]/.test(t)) return false;
-  // At least one letter, so a line of dashes or digits is not a heading.
-  return /[A-Z]/.test(t);
-}
+export { looksLikeHeading, splitDates } from './resume-layout.js';
 
 /** XML text content, escaped. */
 export function escapeXml(text: string): string {
@@ -122,9 +102,20 @@ interface Look {
   right?: string;
 }
 
+/**
+ * The typeface, on EVERY run and not only in docDefaults.
+ *
+ * Reported as "the font is changing". docDefaults sets Calibri, but a run with no
+ * rFonts of its own inherits from the document theme, and recent Word ships a
+ * different theme font — so the document opened in something else entirely on the
+ * machine it mattered on. Naming the font on each run leaves nothing to inherit.
+ */
+const FONT = '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>';
+
 function runProps(l: Look): string {
   const sz = l.size ?? BODY_HALF_POINTS;
   return (
+    FONT +
     (l.bold ? '<w:b/><w:bCs/>' : '') +
     (l.italic ? '<w:i/><w:iCs/>' : '') +
     (l.color ? `<w:color w:val="${l.color}"/>` : '') +
@@ -179,96 +170,31 @@ function paragraph(text: string, halfPoints: number, bold: boolean): string {
   return para(text, { size: halfPoints, bold });
 }
 
-/** A date range at the end of a line: "Aug 2025 - Present", "Jan 2020 - Dec 2021". */
-const DATE_TAIL =
-  /\s+((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(?:present|current|now|((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?(?:19|20)\d{2})\s*$/i;
-
 /**
- * An employer or institution line, split into who and when.
+ * The document body.
  *
- * The original puts the company at the left margin and the dates at the right, on
- * one line. The plain text can only run them together, so they are pulled apart
- * again here on the date range — which is the same signal the resume parser uses
- * to recognise the line in the first place.
+ * Every decision about what a line IS was made in resume-layout.ts, which the
+ * print view reads too — so the .docx and the PDF cannot disagree about a resume.
+ * All that is left here is turning each kind into Word's XML.
  */
-const MONTH_TAIL = /(^|\s)((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?)\s*$/i;
-
-export function splitDates(line: string): { who: string; when: string } | null {
-  const m = DATE_TAIL.exec(line);
-  if (!m || m.index === 0) return null;
-
-  // The month in front of the year is optional in the pattern, so on a bare
-  // "Aug 2016 - Sep 2020" the match can begin at the year and leave "Aug" behind
-  // as the company — which is how a date line becomes a bold employer called
-  // August. If what is left ends in a month name, the split was made inside the
-  // date and has to move back in front of it.
-  let at = m.index;
-  const month = MONTH_TAIL.exec(line.slice(0, at));
-  if (month) at = month.index + month[1]!.length;
-
-  const who = line.slice(0, at).replace(/[\s,•·|]+$/, '').trim();
-  return who ? { who, when: line.slice(at).trim() } : null;
-}
-
-/** The bullet marker a line carries, and the text after it. */
-const BULLET = /^\s*[•·‣▪●*-]\s+(.*)$/;
-
-/** Contact details: recognised by what they contain, not by where they sit. */
-function looksLikeContact(line: string): boolean {
-  return /@|https?:|www\.|linkedin|github|\+\d|\(\d{3}\)|\d{3}[.-]\d{3}[.-]\d{4}/i.test(line);
-}
-
-type Section = 'top' | 'skills' | 'experience' | 'education' | 'other';
-
-function sectionOf(heading: string): Section {
-  const t = heading.toLowerCase();
-  if (/skill|technolog|competenc/.test(t)) return 'skills';
-  if (/experience|employment|work history|projects?/.test(t)) return 'experience';
-  if (/education|academic|qualification|certification/.test(t)) return 'education';
-  return 'other';
-}
-
-/** The document body, from plain text. */
 export function documentXml(resumeText: string): string {
-  const lines = resumeText.replace(/\r\n?/g, '\n').split('\n');
-  const firstReal = lines.findIndex((l) => l.trim().length > 0);
-
-  let section: Section = 'top';
-  /** True on the line straight after an employer, which is the role. */
-  let expectRole = false;
-  const out: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]!.replace(/\s+$/, '');
-    const t = raw.trim();
-
-    if (!t) {
-      out.push(para('', { size: 12 }));
-      expectRole = false;
-      continue;
-    }
-
-    // The name: the one line of a resume that is always a heading whatever it says.
-    if (i === firstReal) {
-      out.push(
-        para(t, { size: NAME_HALF_POINTS, bold: true, color: ACCENT, center: true, after: 20 }),
-      );
-      continue;
-    }
-
-    // Contact details, while still at the top. Further down, a line with a URL in
-    // it is a bullet about a project.
-    if (section === 'top' && looksLikeContact(t)) {
-      out.push(para(t, { size: 19, color: CONTACT_GREY, center: true, after: 120 }));
-      continue;
-    }
-
-    if (looksLikeHeading(t)) {
-      section = sectionOf(t);
-      expectRole = false;
-      // keepNext, so a heading can never be the last thing on a page.
-      out.push(
-        para(t, {
+  const out = layoutResume(resumeText).map((l) => {
+    switch (l.kind) {
+      case 'blank':
+        return para('', { size: 12 });
+      case 'name':
+        return para(l.text, {
+          size: NAME_HALF_POINTS,
+          bold: true,
+          color: ACCENT,
+          center: true,
+          after: 20,
+        });
+      case 'contact':
+        return para(l.text, { size: 19, color: CONTACT_GREY, center: true, after: 120 });
+      case 'heading':
+        // keepNext, so a heading can never be the last thing on a page.
+        return para(l.text, {
           size: HEADING_HALF_POINTS,
           bold: true,
           color: ACCENT,
@@ -276,55 +202,31 @@ export function documentXml(resumeText: string): string {
           before: 200,
           after: 80,
           keepNext: true,
-        }),
-      );
-      continue;
-    }
-
-    const bullet = BULLET.exec(raw);
-    if (bullet) {
-      out.push(para(bullet[1]!.trim(), { bullet: true }));
-      expectRole = false;
-      continue;
-    }
-
-    if (section === 'experience' || section === 'education') {
-      const split = splitDates(t);
-      if (split) {
-        out.push(
-          para(split.who, { bold: true, right: split.when, before: 120, after: 0, keepNext: true }),
-        );
-        expectRole = true;
-        continue;
-      }
-      if (expectRole) {
-        out.push(para(t, { italic: true, after: 60, keepNext: true }));
-        expectRole = false;
-        continue;
-      }
-    }
-
-    if (section === 'skills') {
-      // "Programming Languages and Scripting: ASP.NET, C#, SQL" — the label is
-      // bold in every resume that has one, and it is what makes the section
-      // skimmable. The colon is the whole signal.
-      const at = t.indexOf(':');
-      if (at > 0 && at <= 60) {
-        out.push(
+        });
+      case 'employer':
+        return para(l.text, {
+          bold: true,
+          right: l.when ?? '',
+          before: 120,
+          after: 0,
+          keepNext: true,
+        });
+      case 'role':
+        return para(l.text, { italic: true, after: 60, keepNext: true });
+      case 'bullet':
+        return para(l.text, { bullet: true });
+      case 'skill':
+        return (
           '<w:p><w:pPr><w:keepLines/><w:spacing w:before="0" w:after="40" w:line="264" ' +
-            `w:lineRule="auto"/><w:rPr>${runProps({})}</w:rPr></w:pPr>` +
-            run(t.slice(0, at + 1), { bold: true }) +
-            run(t.slice(at + 1), {}) +
-            '</w:p>',
+          `w:lineRule="auto"/><w:rPr>${runProps({})}</w:rPr></w:pPr>` +
+          run(l.label ?? '', { bold: true }) +
+          run(l.rest ?? '', {}) +
+          '</w:p>'
         );
-        continue;
-      }
+      default:
+        return para(l.text, {});
     }
-
-    // Anything else, with its leading indentation intact — a sub-point indented
-    // under a bullet is a sub-point, and flattening it changes what it says.
-    out.push(para(raw, {}));
-  }
+  });
 
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -367,7 +269,8 @@ const DOC_RELS =
  * already has and substitutes predictably everywhere else; a font nobody has is
  * how a document arrives looking like something else entirely.
  */
-const STYLES =
+/** The styles part, exported so a test can assert what a document inherits. */
+export const STYLES =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
   '<w:docDefaults><w:rPrDefault><w:rPr>' +
@@ -377,7 +280,19 @@ const STYLES =
   // 4pt after each paragraph and single line spacing, so the lines of a CV read
   // as a list rather than as one block.
   '<w:pPrDefault><w:pPr><w:spacing w:after="80" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault>' +
-  '</w:docDefaults></w:styles>';
+  '</w:docDefaults>' +
+  // An explicit Normal style, naming the font again.
+  //
+  // Word applies Normal to every paragraph, and a Normal that inherits from the
+  // document theme picks up whatever that theme's font is — recent Word ships one
+  // that is not Calibri. Between this and the rFonts on every run there is
+  // nothing left for a theme to override.
+  '<w:style w:type="paragraph" w:default="1" w:styleId="Normal">' +
+  '<w:name w:val="Normal"/><w:qFormat/>' +
+  `<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>` +
+  `<w:sz w:val="${BODY_HALF_POINTS}"/><w:szCs w:val="${BODY_HALF_POINTS}"/></w:rPr>` +
+  '</w:style>' +
+  '</w:styles>';
 
 // ---------------------------------------------------------------------------
 // The ZIP

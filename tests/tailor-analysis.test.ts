@@ -460,7 +460,9 @@ test('THE DOWNLOAD IS THE DOCUMENT ON SCREEN', () => {
     new URL('../app/_components/use-rewrite.ts', import.meta.url),
     'utf8',
   );
-  for (const fn of ['navigator.clipboard?.writeText(', 'docxBlob(', 'readResume(']) {
+  // layoutResume, not readResume: the PDF is now built from the same classifier
+  // the .docx is, so the two files cannot be different documents.
+  for (const fn of ['navigator.clipboard?.writeText(', 'docxBlob(', 'layoutResume(']) {
     const at = src.indexOf(fn);
     assert.ok(at > 0, `${fn} is gone`);
     const call = src.slice(at, src.indexOf(')', at));

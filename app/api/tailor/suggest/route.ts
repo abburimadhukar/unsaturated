@@ -113,6 +113,11 @@ export async function POST(request: Request) {
     // The parsed resume, so the page can build and edit the document without the
     // CV making a second trip — and so these two buttons work for somebody who
     // has not run a rewrite and may not want to.
+    // The resume itself, not just the parse of it. The page used to rebuild the
+    // document from `shape`, which came back subtly changed when nothing had been
+    // changed — doubled bullet markers, renamed headings. A parse is for
+    // understanding a resume, not for reproducing it.
+    resumeText,
     shape: readShape(resumeText),
     model: result.model,
     note: result.note,

@@ -1,3 +1,4 @@
+import { headingsOf } from './additions.js';
 import { readShape, type ResumeShape } from './sections.js';
 import { VOICE_RULES } from './voice.js';
 
@@ -660,14 +661,18 @@ export function parseFull(body: unknown): FullAnswer {
  * model: it is not asked for them, and asking would be inviting it to retype
  * somebody's phone number.
  */
-export function fullAsText(answer: FullAnswer, shape: ResumeShape): string {
+export function fullAsText(answer: FullAnswer, shape: ResumeShape, resumeText = ''): string {
+  // Their headings, not ours. "SKILLS" and "CORE COMPETENCIES" are somebody's
+  // choice, and swapping in our favourite is a small unasked-for edit that makes
+  // the rest of the page harder to trust.
+  const head = headingsOf(resumeText);
   const out: string[] = [];
   if (shape.name) out.push(shape.name);
   out.push(...shape.contact, '');
   if (answer.summary) out.push(answer.summary, '');
-  if (answer.skills.length) out.push('TECHNICAL SKILLS', ...answer.skills, '');
+  if (answer.skills.length) out.push(head.skills, ...answer.skills, '');
   if (answer.companies.length) {
-    out.push('PROFESSIONAL EXPERIENCE');
+    out.push(head.experience);
     for (const c of answer.companies) {
       out.push(c.header);
       if (c.role) out.push(c.role);

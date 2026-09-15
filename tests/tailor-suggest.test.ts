@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { applyAdditions, documentFromShape, labelOf, mergeSkillLine } from '../src/tailor/additions.js';
+import {
+  applyAdditions,
+  documentFromShape,
+  headingsOf,
+  labelOf,
+  mergeSkillLine,
+} from '../src/tailor/additions.js';
+import { STYLES, documentXml } from '../src/ui/docx.js';
 import { readShape } from '../src/tailor/sections.js';
 import {
   MAX_SKILLS_SHOWN,
@@ -656,4 +663,77 @@ test('the suggestion rows start unticked', () => {
   const src = readFileSync(new URL('../app/_components/Suggestions.tsx', import.meta.url), 'utf8');
   assert.match(src, /checked=\{on\}/);
   assert.ok(!/defaultChecked/.test(src), 'a row defaults to ticked');
+});
+
+// ---------------------------------------------------------------------------
+// The two the owner reported: the resume changing, and the font changing
+// ---------------------------------------------------------------------------
+
+test('THE DOCUMENT IS THE RESUME, NOT A REBUILD OF IT', () => {
+  // Reported as "the summary is also changing". It was: the page built what it
+  // showed from readShape, and a parse is not a copy. Two ways it differed with
+  // nothing ticked at all — and both are inherent to rebuilding, not bugs that
+  // could be tidied away.
+  const hook = readFileSync(new URL('../app/_components/use-rewrite.ts', import.meta.url), 'utf8');
+  assert.match(hook, /res\?\.resumeText/, 'the page does not use the stored resume');
+  assert.match(hook, /const original = stored \|\|/, 'the rebuild is still the default');
+  for (const p of ['../app/api/tailor/suggest/route.ts', '../app/api/tailor/rewrite/route.ts']) {
+    assert.match(
+      readFileSync(new URL(p, import.meta.url), 'utf8'),
+      /^\s*resumeText,$/m,
+      `${p} does not return the resume itself`,
+    );
+  }
+});
+
+test('A REBUILD DOES NOT DOUBLE A BULLET MARKER', () => {
+  // readShape keeps the marker on a bullet. documentFromShape put another one in
+  // front of it, so every line came back "· · Lead SRE and cloud operations".
+  const cv = [
+    'JANE SMITH',
+    'jane@example.com',
+    'PROFESSIONAL EXPERIENCE',
+    'ACME, London Jan 2021 - Present',
+    'Engineer',
+    '· Ran the Kubernetes estate.',
+  ].join(NL);
+  const out = documentFromShape(readShape(cv));
+  assert.ok(!/·\s*·/.test(out), `doubled marker: ${out}`);
+  assert.equal((out.match(/Ran the Kubernetes estate/g) ?? []).length, 1);
+});
+
+test("A REWRITE KEEPS THE PERSON'S OWN SECTION HEADINGS", () => {
+  // "SKILLS" and "CORE COMPETENCIES" are somebody's choice. Swapping in our
+  // favourite is a small unasked-for edit that makes the rest harder to trust.
+  const cv = ['JANE SMITH', 'jane@example.com', 'CORE COMPETENCIES', 'Cloud: AWS'].join(NL);
+  assert.equal(headingsOf(cv).skills, 'CORE COMPETENCIES');
+  // And the default stands when the resume has no such heading.
+  assert.equal(headingsOf('JANE SMITH').skills, 'TECHNICAL SKILLS');
+});
+
+test('THE .docx NAMES ITS FONT ON EVERY RUN', () => {
+  // Reported as "the font is changing". docDefaults alone is not enough: a run
+  // with no rFonts inherits from the document theme, and recent Word ships a
+  // theme font that is not Calibri.
+  const xml = documentXml(['JANE SMITH', 'EXPERIENCE', '· Ran it.'].join(NL));
+  const runs = (xml.match(/<w:r>/g) ?? []).length;
+  const fonts = (xml.match(/<w:rFonts /g) ?? []).length;
+  assert.ok(runs > 0, 'no runs at all');
+  assert.ok(fonts >= runs, `${runs} runs but only ${fonts} rFonts`);
+  assert.match(STYLES, /w:styleId="Normal"/, 'no Normal style, so the theme wins');
+  assert.match(STYLES, /<w:rFonts w:ascii="Calibri"/);
+});
+
+test('THE PDF AND THE .docx ARE BUILT FROM ONE CLASSIFIER', () => {
+  // They each had their own idea of what a line was, so the same resume came out
+  // as two different documents depending on which button was pressed. That is not
+  // a bug to fix once — it is two implementations of one question.
+  const ui = readFileSync(new URL('../app/_components/use-rewrite.ts', import.meta.url), 'utf8');
+  const dx = readFileSync(new URL('../src/ui/docx.ts', import.meta.url), 'utf8');
+  assert.match(ui, /layoutResume\(document_\)/, 'the PDF classifies for itself again');
+  assert.match(dx, /layoutResume\(resumeText\)/, 'the .docx classifies for itself again');
+  for (const kind of ['employer', 'role', 'skill', 'bullet']) {
+    assert.match(ui, new RegExp(`case '${kind}'`), `the PDF drops ${kind} lines`);
+    assert.match(dx, new RegExp(`case '${kind}'`), `the .docx drops ${kind} lines`);
+  }
 });

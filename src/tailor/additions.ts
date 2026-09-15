@@ -233,9 +233,24 @@ export function applyAdditions(
 /**
  * A resume rebuilt from its parsed shape.
  *
- * Shared, because the suggestion buttons work on a person's own CV whether or not
- * they have run the rewrite — and without this they would have nothing to add to
- * until they had spent money on a rewrite they may not want.
+ * THIS IS A LAST RESORT, NOT THE DOCUMENT
+ *
+ * It used to be what the screen showed and what downloaded, and that was wrong in
+ * a way somebody noticed immediately: their resume came back changed when they
+ * had changed nothing. Two causes, both inherent to rebuilding rather than bugs
+ * that could be tidied away:
+ *
+ *   `readShape` keeps the bullet marker on a bullet, and this put another one in
+ *   front of it, so every line came back "· · Lead SRE and cloud operations".
+ *
+ *   The headings here are hardcoded. Somebody whose resume says "SKILLS" or
+ *   "CORE COMPETENCIES" got "TECHNICAL SKILLS" back, and somebody whose summary
+ *   sat under a heading lost it.
+ *
+ * A parse is for UNDERSTANDING a resume — which lines are an employer's, which
+ * are skills — not for reproducing it. The document is now the person's own text,
+ * and this is used only where a document genuinely has to be built from parts:
+ * the full rewrite, which is a new document by definition.
  */
 export function documentFromShape(shape: {
   name: string;
@@ -255,12 +270,38 @@ export function documentFromShape(shape: {
     for (const c of shape.companies) {
       out.push(c.header);
       if (c.role) out.push(c.role);
-      for (const b of c.bullets) out.push(`${DEFAULT_MARKER}${b}`);
+      // The marker is put on ONCE. A bullet that arrives with one keeps the one
+      // it has rather than collecting a second.
+      for (const b of c.bullets) out.push(`${DEFAULT_MARKER}${b.replace(BULLET_MARKER, '')}`);
       out.push('');
     }
   }
   if (shape.education.length) out.push('EDUCATION', ...shape.education);
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * The section headings a resume actually uses, so a rebuild can keep them.
+ *
+ * "SKILLS", "CORE COMPETENCIES", "TECHNICAL PROFICIENCIES" and "TECHNICAL SKILLS"
+ * are the same section and a person chose one of them. Replacing it with our
+ * favourite is the kind of small unasked-for edit that makes somebody distrust
+ * everything else on the page.
+ */
+export function headingsOf(text: string): {
+  skills: string;
+  experience: string;
+  education: string;
+} {
+  const out = { skills: 'TECHNICAL SKILLS', experience: 'PROFESSIONAL EXPERIENCE', education: 'EDUCATION' };
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const t = raw.trim();
+    if (!t || !isSectionHeading(t)) continue;
+    if (/skill|technolog|competenc|proficien/i.test(t)) out.skills = t;
+    else if (/experience|employment|work history/i.test(t)) out.experience = t;
+    else if (/education|academic|qualification/i.test(t)) out.education = t;
+  }
+  return out;
 }
 
 /**

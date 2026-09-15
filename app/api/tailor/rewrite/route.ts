@@ -126,6 +126,11 @@ export async function POST(request: Request) {
     rewrite: result.checked,
     // Name, contact and education are not rewritten, so the page needs them to
     // assemble the document it shows and downloads.
+    // The resume itself, not just the parse of it. The page used to rebuild the
+    // document from `shape`, which came back subtly changed when nothing had been
+    // changed — doubled bullet markers, renamed headings. A parse is for
+    // understanding a resume, not for reproducing it.
+    resumeText,
     shape: readShape(resumeText),
     model: result.model,
     note: result.note,
