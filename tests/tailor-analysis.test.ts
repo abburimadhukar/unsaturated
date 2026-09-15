@@ -449,34 +449,21 @@ test('the sheet can mark which lines the person wrote', () => {
 });
 
 test('THE DOWNLOAD IS THE DOCUMENT ON SCREEN', () => {
-  // Copy, the clean .docx and the PDF all render the text the person is looking
-  // at, hand edits included. A download that quietly differs from the preview is
-  // the worst outcome this feature has.
+  // Copy, the .docx and the PDF all render the text the person is looking at —
+  // hand edits, ticked suggestions and all. A download that quietly differs from
+  // the preview is the worst outcome this feature has.
+  //
+  // This used to read use-tailor-session.ts, the feed card's own session. That
+  // card now links to the full page instead of opening a second tailoring
+  // feature under the post, so the invariant moved to the one that survived.
   const src = readFileSync(
-    new URL('../app/_components/use-tailor-session.ts', import.meta.url),
+    new URL('../app/_components/use-rewrite.ts', import.meta.url),
     'utf8',
   );
   for (const fn of ['navigator.clipboard?.writeText(', 'docxBlob(', 'readResume(']) {
     const at = src.indexOf(fn);
     assert.ok(at > 0, `${fn} is gone`);
     const call = src.slice(at, src.indexOf(')', at));
-    assert.match(call, /shown\.text/, `${fn} uses the pre-edit text`);
+    assert.match(call, /document_/, `${fn} does not use the document on screen`);
   }
-});
-
-test('the one export that cannot carry them says so before it downloads', () => {
-  // The in-place .docx edit runs on the server, which re-verifies every edit it
-  // applies — and a person's own sentence is not a model's claim to verify, so it
-  // cannot travel that path.
-  const src = readFileSync(
-    new URL('../app/_components/use-tailor-session.ts', import.meta.url),
-    'utf8',
-  );
-  const fn = src.slice(src.indexOf('const saveOriginalEdited'), src.indexOf('const printable'));
-  assert.match(fn, /hand\.length > 0/);
-  assert.match(fn, /are not in this file/);
-  assert.ok(
-    fn.indexOf('hand.length > 0') < fn.indexOf("fetch('/api/tailor/docx'"),
-    'the warning appears after the file has already downloaded',
-  );
 });

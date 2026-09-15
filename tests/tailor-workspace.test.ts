@@ -28,9 +28,7 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 const CSS = read('../app/globals.css');
 const WORKSPACE = read('../app/_components/RewriteWorkspace.tsx');
-const PANEL = read('../app/_components/TailorPanel.tsx');
 const PARTS = read('../app/_components/tailor-parts.tsx');
-const SESSION = read('../app/_components/use-tailor-session.ts');
 const PAGE = read('../app/tailor/page.tsx');
 
 // ---------------------------------------------------------------------------
@@ -153,12 +151,16 @@ test('the workspace header does not inherit the feed header', () => {
 // One implementation, two screens
 // ---------------------------------------------------------------------------
 
-test('the feed panel stays one column', () => {
-  // A feed card is around 700px. Two columns there gave the document 300, and a
-  // CV at 300px is unreadable. The arrangement is only an improvement when there
-  // is room for it — which is what the full page is for.
-  assert.ok(!PANEL.includes('tcols'), 'the panel is side-by-side again');
-  assert.match(PANEL, /open the full editor/);
+test('THE FEED CARD LINKS HERE RATHER THAN OPENING A SECOND TAILORING FEATURE', () => {
+  // There were two. The card opened a line-edit panel under the post — four
+  // chips, one of them "Cut what doesn't matter", which deleted every mention of
+  // AI from a CV for an AI company — while /tailor ran the whole-document
+  // rewrite and the suggestion buttons. Same button name, different feature,
+  // depending on where you clicked it.
+  const feed = read('../app/page.tsx');
+  assert.match(feed, /href=\{`\/tailor\?job=/, 'the card does not link to the full page');
+  assert.ok(!/TailorPanel/.test(feed), 'the old panel still opens under the post');
+  assert.ok(!/setTailorFor/.test(feed), 'the panel toggle is still wired up');
 });
 
 test('THE OLD TWO-COLUMN SHELL IS GONE FROM THE STYLESHEET, NOT JUST UNUSED', () => {
@@ -166,7 +168,7 @@ test('THE OLD TWO-COLUMN SHELL IS GONE FROM THE STYLESHEET, NOT JUST UNUSED', ()
   // is there, and the 350px document comes back.
   for (const dead of ['.tcols', '.tleft', '.tright', '.tawait']) {
     assert.ok(!CSS.includes(dead), `${dead} is still in globals.css`);
-    for (const [name, src] of [['workspace', WORKSPACE], ['panel', PANEL]] as const) {
+    for (const [name, src] of [['workspace', WORKSPACE]] as const) {
       assert.ok(!src.includes(dead.slice(1)), `${name} still uses ${dead}`);
     }
   }

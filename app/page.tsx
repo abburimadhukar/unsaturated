@@ -17,7 +17,6 @@ import {
 } from '../src/ui/filter-state.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 import { initialsOf } from '../src/ui/initials.js';
-import { TailorPanel } from './_components/TailorPanel.js';
 import { FROM_DETAIL, FROM_LISTING } from '../src/tailor/providers.js';
 
 interface Job {
@@ -205,15 +204,6 @@ export default function Page() {
   // whose check has not finished — otherwise the feed flashes up before the
   // redirect, which looks like a broken page.
   const [meChecked, setMeChecked] = useState(false);
-
-  /**
-   * Which job's tailoring panel is open, if any.
-   *
-   * One at a time. Several open at once would mean several people's worth of
-   * OpenAI calls a click apart, and the panel is tall enough that two of them
-   * push the feed off the screen.
-   */
-  const [tailorFor, setTailorFor] = useState<string | null>(null);
 
   /**
    * The vendors a description can be read from, as a Set for the card to test.
@@ -1048,21 +1038,26 @@ export default function Page() {
                             description anywhere we can read — 5,727 open
                             postings. A button that can only ever explain why it
                             cannot work is worse than no button. */}
+                        {/* A LINK NOW, NOT A PANEL THAT OPENS UNDER THE POST.
+                            Two tailoring experiences existed side by side: this
+                            card opened the old line-edit panel — four chips
+                            including "Cut what doesn't matter", which once
+                            deleted every mention of AI from a CV for an AI
+                            company — while /tailor ran the whole-document
+                            rewrite and the two suggestion buttons. Same button
+                            name, different feature, depending on where you
+                            clicked it. There is one now. */}
                         {CAN_TAILOR.has(j.provider) && (
-                          <button
-                            type="button"
+                          <a
                             className="tailorbtn"
-                            onClick={() => setTailorFor(tailorFor === j.key ? null : j.key)}
+                            href={`/tailor?job=${encodeURIComponent(j.key)}`}
+                            onClick={() => void open(j)}
                           >
-                            {tailorFor === j.key ? 'Close tailoring' : 'Tailor my resume'}
-                          </button>
+                            Tailor my resume
+                          </a>
                         )}
                         <span className="src">{j.provider}</span>
                       </div>
-
-                      {tailorFor === j.key && (
-                        <TailorPanel jobKey={j.key} jobTitle={j.title} company={j.company} />
-                      )}
                     </div>
                   </article>
                 );
