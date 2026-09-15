@@ -72,43 +72,264 @@ export function escapeXml(text: string): string {
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 }
 
-/** One paragraph, with a size and an optional bold run. */
-function paragraph(text: string, halfPoints: number, bold: boolean): string {
-  const sz = `<w:sz w:val="${halfPoints}"/><w:szCs w:val="${halfPoints}"/>`;
-  const b = bold ? '<w:b/><w:bCs/>' : '';
-  // An empty line is a paragraph with no run, which is how Word represents a
-  // blank line. Emitting a run containing nothing makes Word show a stray space.
-  if (text.length === 0) {
-    return `<w:p><w:pPr><w:rPr>${sz}</w:rPr></w:pPr></w:p>`;
-  }
+/**
+ * A resume's shape, recovered from plain text.
+ *
+ * WHY THIS EXISTS
+ *
+ * The first version emitted every line as one flat paragraph — bold if it looked
+ * like a heading, plain otherwise. Put beside the document it came from, every
+ * difference traced to that:
+ *
+ *   the name sat left and black, not centred and coloured
+ *   "Programming Languages and Scripting:" lost the bold on its label
+ *   "TCL, United States Aug 2025 - Present" ran together on one line, where the
+ *     original has the company left and the dates right
+ *   the role line lost its italic
+ *   bullets were the literal character "·", not an indented list
+ *   section headings had no rule under them
+ *
+ * and worst, with no keep-together properties Word broke wherever it liked: a
+ * university on one page and its degree on the next, employers split from their
+ * first bullet, a third of a page left blank.
+ *
+ * The text is all there is to work from, so the structure is read back out of it.
+ * Every rule below is shape, not vocabulary, so it holds for a CV from any field.
+ */
+
+/** Page width less both margins, in twips: 11906 - 1134 - 1134. */
+const TEXT_WIDTH = 9638;
+/** The heading colour, and the rule under it. Word's Dark Blue, Text 2, Darker 50%. */
+const ACCENT = '1F3864';
+const CONTACT_GREY = '444444';
+
+interface Look {
+  size?: number;
+  bold?: boolean;
+  italic?: boolean;
+  color?: string;
+  center?: boolean;
+  /** Twips before and after the paragraph. */
+  before?: number;
+  after?: number;
+  /** A rule under the paragraph, as section headings have. */
+  rule?: boolean;
+  /** Hold this paragraph with the next one, so a heading cannot end a page. */
+  keepNext?: boolean;
+  /** Hanging indent, for a bullet. */
+  bullet?: boolean;
+  /** Right-aligned second half, for the dates beside an employer. */
+  right?: string;
+}
+
+function runProps(l: Look): string {
+  const sz = l.size ?? BODY_HALF_POINTS;
   return (
-    `<w:p><w:pPr><w:rPr>${b}${sz}</w:rPr></w:pPr>` +
-    `<w:r><w:rPr>${b}${sz}</w:rPr>` +
-    // xml:space preserve, or Word eats the leading spaces that carry a CV's
-    // indentation.
-    `<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`
+    (l.bold ? '<w:b/><w:bCs/>' : '') +
+    (l.italic ? '<w:i/><w:iCs/>' : '') +
+    (l.color ? `<w:color w:val="${l.color}"/>` : '') +
+    `<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`
   );
+}
+
+function run(text: string, l: Look): string {
+  return `<w:r><w:rPr>${runProps(l)}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+}
+
+/**
+ * One paragraph.
+ *
+ * `keepLines` is on everywhere: a bullet split across a page break is the single
+ * ugliest thing a generated resume does, and no paragraph here is long enough for
+ * keeping it whole to cost anything.
+ */
+function para(text: string, l: Look = {}): string {
+  const pPr =
+    '<w:pPr>' +
+    '<w:keepLines/>' +
+    (l.keepNext ? '<w:keepNext/>' : '') +
+    (l.center ? '<w:jc w:val="center"/>' : '') +
+    (l.bullet ? '<w:ind w:left="357" w:hanging="357"/>' : '') +
+    (l.right ? `<w:tabs><w:tab w:val="right" w:pos="${TEXT_WIDTH}"/></w:tabs>` : '') +
+    (l.rule
+      ? `<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="2" w:color="${ACCENT}"/></w:pBdr>`
+      : '') +
+    `<w:spacing w:before="${l.before ?? 0}" w:after="${l.after ?? 40}" ` +
+    'w:line="264" w:lineRule="auto"/>' +
+    `<w:rPr>${runProps(l)}</w:rPr>` +
+    '</w:pPr>';
+
+  if (text.length === 0 && !l.right) return `<w:p>${pPr}</w:p>`;
+
+  const body = l.bullet
+    ? run('•', l) + `<w:r><w:rPr>${runProps(l)}</w:rPr><w:tab/></w:r>` + run(text, l)
+    : run(text, l);
+  // The dates, pushed to the right margin by a single tab. A tab stop rather than
+  // a table, because a table is one of the documented ways to have a resume
+  // parsed into nonsense.
+  const tail = l.right
+    ? `<w:r><w:rPr>${runProps({ size: l.size })}</w:rPr><w:tab/></w:r>` +
+      run(l.right, { size: l.size })
+    : '';
+  return `<w:p>${pPr}${body}${tail}</w:p>`;
+}
+
+/** Kept for the tests that assert the simple case, and for anything plain. */
+function paragraph(text: string, halfPoints: number, bold: boolean): string {
+  return para(text, { size: halfPoints, bold });
+}
+
+/** A date range at the end of a line: "Aug 2025 - Present", "Jan 2020 - Dec 2021". */
+const DATE_TAIL =
+  /\s+((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(?:present|current|now|((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?(?:19|20)\d{2})\s*$/i;
+
+/**
+ * An employer or institution line, split into who and when.
+ *
+ * The original puts the company at the left margin and the dates at the right, on
+ * one line. The plain text can only run them together, so they are pulled apart
+ * again here on the date range — which is the same signal the resume parser uses
+ * to recognise the line in the first place.
+ */
+const MONTH_TAIL = /(^|\s)((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?)\s*$/i;
+
+export function splitDates(line: string): { who: string; when: string } | null {
+  const m = DATE_TAIL.exec(line);
+  if (!m || m.index === 0) return null;
+
+  // The month in front of the year is optional in the pattern, so on a bare
+  // "Aug 2016 - Sep 2020" the match can begin at the year and leave "Aug" behind
+  // as the company — which is how a date line becomes a bold employer called
+  // August. If what is left ends in a month name, the split was made inside the
+  // date and has to move back in front of it.
+  let at = m.index;
+  const month = MONTH_TAIL.exec(line.slice(0, at));
+  if (month) at = month.index + month[1]!.length;
+
+  const who = line.slice(0, at).replace(/[\s,•·|]+$/, '').trim();
+  return who ? { who, when: line.slice(at).trim() } : null;
+}
+
+/** The bullet marker a line carries, and the text after it. */
+const BULLET = /^\s*[•·‣▪●*-]\s+(.*)$/;
+
+/** Contact details: recognised by what they contain, not by where they sit. */
+function looksLikeContact(line: string): boolean {
+  return /@|https?:|www\.|linkedin|github|\+\d|\(\d{3}\)|\d{3}[.-]\d{3}[.-]\d{4}/i.test(line);
+}
+
+type Section = 'top' | 'skills' | 'experience' | 'education' | 'other';
+
+function sectionOf(heading: string): Section {
+  const t = heading.toLowerCase();
+  if (/skill|technolog|competenc/.test(t)) return 'skills';
+  if (/experience|employment|work history|projects?/.test(t)) return 'experience';
+  if (/education|academic|qualification|certification/.test(t)) return 'education';
+  return 'other';
 }
 
 /** The document body, from plain text. */
 export function documentXml(resumeText: string): string {
   const lines = resumeText.replace(/\r\n?/g, '\n').split('\n');
-  const body = lines
-    .map((line, i) => {
-      const trimmedEnd = line.replace(/\s+$/, '');
-      // The first non-empty line is the name, which is the one piece of a resume
-      // that is always a heading whatever it says.
-      const isName = i === lines.findIndex((l) => l.trim().length > 0);
-      if (isName) return paragraph(trimmedEnd, NAME_HALF_POINTS, true);
-      if (looksLikeHeading(trimmedEnd)) return paragraph(trimmedEnd, HEADING_HALF_POINTS, true);
-      return paragraph(trimmedEnd, BODY_HALF_POINTS, false);
-    })
-    .join('');
+  const firstReal = lines.findIndex((l) => l.trim().length > 0);
+
+  let section: Section = 'top';
+  /** True on the line straight after an employer, which is the role. */
+  let expectRole = false;
+  const out: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!.replace(/\s+$/, '');
+    const t = raw.trim();
+
+    if (!t) {
+      out.push(para('', { size: 12 }));
+      expectRole = false;
+      continue;
+    }
+
+    // The name: the one line of a resume that is always a heading whatever it says.
+    if (i === firstReal) {
+      out.push(
+        para(t, { size: NAME_HALF_POINTS, bold: true, color: ACCENT, center: true, after: 20 }),
+      );
+      continue;
+    }
+
+    // Contact details, while still at the top. Further down, a line with a URL in
+    // it is a bullet about a project.
+    if (section === 'top' && looksLikeContact(t)) {
+      out.push(para(t, { size: 19, color: CONTACT_GREY, center: true, after: 120 }));
+      continue;
+    }
+
+    if (looksLikeHeading(t)) {
+      section = sectionOf(t);
+      expectRole = false;
+      // keepNext, so a heading can never be the last thing on a page.
+      out.push(
+        para(t, {
+          size: HEADING_HALF_POINTS,
+          bold: true,
+          color: ACCENT,
+          rule: true,
+          before: 200,
+          after: 80,
+          keepNext: true,
+        }),
+      );
+      continue;
+    }
+
+    const bullet = BULLET.exec(raw);
+    if (bullet) {
+      out.push(para(bullet[1]!.trim(), { bullet: true }));
+      expectRole = false;
+      continue;
+    }
+
+    if (section === 'experience' || section === 'education') {
+      const split = splitDates(t);
+      if (split) {
+        out.push(
+          para(split.who, { bold: true, right: split.when, before: 120, after: 0, keepNext: true }),
+        );
+        expectRole = true;
+        continue;
+      }
+      if (expectRole) {
+        out.push(para(t, { italic: true, after: 60, keepNext: true }));
+        expectRole = false;
+        continue;
+      }
+    }
+
+    if (section === 'skills') {
+      // "Programming Languages and Scripting: ASP.NET, C#, SQL" — the label is
+      // bold in every resume that has one, and it is what makes the section
+      // skimmable. The colon is the whole signal.
+      const at = t.indexOf(':');
+      if (at > 0 && at <= 60) {
+        out.push(
+          '<w:p><w:pPr><w:keepLines/><w:spacing w:before="0" w:after="40" w:line="264" ' +
+            `w:lineRule="auto"/><w:rPr>${runProps({})}</w:rPr></w:pPr>` +
+            run(t.slice(0, at + 1), { bold: true }) +
+            run(t.slice(at + 1), {}) +
+            '</w:p>',
+        );
+        continue;
+      }
+    }
+
+    // Anything else, with its leading indentation intact — a sub-point indented
+    // under a bullet is a sub-point, and flattening it changes what it says.
+    out.push(para(raw, {}));
+  }
 
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
-    `<w:body>${body}` +
+    `<w:body>${out.join('')}` +
     // Section properties: A4, 2cm margins in twentieths of a point. Required —
     // Word will open a document without them but reflows it unpredictably.
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +

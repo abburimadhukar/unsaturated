@@ -8,6 +8,7 @@ import {
   documentXml,
   escapeXml,
   looksLikeHeading,
+  splitDates,
 } from '../src/ui/docx.js';
 import { extractResumeText } from '../src/ui/resume-file.js';
 
@@ -26,6 +27,15 @@ import { extractResumeText } from '../src/ui/resume-file.js';
  * uploaded CV in production — and the text has to come back. A writer whose output
  * the reader cannot open is a writer nobody should trust with a job application.
  */
+
+/**
+ * Written as a code point rather than an escape.
+ *
+ * A literal newline has been written into a string literal in this project more
+ * than once — it compiles nowhere and is invisible in a diff. There is nothing
+ * here to get wrong.
+ */
+const NL = String.fromCharCode(10);
 
 const RESUME = [
   'Madhukar Abburi',
@@ -63,14 +73,90 @@ test('A GENERATED .docx IS READABLE BY THE APP OWN READER', async () => {
   assert.equal(read.warning, null, `the reader refused it: ${read.warning}`);
   const text = read.text;
 
-  // Every line of the original has to come back. Not byte-identical — the reader
-  // normalises whitespace — but nothing may be missing.
-  for (const line of RESUME.split('\n').filter((l) => l.trim())) {
-    assert.ok(
-      text.includes(line.trim()),
-      `"${line.trim()}" did not survive the round trip`,
-    );
+  // Every WORD of the original has to come back. Not every line byte for byte:
+  // an employer line is now split, company at the left margin and dates at the
+  // right, so "Acme Corp, 2021 to present" comes back as "Acme Corp" and "2021 to
+  // present" with a tab between and the dangling comma gone. That is the layout
+  // doing its job — what must never happen is a word going missing.
+  const flat = text.replace(/\s+/g, ' ');
+  for (const line of RESUME.split(NL).filter((l) => l.trim())) {
+    for (const word of line.trim().split(/\s+/)) {
+      const bare = word.replace(/[,;]$/, '');
+      assert.ok(flat.includes(bare), `"${bare}" did not survive the round trip`);
+    }
   }
+});
+
+test('AN EMPLOYER LINE IS SPLIT, COMPANY LEFT AND DATES RIGHT', () => {
+  // The plain text can only run them together. The document this generator is
+  // measured against puts the company at the left margin and the dates at the
+  // right, on one line — and a tab stop is the ATS-safe way to do it, because a
+  // table is one of the documented ways to have a resume parsed into nonsense.
+  const xml = documentXml(RESUME);
+  assert.match(xml, /<w:tab w:val="right" w:pos="9638"\/>/, 'no right tab stop');
+  assert.match(xml, />Senior Platform Engineer, Acme Corp</);
+  assert.match(xml, />2021 to present</);
+  assert.ok(!xml.includes('Acme Corp, 2021'), 'the line was left run together');
+});
+
+test('splitDates finds the date range and leaves everything else alone', () => {
+  assert.deepEqual(splitDates('TCL, United States Aug 2025 - Present'), {
+    who: 'TCL, United States',
+    when: 'Aug 2025 - Present',
+  });
+  assert.deepEqual(splitDates('Anna University Aug 2016 – Sep 2020'), {
+    who: 'Anna University',
+    when: 'Aug 2016 – Sep 2020',
+  });
+  assert.equal(splitDates('Built the payment service in .NET Core'), null);
+  assert.equal(splitDates('TECHNICAL SKILLS'), null);
+  // A bare date with nothing in front of it is not a company.
+  assert.equal(splitDates('Aug 2016 - Sep 2020'), null);
+});
+
+test('A HEADING IS HELD TO WHAT FOLLOWS IT, AND NO PARAGRAPH SPLITS', () => {
+  // Without this Word broke wherever it liked: a university on one page and its
+  // degree on the next, an employer separated from its first bullet, a third of a
+  // page left blank under a heading.
+  const xml = documentXml(RESUME);
+  const beforeHeading = xml.slice(0, xml.indexOf('>EXPERIENCE<'));
+  assert.match(beforeHeading.slice(-400), /<w:keepNext\/>/, 'a heading can still end a page');
+  assert.ok((xml.match(/<w:keepLines\/>/g) ?? []).length > 10, 'paragraphs can still split');
+});
+
+test('THE SKILLS LABEL IS BOLD AND THE LIST AFTER IT IS NOT', () => {
+  // What makes the section skimmable, and the colon is the whole signal.
+  const xml = documentXml(
+    ['NAME', 'TECHNICAL SKILLS', 'Cloud Technologies: AWS, Azure, Kubernetes'].join(NL),
+  );
+  const at = xml.indexOf('AWS, Azure, Kubernetes');
+  assert.ok(at > 0, 'the skills list is missing');
+  const before = xml.slice(0, at);
+  // The label is its own bold run, inside the same paragraph as the plain list.
+  assert.ok(before.includes('>Cloud Technologies:<'), 'the label is not its own run');
+  assert.ok(
+    before.lastIndexOf('<w:b/>') > before.lastIndexOf('</w:p>'),
+    'the label is not bold',
+  );
+  // And the list itself is not bold: its run opens after the label's closes.
+  const listRun = xml.slice(before.lastIndexOf('<w:r>', at), at);
+  assert.ok(!listRun.includes('<w:b/>'), 'the whole line was bolded');
+});
+
+test('A SKILLS LINE WITH NO LABEL IS LEFT ALONE', () => {
+  // "AWS, Azure, Kubernetes, Terraform, Docker" has no colon, so there is no
+  // label to embolden and nothing to split on.
+  const xml = documentXml(['NAME', 'TECHNICAL SKILLS', 'AWS, Azure, Docker'].join(NL));
+  const at = xml.indexOf('AWS, Azure, Docker');
+  const run = xml.slice(xml.lastIndexOf('<w:r>', at), at);
+  assert.ok(!run.includes('<w:b/>'), 'a line with no label was bolded');
+});
+
+test('bullets are an indented list, not a character inside the sentence', () => {
+  const xml = documentXml(['EXPERIENCE', '· Ran the platform.'].join(NL));
+  assert.match(xml, /<w:ind w:left="357" w:hanging="357"\/>/);
+  assert.match(xml, />Ran the platform\.</);
+  assert.ok(!/>· Ran the platform/.test(xml), 'the marker is still inside the sentence');
 });
 
 test('WORDS DO NOT RUN TOGETHER, WHICH IS THE FAILURE A PARSER WOULD SEE', async () => {
@@ -174,10 +260,13 @@ test('blank lines survive as blank paragraphs', () => {
   assert.equal(paragraphs.length, 3, 'the blank line was dropped');
 });
 
-test('leading indentation is preserved', () => {
+test('leading indentation is preserved on an ordinary line', () => {
   // Without xml:space="preserve" Word eats it, and an indented sub-bullet becomes
-  // a top-level one.
-  assert.match(documentXml('  indented'), /xml:space="preserve">  indented</);
+  // a top-level one. Checked on a body line: the name, the headings and the
+  // employer lines are trimmed deliberately, because indentation in front of a
+  // centred name is not indentation, it is a stray space.
+  const doc = ['NAME', '', '  indented'].join(NL);
+  assert.match(documentXml(doc), /xml:space="preserve">  indented</);
 });
 
 test('section headings are recognised by shape, not by vocabulary', () => {
