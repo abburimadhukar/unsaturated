@@ -45,7 +45,6 @@ const MAX_JD_CHARS = 18_000;
  * told to the person.
  */
 const MAX_RESUME_CHARS = 50_000;
-const MAX_PRESETS = 6;
 
 const bad = (message: string, status: number, extra: Record<string, unknown> = {}) =>
   NextResponse.json({ error: message, ...extra }, { status });
@@ -54,7 +53,7 @@ export async function POST(request: Request) {
   const { visitor, session } = await subjectFor(request);
   if (!session) return bad('sign in to tailor your resume', 401);
 
-  let body: { jobKey?: unknown; presets?: unknown; ask?: unknown };
+  let body: { jobKey?: unknown; ask?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -64,9 +63,6 @@ export async function POST(request: Request) {
   const jobKey = typeof body.jobKey === 'string' ? body.jobKey : '';
   if (!jobKey) return bad('which job?', 400);
 
-  const presets = Array.isArray(body.presets)
-    ? body.presets.filter((p: unknown): p is string => typeof p === 'string').slice(0, MAX_PRESETS)
-    : [];
   const ask = typeof body.ask === 'string' ? body.ask : null;
 
   // Before the posting is fetched and before the model is called, because both
@@ -123,7 +119,6 @@ export async function POST(request: Request) {
     jobTitle: job.title,
     company: job.company,
     jobDescription: described.text.slice(0, MAX_JD_CHARS),
-    presets,
     ask,
   });
 
@@ -132,7 +127,6 @@ export async function POST(request: Request) {
     // Name, contact and education are not rewritten, so the page needs them to
     // assemble the document it shows and downloads.
     shape: readShape(resumeText),
-    used: result.used.map((p) => p.id),
     model: result.model,
     note: result.note,
     needsAttention: result.needsAttention,

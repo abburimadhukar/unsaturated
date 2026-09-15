@@ -43,7 +43,6 @@ import { changedLines, readResume } from '../../src/ui/resume-render.js';
 export interface RewriteResponse {
   rewrite?: CheckedRewrite | null;
   shape?: ResumeShape;
-  used?: string[];
   model?: string;
   note?: string;
   needsAttention?: boolean;
@@ -75,8 +74,6 @@ export interface SuggestResponse {
 }
 
 export interface RewriteSession {
-  presets: string[];
-  togglePreset: (id: string) => void;
   ask: string;
   setAsk: (s: string) => void;
 
@@ -93,8 +90,15 @@ export interface RewriteSession {
   /** Which lines of the assembled document are flagged, so the sheet can mark them. */
   flaggedLines: Set<number>;
 
-  /** The two suggestion buttons. Nothing here is checked against the resume. */
-  sug: SuggestResponse | null;
+  /**
+   * One answer per button, kept apart so both can be on screen at once.
+   *
+   * A single slot meant running the second question threw away the first, and
+   * the two are meant to be read together — the skills you are missing, and the
+   * responsibilities that would cover them. Ticks from both apply to the same
+   * document at the same time.
+   */
+  sug: Record<SuggestMode, SuggestResponse | null>;
   /** Which button is waiting on the model, if either. */
   asking: SuggestMode | null;
   askFor: (mode: SuggestMode) => Promise<void>;
@@ -124,7 +128,6 @@ export interface RewriteSession {
 }
 
 export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
-  const [presets, setPresets] = useState<string[]>(['plain', 'depth', 'keywords']);
   const [ask, setAsk] = useState('');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<RewriteResponse | null>(null);
@@ -146,12 +149,13 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
    * `picked` holds what the person ticked, by the exact text of the item. Nothing
    * reaches the document until it is in here.
    */
-  const [sug, setSug] = useState<SuggestResponse | null>(null);
+  const [sug, setSug] = useState<Record<SuggestMode, SuggestResponse | null>>({
+    skills: null,
+    roles: null,
+  });
   const [asking, setAsking] = useState<SuggestMode | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
-  const togglePreset = (id: string) =>
-    setPresets((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
   const pick = (key: string) =>
     setPicked((p) => {
@@ -172,7 +176,7 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
       const r = await fetch('/api/tailor/rewrite', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jobKey, presets, ask: ask.trim() || null }),
+        body: JSON.stringify({ jobKey, ask: ask.trim() || null }),
       });
       // Parsed whatever the status: every error this route returns carries a
       // sentence, and "something went wrong" would throw away the useful part.
@@ -182,7 +186,7 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     } finally {
       setBusy(false);
     }
-  }, [jobKey, presets, ask]);
+  }, [jobKey, ask]);
 
   /**
    * One question to the model, and nothing done to the answer.
@@ -194,8 +198,9 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const askFor = useCallback(
     async (mode: SuggestMode) => {
       setAsking(mode);
-      setSug(null);
-      setPicked(new Set());
+      // Only this mode's answer is cleared. The other button's results stay on
+      // screen, because the two are meant to be read and ticked together.
+      setSug((prev) => ({ ...prev, [mode]: null }));
       setError('');
       try {
         const r = await fetch('/api/tailor/suggest', {
@@ -203,9 +208,13 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ jobKey, mode }),
         });
-        setSug((await r.json().catch(() => ({}))) as SuggestResponse);
+        const body = (await r.json().catch(() => ({}))) as SuggestResponse;
+        setSug((prev) => ({ ...prev, [mode]: body }));
       } catch {
-        setSug({ error: 'could not reach the server — check your connection and try again' });
+        setSug((prev) => ({
+          ...prev,
+          [mode]: { error: 'could not reach the server — check your connection and try again' },
+        }));
       } finally {
         setAsking(null);
       }
@@ -216,10 +225,10 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const rewrite = res?.rewrite ?? null;
   // The rewrite's copy wins when both exist: it is the one the document is built
   // from, and two shapes of the same CV would differ only by being read twice.
-  const shape = res?.shape ?? sug?.shape ?? null;
+  const shape = res?.shape ?? sug.skills?.shape ?? sug.roles?.shape ?? null;
 
-  const suggestedSkills = sug?.skills?.skills ?? [];
-  const suggestedCompanies = sug?.roles?.companies ?? [];
+  const suggestedSkills = sug.skills?.skills?.skills ?? [];
+  const suggestedCompanies = sug.roles?.roles?.companies ?? [];
 
   const chosenSkills: ChosenSkill[] = suggestedSkills
     .filter((s) => picked.has(s.skill))
@@ -365,8 +374,6 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   };
 
   return {
-    presets,
-    togglePreset,
     ask,
     setAsk,
     busy,

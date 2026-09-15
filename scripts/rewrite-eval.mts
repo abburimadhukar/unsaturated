@@ -4,7 +4,7 @@
  * Not a test: it spends money and needs a key. `npm test` globs tests/*.test.ts
  * only, so it cannot be reached from there.
  *
- *   npx tsx scripts/rewrite-eval.mts <resume.txt> <job-key> <title> <company> [presets]
+ *   npx tsx scripts/rewrite-eval.mts <resume.txt> <job-key> <title> <company>
  */
 import { readFileSync } from 'node:fs';
 
@@ -15,12 +15,11 @@ import { readShape } from '../src/tailor/sections.js';
 import { describeTally, orderForReading } from '../src/tailor/coverage.js';
 import { voiceProblems } from '../src/tailor/voice.js';
 
-const [resumePath, jobKey, title, company, presetArg] = process.argv.slice(2);
+const [resumePath, jobKey, title, company] = process.argv.slice(2);
 if (!resumePath || !jobKey) {
-  console.error('usage: tsx scripts/rewrite-eval.mts <resume.txt> <job-key> <title> <company> [presets]');
+  console.error('usage: tsx scripts/rewrite-eval.mts <resume.txt> <job-key> <title> <company>');
   process.exit(1);
 }
-const presets = (presetArg ?? 'plain,depth,keywords').split(',').filter(Boolean);
 
 function apiKey(): string {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
@@ -54,7 +53,6 @@ if (!jd.ok) {
 console.log(rule('INPUT'));
 console.log(`resume  : ${resumeText.length} chars`);
 console.log(`posting : ${jd.text.length} chars via ${jd.via}`);
-console.log(`presets : ${presets.join(', ')}`);
 
 console.log(rule('REWRITING — this spends money'));
 const started = Date.now();
@@ -64,7 +62,6 @@ const result = await rewriteResume(
     jobTitle: title ?? 'the role',
     company: company ?? '',
     jobDescription: jd.text,
-    presets,
   },
   { apiKey: key },
 );

@@ -1,6 +1,6 @@
 import type { Answer, Need } from './coverage.js';
 import { checkRewrite, type CheckedRewrite, type RewriteAnswer } from './rewrite.js';
-import { buildRewriteMessages, type Preset, type RewriteInput } from './rewrite-prompt.js';
+import { buildRewriteMessages, type RewriteInput } from './rewrite-prompt.js';
 import { OPENAI_URL, TAILOR_MODEL, extractJson } from './run.js';
 
 /**
@@ -122,7 +122,6 @@ const RESPONSE_SCHEMA = {
 
 export interface RewriteResult {
   checked: CheckedRewrite | null;
-  used: Preset[];
   model: string;
   note: string;
   needsAttention: boolean;
@@ -246,7 +245,6 @@ export interface RewriteOptions {
 
 const idle = (model: string, note: string, needsAttention = false): RewriteResult => ({
   checked: null,
-  used: [],
   model,
   note,
   needsAttention,
@@ -271,7 +269,7 @@ export async function rewriteResume(
   if (!input.resumeText.trim()) return idle(model, 'add your resume first');
   if (!input.jobDescription.trim()) return idle(model, 'this posting has no description');
 
-  const { system, user, used } = buildRewriteMessages(input);
+  const { system, user } = buildRewriteMessages(input);
   const doFetch = opts.fetchImpl ?? fetch;
   const attempts = opts.attempts ?? 3;
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -321,7 +319,6 @@ export async function rewriteResume(
     const checked = checkRewrite(parseRewrite(extractJson(content)), input.resumeText);
     return {
       checked,
-      used,
       model,
       note:
         `${checked.kept} lines verified, ${checked.flagged} for you to check` +

@@ -40,6 +40,62 @@ const BULLET_MARKER = /^\s*([•·‣▪●\-*])\s+/;
 
 const same = (a: string, b: string): boolean => normalise(a) === normalise(b);
 
+/** The category a skills line declares: "Monitoring: Splunk" -> "Monitoring". */
+export function labelOf(line: string): string {
+  const at = line.indexOf(':');
+  return at > 0 ? line.slice(0, at).trim() : line.trim();
+}
+
+/**
+ * One skill appended to a line, unless it is already there.
+ *
+ * THE LINE IS BUILT HERE, NOT BY THE MODEL, AND THAT IS THE WHOLE POINT
+ *
+ * This used to take the model's `newLine` — its rewritten version of the whole
+ * line — and put it in place of the original. On a real run the model returned
+ * `intoLine` correctly and left `newLine` EMPTY, so the fallback kicked in and
+ * replaced the line with the bare skill name. The result:
+ *
+ *   before   Cloud Technologies: Azure DevOps, Azure Kubernetes Services, Azure
+ *            PaaS, Azure IaaS, Terraform, Ansible, Docker
+ *   after    AWS, Terragrunt, OpenTofu
+ *
+ * Seven skills the person actually has, deleted, to add three they do not. Two
+ * lines went that way in one run.
+ *
+ * So the model now only says WHICH line. The text of it is assembled from the
+ * line that is really in the document plus the skill name, which cannot lose
+ * anything that was there. The cost is that a skill lands at the end of its list
+ * rather than beside its relatives; that is a rounding error next to deleting
+ * somebody's skills section.
+ */
+export function addSkillTo(current: string, skill: string): string {
+  const name = skill.trim();
+  if (!name || normalise(current).includes(normalise(name))) return current;
+  return current.trim() ? `${current.trim()}, ${name}` : name;
+}
+
+/**
+ * The line a group of chosen skills produces.
+ *
+ * The base is the EXISTING line when there is one — never the model's rewrite of
+ * it. A brand-new line has nothing to lose, so there the model's wording is used
+ * as given.
+ *
+ * Exported because the screen previews this before anything is ticked, and two
+ * implementations of it would eventually disagree about what lands.
+ */
+export function mergeSkillLine(chosen: readonly ChosenSkill[], existing?: string): string {
+  let out: string | null = null;
+  for (const s of chosen) {
+    if (out === null) {
+      out = (existing ?? s.intoLine).trim() || s.newLine.trim() || s.skill.trim();
+    }
+    out = addSkillTo(out, s.skill);
+  }
+  return out ?? '';
+}
+
 /** Where a company's own lines end: the next employer, the next section, or the end. */
 function endOfCompanyBlock(lines: readonly string[], headerAt: number): number {
   let i = headerAt + 1;
@@ -93,25 +149,31 @@ export function applyAdditions(
   //
   // So the first suggestion for a line takes the model's rewritten version, and
   // every later one appends just its own skill to whatever the line has become.
-  const unplaced: string[] = [];
   const byLine = new Map<number, string>();
+  // New lines are grouped by their label too. Three skills the model could not
+  // place used to become three one-item categories — "Operating Systems: Linux",
+  // "AI-Assisted Engineering: AI coding assistants" — which is what a padded CV
+  // looks like. Same label, same line.
+  const byLabel = new Map<string, string>();
+
   for (const s of skills) {
-    const text = s.newLine.trim() || s.skill.trim();
-    if (!text) continue;
+    if (!s.skill.trim() && !s.newLine.trim()) continue;
     const at = s.intoLine.trim() ? lines.findIndex((l) => l.trim() && same(l, s.intoLine)) : -1;
 
-    if (at < 0) {
-      if (!unplaced.some((u) => same(u, text))) unplaced.push(text);
+    if (at >= 0) {
+      // Built from the line that is really in the document, so nothing on it can
+      // be lost however the model filled in `newLine`.
+      byLine.set(at, addSkillTo(byLine.get(at) ?? (lines[at] ?? '').trim(), s.skill));
       continue;
     }
 
-    const current = byLine.get(at);
-    if (current === undefined) byLine.set(at, text);
-    else if (s.skill.trim() && !normalise(current).includes(normalise(s.skill))) {
-      byLine.set(at, `${current}, ${s.skill.trim()}`);
-    }
+    const text = s.newLine.trim() || s.skill.trim();
+    const key = normalise(labelOf(text));
+    const base = byLabel.get(key);
+    byLabel.set(key, base === undefined ? text : addSkillTo(base, s.skill));
   }
   for (const [at, text] of byLine) lines[at] = text;
+  const unplaced = [...byLabel.values()];
 
   if (unplaced.length > 0) {
     const shape = readShape(lines.join('\n'));

@@ -33,7 +33,16 @@ import { VOICE_RULES } from './voice.js';
  *   The screen, which says so plainly and adds nothing until it is ticked.
  */
 
-/** Most missing skills worth listing. A longer list is not read. */
+/**
+ * What the model is asked for, and what the parser will tolerate.
+ *
+ * Two numbers rather than one. The first is the instruction — a list of fifteen
+ * missing skills is not read by anybody, and the first real run returned seven
+ * with three of them inventing a one-item category each. The second is a ceiling
+ * set above it, so a model that returns nine is not silently cut to eight; the
+ * screen shows what it said and the person scrolls.
+ */
+export const MAX_SKILLS_SHOWN = 8;
 export const MAX_SKILLS = 14;
 /** Responsibilities per employer, as asked for. */
 export const BULLETS_PER_COMPANY = 2;
@@ -145,17 +154,43 @@ const SKILLS_TASK = [
   'posting asks for that the resume does not already show. For each one, say where in',
   'the resume it would go.',
   '',
-  'S1. Only skills the posting actually asks for. Quote the posting in "fromPosting".',
-  'S2. Only skills the resume does NOT already show. If it is already there in any',
+  `S1. AT MOST ${MAX_SKILLS_SHOWN}, and fewer is better. Return the ones this posting actually cares`,
+  '    about — the ones named in the requirements, not every tool mentioned in passing.',
+  '    A list of fifteen is not read; a list of five is acted on.',
+  'S2. Only skills the posting actually asks for. Quote the posting in "fromPosting".',
+  'S3. Only skills the resume does NOT already show. If it is already there in any',
   '    form — under a different name, on a skills line, inside a bullet — leave it out.',
   '    A list of things they already have is worse than no list.',
-  'S3. "intoLine" is the skills line it belongs on, copied EXACTLY from the resume, so',
-  '    it can be found. If no existing line fits, leave it empty and the skill will',
-  '    start a new line.',
-  'S4. "newLine" is what that line should read as with the skill added — the original',
-  '    line, unchanged, with the new skill inserted where it belongs in the list. Do',
-  '    not reorder the rest, do not drop anything from it.',
-  'S5. "why" is one plain sentence: where it fits and what the posting wants it for.',
+  '',
+  'WHERE IT GOES — THIS IS THE PART MOST EASILY GOT WRONG',
+  '',
+  'S4. PUT IT ON AN EXISTING LINE. You have been shown the resume\'s skills lines with',
+  '    their labels. Almost every skill belongs on one of them, and the person ends up',
+  '    with a tidy resume instead of a pile of one-item categories. Ask which label it',
+  '    would sit under if they had always had it:',
+  '      a cloud platform, an IaC tool, a container tool  -> the cloud/infrastructure line',
+  '      a language, a shell, a query language            -> the languages line',
+  '      a monitoring, logging or alerting product        -> the monitoring/tooling line',
+  '      a framework or library                           -> the frameworks line',
+  '      a database or store                              -> the databases line',
+  '    That is an example of the reasoning, not a list of categories — use the labels',
+  '    THIS resume actually has, whatever field it is in. A clinical system goes on the',
+  '    clinical systems line; an accounting standard goes with the other standards.',
+  'S5. "intoLine" is that line, copied EXACTLY from the resume so it can be found.',
+  'S6. A NEW LINE IS THE LAST RESORT. Leave "intoLine" empty only when no existing line',
+  '    could hold it without being wrong. Never create a category for one item if an',
+  '    existing line would have taken it.',
+  '    AND IF SEVERAL SKILLS ALL NEED A NEW LINE, THEY SHARE ONE. Give them the same',
+  '    label in "newLine" — "Practices: Code review, On-call" — rather than a separate',
+  '    one-item line each. Three new one-item categories is how a resume starts looking',
+  '    padded.',
+  'S7. "newLine" is ONLY for a skill starting a new line: write the whole line,',
+  '    label and all — "Practices: Code review". When "intoLine" names an existing',
+  '    line, leave "newLine" EMPTY. The existing line is rebuilt from the resume',
+  '    itself and your skill appended, so nothing on it can be lost — an earlier',
+  '    version asked you to rewrite the line and a run that left it blank wiped',
+  '    seven of the candidate\'s real skills off their CV.',
+  'S8. "why" is one plain sentence: where it fits and what the posting wants it for.',
   '',
   'Order them by how much the posting cares.',
 ].join('\n');
@@ -234,7 +269,11 @@ export const SKILLS_SCHEMA = {
               type: 'string',
               description: 'the skills line it belongs on, copied EXACTLY, or empty for a new line',
             },
-            newLine: { type: 'string', description: 'that line with the skill added' },
+            newLine: {
+              type: 'string',
+              description:
+                'ONLY when intoLine is empty: the whole new line, label and all. Empty otherwise.',
+            },
             why: { type: 'string', description: 'one sentence' },
           },
         },

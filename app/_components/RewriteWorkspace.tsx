@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-import { PRESETS } from '../../src/tailor/rewrite-prompt.js';
 import type { Concern } from '../../src/tailor/rewrite.js';
 import { Changes, CompareView } from './Changes.js';
 import { Coverage } from './Coverage.js';
@@ -93,9 +92,10 @@ export function RewriteWorkspace({
   /** Suggestions ticked, counted off the answer rather than off the tick set, so
       a stale tick from a previous run cannot inflate it. */
   const pickedCount =
-    (s.sug?.skills?.skills ?? []).filter((x) => s.picked.has(x.skill)).length +
-    (s.sug?.roles?.companies ?? []).flatMap((c) => c.bullets).filter((b) => s.picked.has(b.text))
-      .length;
+    (s.sug.skills?.skills?.skills ?? []).filter((x) => s.picked.has(x.skill)).length +
+    (s.sug.roles?.roles?.companies ?? [])
+      .flatMap((c) => c.bullets)
+      .filter((b) => s.picked.has(b.text)).length;
 
   return (
     <div className={`twork pane-${pane === 'setup' ? 'changes' : 'resume'}`}>
@@ -155,20 +155,13 @@ export function RewriteWorkspace({
                 : 'This rewrites your whole resume for this job — summary, skills order and the bullets under each employer. Nothing is invented.'}
             </p>
 
-            <div className="tchips">
-              {PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className={`tchip${s.presets.includes(p.id) ? ' on' : ''}`}
-                  onClick={() => s.togglePreset(p.id)}
-                  title={p.hint}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
+            {/* The six preset chips — "Fit one page", "Show the depth", "Lead
+                with their industry" and the rest — were removed at the owner's
+                instruction, along with the `presets` field behind them. They were
+                a menu of ways to phrase one request. The two buttons below ask a
+                different question and hand back things to tick, which is what
+                the chips were reaching for. The free-text box stays: that is
+                somebody saying something specific in their own words. */}
             {showAsk ? (
               <textarea
                 className="tcustom"
@@ -246,39 +239,54 @@ export function RewriteWorkspace({
             </div>
           )}
 
-          {/* ---- what the model suggested, ticked one at a time ---- */}
-          {s.sug?.error && <div className="terror">{s.sug.error}</div>}
+          {/* ---- what the model suggested, ticked one at a time ----
 
-          {(s.sug?.skills || s.sug?.roles) && (
+              Both panels render together and neither clears the other. They are
+              two halves of one answer: the skills you are missing, and the
+              responsibilities that would cover them. Ticks from both go into the
+              same document at the same time.
+
+              The caution is said ONCE, above both, rather than per panel or per
+              row — somebody told six times stops reading the seventh. */}
+          {(s.sug.skills?.error || s.sug.roles?.error) && (
+            <div className="terror">{s.sug.skills?.error ?? s.sug.roles?.error}</div>
+          )}
+
+          {(s.sug.skills?.skills || s.sug.roles?.roles) && (
             <section className="sug">
               <div className="sughead">
-                <h2>
-                  {s.sug.mode === 'roles' ? 'Suggested responsibilities' : 'Skills you are missing'}
-                </h2>
+                <h2>Suggestions</h2>
                 {pickedCount > 0 && (
                   <span className="sugcount">{pickedCount} added to your resume</span>
                 )}
               </div>
-              {/* Said once, plainly, and not repeated on every row. Somebody told
-                  six times stops reading the seventh. */}
               <p className="tnote">
                 Nothing here was checked against your resume — it cannot be, because all of it
                 is by definition what your resume does not say. These describe work you may
                 have done and not written down. <strong>Tick only what is true of you.</strong>
               </p>
 
-              {s.sug.skills && (
-                <SkillSuggestions answer={s.sug.skills} picked={s.picked} onPick={s.pick} />
-              )}
-              {s.sug.roles && (
-                <RoleSuggestions answer={s.sug.roles} picked={s.picked} onPick={s.pick} />
+              {s.sug.skills?.skills && (
+                <>
+                  <h3 className="sugpart">Skills you are missing</h3>
+                  <SkillSuggestions
+                    answer={s.sug.skills.skills}
+                    picked={s.picked}
+                    onPick={s.pick}
+                  />
+                </>
               )}
 
-              {s.sug.note && (
-                <p className="tfoot">
-                  {s.sug.note} · {s.sug.model}
-                </p>
+              {s.sug.roles?.roles && (
+                <>
+                  <h3 className="sugpart">Responsibilities that would cover them</h3>
+                  <RoleSuggestions answer={s.sug.roles.roles} picked={s.picked} onPick={s.pick} />
+                </>
               )}
+
+              <p className="tfoot">
+                {[s.sug.skills?.note, s.sug.roles?.note].filter(Boolean).join(' · ')}
+              </p>
             </section>
           )}
 

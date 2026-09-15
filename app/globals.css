@@ -1975,3 +1975,26 @@ footer.twbot {
 @media (max-width: 1100px) {
   .cmp { grid-template-columns: 1fr; }
 }
+
+/* A group of skills that all join the same line, with the finished line under
+   them. Seven flat rows hid the fact that three of them were going to the same
+   place. */
+.suggroup { margin-top: 12px; }
+.sugpart {
+  margin: 14px 0 2px;
+  font-size: 12px;
+  color: var(--text);
+}
+.sugnew {
+  margin-left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+.suggroup .sugline {
+  margin: 2px 0 0 26px;
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
