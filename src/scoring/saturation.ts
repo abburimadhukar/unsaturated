@@ -74,6 +74,11 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   breezy: 0.85,
   // Small-company boards that syndicate nowhere else.
   rippling: 0.85,
+  // Oracle Cloud Recruiting sits with Workday for the same reason: its
+  // customers are hospitals, universities, utilities and European
+  // manufacturers, and their postings syndicate poorly and are almost never
+  // browsed by the tech job-seeking crowd.
+  oracle: 0.8,
   // Government postings are rarely syndicated and almost never browsed by the
   // tech job-seeking crowd, so competition per opening is unusually low.
   usajobs: 0.85,
@@ -103,6 +108,11 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   smartrecruiters: 0.55,
   workday: 1,
   rippling: 0.4,
+  // Just below Workday. Applying means creating a per-tenant Oracle candidate
+  // account and re-keying the resume into its form, which is the same wall most
+  // applicants stop at — but Oracle at least lets a profile be reused across
+  // sites of one tenant, which Workday does not.
+  oracle: 0.9,
   // Federal and municipal applications are long, form-heavy and demand
   // supporting documents - exactly the friction most applicants abandon.
   usajobs: 0.95,

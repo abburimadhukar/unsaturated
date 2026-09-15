@@ -260,8 +260,19 @@ async function siteHasJobs(tenant: string, host: string, site: string): Promise<
 export async function discoverWorkdaySite(
   tenant: string,
   maxAttempts = 24,
+  /**
+   * Site names to try instead of guessing them.
+   *
+   * The guesses exist because a tenant name alone says nothing about its career
+   * site. When the site IS known — a myworkdaysite.com address carries it in
+   * the path — guessing eleven wrong names first is eleven wasted requests per
+   * shard, and the real name is very often not in the list at all
+   * ("Parkland_Careers", "External_Career_Site" for a hotel group, "CLS").
+   * Passing it makes the search a shard lookup rather than a matrix.
+   */
+  knownSites?: readonly string[],
 ): Promise<{ host: string; site: string; locale: string; total: number } | null> {
-  const sites = siteCandidates(tenant);
+  const sites = knownSites && knownSites.length > 0 ? [...knownSites] : siteCandidates(tenant);
   let attempts = 0;
 
   for (const shard of WORKDAY_SHARDS) {

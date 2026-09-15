@@ -1,3 +1,5 @@
+import { oracleCompanyFrom, oracleSearchUrl } from '../ats/adapters/oracle.js';
+import { WORKDAY_SHARDS, discoverWorkdaySite } from '../ats/adapters/workday.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { OpenBoard } from './opendata.js';
 
@@ -35,6 +37,25 @@ export interface VerifyResult {
   parsed?: boolean;
   /** Corporate domain, where the board's own payload reveals it. */
   domain?: string;
+  /**
+   * The employer's real name, where only the vendor knows it.
+   *
+   * Discovery names a board by title-casing its token, which works because most
+   * tokens are the company: greenhouse/stripe is Stripe. Oracle's are not —
+   * tenants are opaque four-letter codes, so `hccz` would be stored as "Hccz"
+   * and shown that way in the feed. It is Pearson, and its own search response
+   * says so in `organizationsFacet`.
+   */
+  company?: string;
+  /**
+   * Fields the check had to work out for itself, to be stored with the board.
+   *
+   * Workday is the case. A tenant harvested from myworkdaysite.com names no
+   * shard, and the same board answers on several — so verification probes for
+   * the one that works and the answer has to survive, or the stored row would
+   * fail every crawl forever.
+   */
+  extra?: Record<string, string>;
 }
 
 function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
@@ -87,6 +108,15 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
     // tokens sampled from the index answered 200, carrying 10.8 jobs each.
     case 'rippling':
       return { url: `https://api.rippling.com/platform/api/ats/v1/board/${b.token}/jobs` };
+    // Oracle needs the same two identifiers the adapter does. Without both, a
+    // stored row can never be fetched — so no host or no site means no check,
+    // which is what "unknown" is for.
+    case 'oracle': {
+      const host = b.extra?.host;
+      const site = b.extra?.site;
+      if (!host || !site) return null;
+      return { url: oracleSearchUrl(host, site, 1, 0) };
+    }
     case 'recruitee':
       return { url: `https://${b.token}.recruitee.com/api/offers/` };
     case 'teamtailor':
@@ -134,6 +164,13 @@ function countJobs(provider: AtsProvider, body: unknown): number {
   if (!body || typeof body !== 'object') return 0;
   const o = body as Record<string, unknown>;
   if (provider === 'workday') return typeof o.total === 'number' ? o.total : 0;
+  // Oracle wraps one search result in `items`, and the count that matters is
+  // the site's total rather than the page we asked for — the check asks for a
+  // single posting, so counting the array would report every live board as 1.
+  if (provider === 'oracle') {
+    const search = Array.isArray(o.items) ? (o.items[0] as Record<string, unknown> | undefined) : undefined;
+    return typeof search?.TotalJobsCount === 'number' ? search.TotalJobsCount : 0;
+  }
   if (provider === 'smartrecruiters') return typeof o.totalFound === 'number' ? o.totalFound : 0;
   if (provider === 'ukg') return typeof o.totalCount === 'number' ? o.totalCount : 0;
   if (provider === 'bamboohr') return Array.isArray(o.result) ? o.result.length : 0;
@@ -248,6 +285,43 @@ export function summariseVerification(results: VerifyResult[]): string {
   return lines.join('\n');
 }
 
+/**
+ * Fills in what a candidate needs before it can be checked at all.
+ *
+ * ONE CASE, AND IT IS WORKDAY'S SECOND ADDRESS
+ *
+ * Workday serves the same board from two hostnames. `{tenant}.wd3.myworkdayjobs.com`
+ * names its shard; `wd1.myworkdaysite.com/en-US/recruiting/{tenant}/{site}` does
+ * not — the wd1 in that address is the site's own front door, not the tenant's
+ * pod. Measured 15 September 2026, that is not a detail: of eight tenants found
+ * only on myworkdaysite, three answered on wd3 and wd12 rather than wd1, so
+ * taking the hostname at face value would have recorded them as dead.
+ *
+ * Both addresses return byte-identical totals for a tenant we already hold —
+ * fmr/FidelityCareers 636 on each, wf/WellsFargoJobs 1792 on each — so the
+ * second domain is not a second estate and must never be stored as one. That
+ * would register Fidelity twice under two hosts, which is exactly the duplicate
+ * the 2026-09-07 site migration exists to prevent. The value in those URLs is
+ * the TENANT NAME: 38 of the 58 found there were in no registry at all.
+ *
+ * So the harvest records the tenant and the site, and the shard is discovered
+ * here against the domain we already crawl.
+ */
+async function resolveBeforeCheck(board: OpenBoard): Promise<OpenBoard> {
+  if (board.provider !== 'workday') return board;
+  const site = board.extra?.site;
+  if (!site || board.extra?.host) return board;
+
+  // Eight shards, one known site name: at most eight requests, and usually one
+  // or two. Guessing site names as well would be ninety.
+  const found = await discoverWorkdaySite(board.token, WORKDAY_SHARDS.length, [site]);
+  if (!found) return board;
+  return {
+    ...board,
+    extra: { ...board.extra, host: found.host, site: found.site, locale: found.locale },
+  };
+}
+
 export async function verifyBoards(
   boards: OpenBoard[],
   opts: VerifyOptions,
@@ -257,11 +331,16 @@ export async function verifyBoards(
   const out: VerifyResult[] = [];
 
   for (const board of boards) {
-    const target = endpoint(board);
+    const resolved = await resolveBeforeCheck(board);
+    const target = endpoint(resolved);
     if (!target) {
       out.push({ board, verdict: 'unknown', jobs: 0, status: null });
       continue;
     }
+    // Anything the resolution worked out has to reach the caller, or the stored
+    // row is the half-formed one that could not be checked in the first place.
+    const gained =
+      resolved.extra !== board.extra ? { extra: resolved.extra as Record<string, string> } : {};
 
     let result: VerifyResult = { board, verdict: 'unknown', jobs: 0, status: null };
     // One retry, because the first failure is far more often a rate limit than a
@@ -297,6 +376,9 @@ export async function verifyBoards(
             ? await res.text().catch(() => null)
             : await res.json().catch(() => null);
         const domain = board.provider === 'greenhouse' ? domainFrom(body) : undefined;
+        // Oracle's tokens are opaque codes, so the only place the employer's
+        // name exists is the response we already have in hand.
+        const company = board.provider === 'oracle' ? oracleCompanyFrom(body) : undefined;
         result = {
           board,
           verdict: 'live',
@@ -307,6 +389,8 @@ export async function verifyBoards(
           // JSON belongs. Recorded rather than flattened into "0 jobs".
           parsed: body !== null,
           ...(domain ? { domain } : {}),
+          ...(company ? { company } : {}),
+          ...gained,
         };
         break;
       } catch {

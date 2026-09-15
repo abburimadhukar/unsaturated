@@ -29,6 +29,10 @@ const PROBE_TOKENS: Partial<Record<AtsProvider, string>> = {
   // rather than left to `npm run discover`. Skipping it is how a pagination bug
   // that cut every Workday board to 40 jobs survived a green smoke test.
   workday: 'keybank',
+  // Pearson, whose Oracle tenant is `hccz`. Probed for the same reason as
+  // Workday: the API caps a page at 200 however many are asked for, so a
+  // paginator that fails to advance looks perfectly healthy at 200 jobs.
+  oracle: 'hccz',
 };
 
 /** Providers needing more than a bare token to address a board. */
@@ -38,6 +42,7 @@ const PROBE_EXTRA: Partial<Record<AtsProvider, Record<string, string>>> = {
     site: 'External_Career_Site',
     locale: 'en-US',
   },
+  oracle: { host: 'hccz.fa.em3.oraclecloud.com', site: 'CX' },
 };
 
 /**
@@ -50,6 +55,9 @@ const MIN_EXPECTED: Partial<Record<AtsProvider, number>> = {
   workday: 100,
   smartrecruiters: 100,
   lever: 50,
+  // Above one page, so a paginator that stops after the first is caught. The
+  // board held 394 when this was written.
+  oracle: 250,
 };
 
 function coverage(jobs: NormalizedJob[], field: keyof NormalizedJob): string {

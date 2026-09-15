@@ -267,15 +267,17 @@ app/              Next.js: 4 pages, 12 API routes
 
 ### Vendor adapters
 
-15 are registered in `src/ats/adapters/index.ts` [code]:
+16 are registered in `src/ats/adapters/index.ts` [code]:
 
 ```
-ashby  bamboohr  breezy  greenhouse  lever  personio  recruitee  rippling
-smartrecruiters  socrata  teamtailor  ukg  usajobs  workable  workday
+ashby  bamboohr  breezy  greenhouse  lever  oracle  personio  recruitee
+rippling  smartrecruiters  socrata  teamtailor  ukg  usajobs  workable  workday
 ```
 
-Twelve are hiring systems with boards in the registry; `socrata` and `usajobs`
-are government feeds, and `breezy` has 21 registered boards [db].
+Thirteen are hiring systems with boards in the registry; `socrata` and `usajobs`
+are government feeds, and `breezy` has 21 registered boards [db]. `oracle` is
+Oracle Cloud Recruiting, added 15 September 2026 — its listing carries no
+description at all, so it backfills per posting like Workday does.
 
 **Every adapter answers one question: given a board, return its postings.**
 Most route through `src/ats/http.ts`, which maps an HTTP status to a failure

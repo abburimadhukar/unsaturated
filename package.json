@@ -24,6 +24,7 @@
     "boards:seed": "tsx src/cli/boards-seed.ts",
     "boards:verify": "tsx src/cli/boards-verify.ts",
     "harvest:cc": "tsx src/cli/harvest-cc.ts",
+    "harvest:ia": "tsx src/cli/harvest-ia.ts",
     "build:snapshot": "tsx src/cli/snapshot.ts && next build",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",

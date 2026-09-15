@@ -56,7 +56,16 @@ const SELF_SUFFICIENT: AtsProvider[] = ['greenhouse', 'lever', 'ashby', 'socrata
  * bamboohr is here for the date as much as the text: its listing has neither,
  * and its detail page has both.
  */
-const BACKFILLABLE: AtsProvider[] = ['workday', 'smartrecruiters', 'workable', 'bamboohr'];
+const BACKFILLABLE: AtsProvider[] = [
+  'workday',
+  'smartrecruiters',
+  'workable',
+  'bamboohr',
+  // Oracle's listing has no body text whatever — not a truncated one, an empty
+  // string — so without this every Oracle posting reaches scoring with nothing
+  // to match a resume against.
+  'oracle',
+];
 
 export function needsBackfill(provider: AtsProvider): boolean {
   return !SELF_SUFFICIENT.includes(provider) && BACKFILLABLE.includes(provider);
@@ -134,6 +143,65 @@ async function workableDetail(
 }
 
 /**
+ * Oracle Cloud Recruiting — recruitingCEJobRequisitionDetails
+ *
+ * The listing carries no body at all: ShortDescriptionStr is empty and the
+ * description fields are null on every posting sampled. The detail resource has
+ * them, keyed by the requisition id and scoped to the same siteNumber.
+ *
+ * Three fields are joined rather than one. Oracle's customers split a posting
+ * across description, responsibilities and qualifications, and which of the
+ * three is populated varies by employer — Pearson puts everything in
+ * ExternalDescriptionStr and leaves the other two empty strings, while others
+ * do the reverse. Taking only the first would read as a missing description for
+ * whole tenants.
+ *
+ * The id is quoted inside the finder because Oracle's `ById` finder wants a
+ * string literal; an unquoted id answers 400.
+ */
+async function oracleDetail(
+  board: BoardRef,
+  job: NormalizedJob,
+  ctx: FetchContext,
+): Promise<JobDetail | null> {
+  const host = board.extra?.host;
+  const site = board.extra?.site;
+  if (!host || !site) return null;
+
+  const finder = `ById;Id="${job.externalId}",siteNumber=${site}`;
+  const body = await getJson<{
+    items?: {
+      ExternalDescriptionStr?: string | null;
+      ExternalResponsibilitiesStr?: string | null;
+      ExternalQualificationsStr?: string | null;
+      ExternalPostedStartDate?: string | null;
+    }[];
+  }>(
+    `https://${host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails` +
+      `?expand=all&onlyData=true&finder=${encodeURIComponent(finder)}`,
+    ctx,
+  );
+
+  const item = body?.items?.[0];
+  if (!item) return null;
+
+  const description = stripHtml(
+    [
+      item.ExternalDescriptionStr,
+      item.ExternalResponsibilitiesStr,
+      item.ExternalQualificationsStr,
+    ]
+      .filter((s): s is string => Boolean(s && s.trim()))
+      .join('\n\n'),
+  );
+  // The listing's PostedDate is a bare day; this one carries the time and the
+  // offset, which is what makes an hourly feed orderable within a day.
+  const postedAt = parseDate(item.ExternalPostedStartDate ?? undefined);
+  if (!description && !postedAt) return null;
+  return { ...(description ? { description } : {}), ...(postedAt ? { postedAt } : {}) };
+}
+
+/**
  * BambooHR — {token}.bamboohr.com/careers/{id}/detail
  *
  * The only provider here fetched for its DATE rather than its text. `datePosted`
@@ -176,6 +244,8 @@ export async function fetchDetail(
       return workableDetail(board, job, ctx);
     case 'bamboohr':
       return bambooHrDetail(board, job, ctx);
+    case 'oracle':
+      return oracleDetail(board, job, ctx);
     default:
       return null;
   }

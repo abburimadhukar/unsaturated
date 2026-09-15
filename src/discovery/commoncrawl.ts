@@ -27,7 +27,7 @@ const INDEX_HOST = 'https://index.commoncrawl.org';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-interface Pattern {
+export interface Pattern {
   provider: AtsProvider;
   /** CDX url pattern. */
   match: string;
@@ -35,7 +35,7 @@ interface Pattern {
   extract: RegExp;
 }
 
-const PATTERNS: Pattern[] = [
+export const PATTERNS: Pattern[] = [
   {
     provider: 'greenhouse',
     match: 'job-boards.greenhouse.io/*',
@@ -153,11 +153,82 @@ const PATTERNS: Pattern[] = [
     match: 'recruiting2.ultipro.com/*',
     extract: /(recruiting2?\.ultipro\.com)\/([A-Za-z0-9_]+)\/JobBoard\/([0-9a-f-]{36})/i,
   },
+  // Workday's SECOND address, harvested for tenant NAMES and nothing else.
+  //
+  //   wd1.myworkdaysite.com/en-US/recruiting/{tenant}/{site}/job/…
+  //   wd1.myworkdaysite.com/de-DE/recruiting/whitecase/External/job/…
+  //
+  // Measured 15 Sep 2026, and the measurement is the whole point of the comment.
+  // Both addresses serve the SAME BOARD: fmr/FidelityCareers answers 636 on
+  // each, wf/WellsFargoJobs 1792 on each, tjx/TJX_External 11001 on each. So
+  // this is not a second estate, and storing it as one would register Fidelity
+  // and Wells Fargo twice under two hosts — precisely the duplicate the
+  // 2026-09-07 site migration exists to prevent.
+  //
+  // What it IS good for is names. Of 58 tenants found here, 38 were in no
+  // registry at all: HCA Healthcare, Clorox, BSI Group, Daher, Parkland
+  // Hospital, White & Case. They were never discovered, not badly addressed.
+  //
+  // So NO host is recorded. The wd1 in this hostname is the site's front door
+  // rather than the tenant's shard — of eight unregistered tenants checked,
+  // three answered on wd3 and wd12 — so taking it at face value would record
+  // live employers as dead. verify.ts finds the real shard on
+  // myworkdayjobs.com, which is the domain we already crawl.
+  {
+    provider: 'workday',
+    match: '*.myworkdaysite.com/*',
+    extract:
+      /https?:\/\/wd\d+\.myworkdaysite\.com\/(?:[A-Za-z]{2}-[A-Za-z]{2}\/)?recruiting\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)/,
+  },
+  // Oracle Cloud Recruiting — the largest hiring system not yet connected.
+  //
+  //   {tenant}.fa.{pod}.oraclecloud.com/hcmUI/CandidateExperience/en/sites/{site}/job/{id}
+  //
+  // Measured 15 Sep 2026 against CC-MAIN-2026-34: three index pages, and two of
+  // them alone held 744 tenant/site pairs across 522 hosts. Fourteen sampled
+  // tenants all answered clean JSON with no key — 1,865 postings behind them,
+  // averaging 133 per board against Workday's 6.7.
+  //
+  // The pattern has to ask for the whole domain because CDX matches on host,
+  // and oraclecloud.com is mostly Oracle's own object storage and IaaS
+  // endpoints. The `/hcmUI/CandidateExperience/` in the extract is what
+  // separates a career board from a status page; without it the harvest would
+  // register `objectstorage` and `iaas` as employers.
+  {
+    provider: 'oracle',
+    match: '*.oraclecloud.com/*',
+    extract:
+      /https?:\/\/([a-z0-9-]+\.fa\.[a-z0-9-]+\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/[A-Za-z_-]+\/sites\/([A-Za-z0-9_]+)/i,
+  },
 ];
 
 /** Path segments that are routing, not a company. */
 const NOT_A_TOKEN =
   /^(embed|api|jobs?|search|apply|login|home|about|robots\.txt|sitemap\.xml|assets|static|images?|css|js|wday|en|en-us)$/i;
+
+/**
+ * A bare identifier where a company slug belongs.
+ *
+ * Archived board URLs carry application and embed routes alongside real boards,
+ * and their first path segment is an opaque id rather than a tenant:
+ * `jobs.ashbyhq.com/51f67855-3ba7-445a-99bb-97e9f5093e4b` and one 400-character
+ * signed token both turned up in a single Ashby harvest. They verify as 404 and
+ * are never stored, so nothing is corrupted by them — they just consume
+ * verification slots that a real candidate could have had.
+ *
+ * Measured against the live registry on 15 September 2026 before adding this:
+ * of 26,912 active boards, ZERO have a bare-UUID token and the longest real one
+ * is 73 characters — "OfficeOfTheCommonwealthsAttorneyForArlingtonCountyAndTheCityOfFallsChurch".
+ * So the cap is 100 rather than something tidier, and the UUID test is anchored:
+ * `jobs-page-4dc2685b-eb82-46d1-a3f9-1f0764dba814` is a real Ashby board with 54
+ * postings, and an unanchored match would have thrown it away.
+ */
+const MAX_TOKEN_CHARS = 100;
+const BARE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function looksLikeAnId(token: string): boolean {
+  return token.length > MAX_TOKEN_CHARS || BARE_UUID.test(token);
+}
 
 /**
  * One page of the index, with patience.
@@ -215,9 +286,43 @@ function titleise(token: string): string {
     .join(' ');
 }
 
-function toBoard(p: Pattern, url: string): OpenBoard | null {
+export function toBoard(p: Pattern, url: string): OpenBoard | null {
   const m = p.extract.exec(url);
   if (!m) return null;
+
+  if (p.provider === 'oracle') {
+    // The host carries the tenant in its first label — "hccz" is Pearson — and
+    // the tenant is not derivable any other way, so both are kept.
+    const [, host, site] = m;
+    if (!host || !site) return null;
+    const tenant = host.split('.')[0];
+    if (!tenant || NOT_A_TOKEN.test(site)) return null;
+    return {
+      provider: 'oracle',
+      token: tenant,
+      // Deliberately the tenant code, not a guess. The real employer name comes
+      // back from the board's own search response at verification — see
+      // oracleCompanyFrom — and overwrites this. Title-casing "hccz" would
+      // otherwise put "Hccz" in the feed.
+      company: titleise(tenant),
+      extra: { host, site },
+    };
+  }
+
+  // Workday's second hostname carries a tenant and a site but NO shard, and
+  // guessing one records live employers as dead. Stored without a host so
+  // verification finds the real one on myworkdayjobs.com.
+  if (p.provider === 'workday' && p.match.includes('myworkdaysite')) {
+    const [, tenant, site] = m;
+    if (!tenant || !site) return null;
+    if (NOT_A_TOKEN.test(tenant) || NOT_A_TOKEN.test(site)) return null;
+    return {
+      provider: 'workday',
+      token: tenant,
+      company: titleise(tenant),
+      extra: { site },
+    };
+  }
 
   if (p.provider === 'workday') {
     const [, tenant, shard, , site] = m;
@@ -249,7 +354,7 @@ function toBoard(p: Pattern, url: string): OpenBoard | null {
   }
 
   const token = m[1];
-  if (!token || NOT_A_TOKEN.test(token)) return null;
+  if (!token || NOT_A_TOKEN.test(token) || looksLikeAnId(token)) return null;
   return { provider: p.provider, token, company: titleise(token) };
 }
 
@@ -361,10 +466,12 @@ export async function harvestCommonCrawl(opts: {
         }
         const board = toBoard(p, url);
         if (!board) continue;
-        const key =
-          board.provider === 'workday'
-            ? `workday:${board.token}:${board.extra?.site ?? ''}`
-            : `${board.provider}:${board.token}`;
+        // The site is part of a board's identity wherever a tenant can run more
+        // than one — Workday and Oracle both can, and one Oracle tenant
+        // commonly serves CX, CX_1 and CX_2 as separate career sites. It is ''
+        // for every other provider, so this behaves exactly as provider:token
+        // did for them.
+        const key = `${board.provider}:${board.token.toLowerCase()}:${(board.extra?.site ?? '').toLowerCase()}`;
         if (!seen.has(key)) seen.set(key, board);
       }
       await sleep(delayMs);

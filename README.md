@@ -77,15 +77,15 @@ exists.
 
 ## Step 2 — Reading the jobs
 
-Eleven vendors, each with a different format, all translated into one shape:
+Twelve vendors, each with a different format, all translated into one shape:
 
 ```
-Greenhouse · Lever · Ashby · Workable · SmartRecruiters
-Breezy · Personio · Workday · Rippling · USAJobs · Socrata
+Greenhouse · Lever · Ashby · Workable · SmartRecruiters · Breezy
+Personio · Workday · Oracle Cloud · Rippling · USAJobs · Socrata
 ```
 
-**Workday matters most.** It is where banks, hospitals, defence firms and
-universities live — the employers most job seekers never look at. It is also the
+**Workday and Oracle Cloud matter most.** They are where banks, hospitals,
+defence firms and universities live — the employers most job seekers never look at. It is also the
 most awkward to read (a different request style, and each company hides its
 listings behind a differently-named site), which is precisely why competitors
 skip it.

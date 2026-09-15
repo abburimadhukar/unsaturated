@@ -32,9 +32,18 @@ export type Resolution =
   | { status: 'unsupported'; platform: string; tier: IngestTier; token?: string }
   | { status: 'unknown'; host: string };
 
+/**
+ * A rule may answer with a bare token or with a token plus the extra fields
+ * needed to address the board.
+ *
+ * Most vendors need only the token. Oracle needs three things — the pod host,
+ * the tenant and the siteNumber — and all three are in the URL, so there is no
+ * reason to report it as unresolvable the way Workday still is. Returning a
+ * bare string stays valid, so no existing rule changes.
+ */
 type SupportedRule = {
   provider: AtsProvider;
-  test: (url: URL) => string | undefined;
+  test: (url: URL) => string | { token: string; extra: Record<string, string> } | undefined;
 };
 
 /** Path segment that is a real tenant token rather than a route keyword. */
@@ -95,6 +104,28 @@ const SUPPORTED_RULES: SupportedRule[] = [
       return undefined;
     },
   },
+  {
+    /**
+     * Oracle Cloud Recruiting, e.g.
+     *   hccz.fa.em3.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX/job/24881
+     *
+     * Everything needed is in the address: the tenant is the host's first label,
+     * the pod host is the host itself, and the siteNumber is the segment after
+     * `sites`. The path check is what keeps Oracle's object storage, IaaS
+     * endpoints and status pages — which dominate `oraclecloud.com` — from being
+     * read as career boards.
+     */
+    provider: 'oracle',
+    test: (url) => {
+      if (!/\.fa\.[a-z0-9-]+\.oraclecloud\.com$/.test(url.hostname)) return undefined;
+      const parts = url.pathname.split('/').filter(Boolean);
+      const at = parts.indexOf('sites');
+      const site = at === -1 ? undefined : parts[at + 1];
+      const tenant = url.hostname.split('.')[0];
+      if (!site || !tenant) return undefined;
+      return { token: tenant, extra: { host: url.hostname, site } };
+    },
+  },
   { provider: 'breezy', test: (url) => subdomain(url, '.breezy.hr') },
   {
     provider: 'personio',
@@ -109,6 +140,11 @@ const SUPPORTED_RULES: SupportedRule[] = [
  */
 const KNOWN_UNSUPPORTED: { match: RegExp; platform: string; tier: IngestTier }[] = [
   { match: /\.myworkdayjobs\.com$|\.wd\d+\.myworkdayjobs\.com$/, platform: 'workday', tier: 'json_api_unbuilt' },
+  // Oracle Cloud Recruiting is built (see SUPPORTED_RULES above) and anything
+  // carrying /sites/{site} resolves there first. What reaches here is the rest
+  // of oraclecloud.com — object storage, IaaS endpoints, status pages — plus
+  // the occasional HCM link with no site segment, which names the platform but
+  // cannot address a board.
   { match: /\.oraclecloud\.com$/, platform: 'oracle_hcm', tier: 'json_api_unbuilt' },
   { match: /\.recruitee\.com$/, platform: 'recruitee', tier: 'json_api_unbuilt' },
   { match: /\.teamtailor\.com$/, platform: 'teamtailor', tier: 'json_api_unbuilt' },
@@ -135,14 +171,14 @@ export function resolveApplyUrl(rawUrl: string): Resolution {
   }
 
   for (const rule of SUPPORTED_RULES) {
-    const token = rule.test(url);
-    if (token) {
-      return {
-        status: 'supported',
-        platform: rule.provider,
-        board: { provider: rule.provider, token },
-      };
-    }
+    const hit = rule.test(url);
+    if (!hit) continue;
+    const { token, extra } = typeof hit === 'string' ? { token: hit, extra: undefined } : hit;
+    return {
+      status: 'supported',
+      platform: rule.provider,
+      board: { provider: rule.provider, token, ...(extra ? { extra } : {}) },
+    };
   }
 
   // A company-hosted careers page can still be Greenhouse or Lever underneath;

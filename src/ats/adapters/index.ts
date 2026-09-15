@@ -11,6 +11,7 @@ import { ukgAdapter } from './ukg.js';
 import { recruiteeAdapter } from './recruitee.js';
 import { teamtailorAdapter } from './teamtailor.js';
 import { ripplingAdapter } from './rippling.js';
+import { oracleAdapter } from './oracle.js';
 import { usajobsAdapter } from './usajobs.js';
 import { socrataAdapter } from './socrata.js';
 import type { AtsAdapter, AtsProvider } from '../types.js';
@@ -36,6 +37,7 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   recruitee: recruiteeAdapter,
   teamtailor: teamtailorAdapter,
   rippling: ripplingAdapter,
+  oracle: oracleAdapter,
   usajobs: usajobsAdapter,
   socrata: socrataAdapter,
 };

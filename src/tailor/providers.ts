@@ -34,7 +34,15 @@ import type { AtsProvider } from '../ats/types.js';
  * Its descriptions are reachable, but only from the account listing with
  * ?details=true, which is a different route entirely — see WITH_DETAILS_PARAM.
  */
-export const FROM_DETAIL: readonly AtsProvider[] = ['workday', 'smartrecruiters', 'bamboohr'];
+export const FROM_DETAIL: readonly AtsProvider[] = [
+  'workday',
+  'smartrecruiters',
+  'bamboohr',
+  // Oracle's recruitingCEJobRequisitionDetails resource, verified against a live
+  // tenant on 15 September 2026: ExternalDescriptionStr came back with the full
+  // posting body for a requisition whose listing row carried an empty string.
+  'oracle',
+];
 
 /**
  * Vendors whose listing carries descriptions only when asked.

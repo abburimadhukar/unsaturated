@@ -14,7 +14,6 @@
 import { config } from '../config.js';
 import { harvestCommonCrawl } from '../discovery/commoncrawl.js';
 import { summariseVerification, verifyBoards } from '../discovery/verify.js';
-import type { OpenBoard } from '../discovery/opendata.js';
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -38,13 +37,15 @@ const has = (name: string) => process.argv.includes(`--${name}`);
  *
  * The stored token keeps its original case, because that is what the vendor
  * printed and it costs nothing to be faithful. Only the comparison folds.
+ *
+ * The site is folded in for EVERY provider rather than for Workday alone. It is
+ * '' wherever a tenant has only one board, so nothing changes for them — and
+ * Oracle, like Workday, runs several career sites under one tenant (CX, CX_1,
+ * CX_2 are different boards of the same employer). Special-casing by name is
+ * how Oracle would have been deduplicated down to one site per tenant.
  */
-const keyOf = (b: { provider: string; token: string; extra?: Record<string, string> }) => {
-  const token = b.token.toLowerCase();
-  return b.provider === 'workday'
-    ? `workday:${token}:${(b.extra?.site ?? '').toLowerCase()}`
-    : `${b.provider}:${token}`;
-};
+const keyOf = (b: { provider: string; token: string; extra?: Record<string, string> }) =>
+  `${b.provider}:${b.token.toLowerCase()}:${(b.extra?.site ?? '').toLowerCase()}`;
 
 async function main(): Promise<void> {
   const dryRun = has('dry-run');
@@ -162,11 +163,17 @@ async function main(): Promise<void> {
 
   const { upsertBoards } = await import('../corpus/board-store.js');
   const stored = await upsertBoards(
-    live.map((r: { board: OpenBoard; jobs: number; domain?: string }) => ({
+    // What verification learned overrides what the harvest guessed, and only
+    // where it learned something. `company` is Oracle: its tokens are opaque
+    // codes, so the harvest's title-cased "Hccz" is replaced by the employer's
+    // own "Pearson". `extra` is Workday's second address: the tenant arrives
+    // with a site and no shard, and the shard the check had to find is the only
+    // thing that makes the stored row crawlable.
+    live.map((r) => ({
       provider: r.board.provider,
       token: r.board.token,
-      company: r.board.company,
-      extra: r.board.extra ?? {},
+      company: r.company ?? r.board.company,
+      extra: r.extra ?? r.board.extra ?? {},
       source: 'commoncrawl',
       jobCount: r.jobs,
       ...(r.domain ? { domain: r.domain } : {}),

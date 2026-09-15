@@ -64,7 +64,13 @@ jobs:
         # adapter all along; only the harvest pattern and this line were missing,
         # plus an endpoint() case in verify.ts without which every candidate
         # would have verified as "unknown" and been silently discarded.
-        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling]
+        #
+        # oracle added 15 Sep 2026 — Oracle Cloud Recruiting, the largest hiring
+        # system that was still unconnected. Measured that day against
+        # CC-MAIN-2026-34: 38,335 indexed urls yielded 1,170 boards nobody held,
+        # and 25 of 25 sampled answered HTTP 200 with 2,710 postings between
+        # them — 108 per board, against Workday's 6.7 and Greenhouse's 2.4.
+        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle]
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run
@@ -121,6 +127,36 @@ jobs:
           npm run harvest:cc -- \
             --provider ${{ matrix.provider }} \
             ${{ inputs.crawl && format('--crawl {0}', inputs.crawl) || '' }} \
+            --verify ${{ inputs.verify || '3000' }}
+
+      # The same harvest against the Internet Archive.
+      #
+      # WHY A SECOND INDEX
+      #
+      # Common Crawl publishes roughly monthly, and on 15 Sep 2026 the newest
+      # collection was still CC-MAIN-2026-34 — late August. This job had
+      # therefore been re-reading the same index every Sunday for five weeks and
+      # finding, by construction, nothing new. An index that only moves monthly
+      # cannot keep a registry current in between.
+      #
+      # The Archive is written to continuously. Measured 15 Sep 2026 on captures
+      # since 1 June: 525 unregistered Greenhouse tokens at a 68% live rate and
+      # 996 unregistered Ashby tokens at 50% — roughly 850 employers nobody was
+      # watching. Same patterns, same verifier, same store; only `source`
+      # differs, so it can be told afterwards which index earned its keep.
+      #
+      # continue-on-error because this is the newer of the two and the Archive
+      # does go down (it was offline for part of the afternoon this was built).
+      # A failure here must not take the Common Crawl harvest above red with it.
+      - name: Harvest new boards from the Internet Archive
+        continue-on-error: true
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: |
+          npm run harvest:ia -- \
+            --provider ${{ matrix.provider }} \
             --verify ${{ inputs.verify || '3000' }}
 
       # Re-checks registered boards so genuinely closed ones drop out instead of
