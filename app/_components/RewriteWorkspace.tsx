@@ -297,6 +297,14 @@ export function RewriteWorkspace({
             </div>
           )}
 
+          {(s.res?.resumeCutBy ?? 0) > 0 && (
+            <div className="terror">
+              Your resume is long enough that the last {s.res!.resumeCutBy!.toLocaleString()}{' '}
+              characters of it were not sent, so anything at the very end is missing from this
+              rewrite. Shorten it on your account page and run this again.
+            </div>
+          )}
+
           {s.res?.needsAttention && (
             <div className="terror">
               Tailoring is misconfigured — the OpenAI key is missing or was refused.

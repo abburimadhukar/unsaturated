@@ -11,7 +11,7 @@ import {
 } from '../src/tailor/analysis.js';
 import { containsClaim, sameWordDifferentEnding } from '../src/tailor/edits.js';
 import { parseAnswer } from '../src/tailor/run.js';
-import { cleanResumeText, isArtefactLine } from '../src/ui/resume-clean.js';
+import { cleanResumeText, suspectedArtefacts } from '../src/ui/resume-clean.js';
 import {
   diffHandEdits,
   handEditedLines,
@@ -276,7 +276,8 @@ test('SQUASHED LETTERS ARE PUT BACK, SO A KEYWORD SEARCH MATCHES', () => {
   assert.match(out.repairs[0]!, /squashed letter/);
 });
 
-test("a converter's object ids are removed from the middle of the CV", () => {
+test("A CONVERTER'S OBJECT IDS ARE REPORTED AND LEFT WHERE THEY ARE", () => {
+  // They used to be deleted. See the next two tests for what that ate.
   const raw = [
     'MADHUKAR ABBURI',
     'usa - someone@example.com',
@@ -288,20 +289,60 @@ test("a converter's object ids are removed from the middle of the CV", () => {
     '25400046444',
   ].join('\n');
   const out = cleanResumeText(raw);
-  assert.ok(!out.text.includes('25400050782'));
-  assert.ok(!out.text.includes('25400046444'));
-  assert.match(out.repairs.join(' '), /stray digits/);
+  assert.ok(out.text.includes('25400050782'), 'a line was deleted from the CV');
+  assert.ok(out.text.includes('25400046444'), 'a line was deleted from the CV');
   assert.match(out.text, /Cloud: Azure, Docker/);
+
+  // Reported as something to look at, never as something already done.
+  assert.equal(out.repairs.length, 0, 'it claimed to have repaired something');
+  assert.equal(out.warnings.length, 1);
+  assert.match(out.warnings[0]!, /bare digits/);
+  assert.match(out.warnings[0]!, /Nothing has been removed/);
+  // Named by line number, so they can be found.
+  assert.match(out.warnings[0]!, /5, 8/);
 });
 
-test('A PHONE NUMBER IN THE HEADER IS NOT MISTAKEN FOR AN ARTEFACT', () => {
-  // The one legitimate line of nothing but digits a CV can have, and it lives at
-  // the top. The rule has to be narrow enough not to eat it.
-  assert.ok(!isArtefactLine('4045667011', 1));
-  assert.ok(isArtefactLine('25400050782', 9));
-  // Too short to be an object id, wherever it sits.
-  assert.ok(!isArtefactLine('2024', 9));
-  assert.ok(!isArtefactLine('2018 - 2024', 9));
+test('A PHONE NUMBER BELOW THE HEADER IS NOT AN ARTEFACT, AND USED TO BE DELETED', () => {
+  // The bug, reported by the owner as "my resume is clean, your code is not".
+  // The rule was "eight or more bare digits below line four", so a clean CV whose
+  // header ran to five lines lost its phone number — and was told a converter had
+  // left stray digits in a file no converter had ever touched.
+  const clean = [
+    'JANE SMITH',
+    'Senior Platform Engineer',
+    'London, United Kingdom',
+    'jane.smith@example.com',
+    '07700900123',
+    '',
+    'EXPERIENCE',
+    'ACME, London 2021 - Present',
+  ].join('\n');
+  const out = cleanResumeText(clean);
+  assert.ok(out.text.includes('07700900123'), 'it ate a phone number');
+  assert.deepEqual(out.repairs, []);
+  assert.deepEqual(out.warnings, [], 'it complained about a clean CV');
+});
+
+test('ONE LONG NUMBER IS A NUMBER; A REPEATED PATTERN IS AN ARTEFACT', () => {
+  // The evidence in the real case was never "a long number appeared". It was that
+  // three appeared, all eleven digits, all beginning 254000, one under each
+  // heading. A lone certification or reference number is nobody's object id.
+  const lone = ['A', 'B', 'C', 'D', 'CERTIFICATIONS', '20240517443', 'AWS SA'].join('\n');
+  assert.deepEqual(suspectedArtefacts(lone), [], 'a certification number was flagged');
+
+  const pattern = ['A', 'B', 'C', 'D', '25400050782', 'x', '25400046444'].join('\n');
+  assert.deepEqual(
+    suspectedArtefacts(pattern).map((a) => a.at),
+    [5, 7],
+  );
+
+  // Two long numbers that share nothing are two numbers.
+  const unrelated = ['A', 'B', 'C', 'D', '07700900123', 'x', '4045667011'].join('\n');
+  assert.deepEqual(suspectedArtefacts(unrelated), []);
+
+  // Still exempt at the top, and still too short to matter anywhere.
+  assert.deepEqual(suspectedArtefacts(['25400050782', '25400046444'].join('\n')), []);
+  assert.deepEqual(suspectedArtefacts(['A', 'B', 'C', 'D', '2024', 'x', '2018'].join('\n')), []);
 });
 
 test('a lost # is reported and never guessed at', () => {
@@ -317,6 +358,16 @@ test('a lost # is reported and never guessed at', () => {
   // Judged line by line. "C, C#, C++" on one line is correct and deliberate, and
   // the C# beside the bare C is what says so.
   assert.equal(cleanResumeText('Languages: ASP.NET, C, C#, C++').warnings.length, 0);
+
+  // AND SO DOES C++ ON ITS OWN. Somebody who wrote "C++" plainly knows to write
+  // the suffix when they mean one, so the bare C beside it is deliberate. Only
+  // checking for C# fired on every clean CV listing C and C++ next to ASP.NET,
+  // and told its owner a converter had eaten a character that was never there.
+  assert.deepEqual(
+    cleanResumeText('Programming Languages: C, C++, Java, Python\nFrameworks: ASP.NET MVC').warnings,
+    [],
+    'a clean "C, C++" list was reported as converter damage',
+  );
 
   // AND IT MUST STILL FIRE when the document says C# somewhere ELSE. The real
   // resume had "ASP.NET, C, SQL" in its skills line and "using C# and VB.NET" in

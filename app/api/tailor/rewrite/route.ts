@@ -34,7 +34,17 @@ export const dynamic = 'force-dynamic';
 const MAX_JD_SHOWN = 6_000;
 /** What the model sees. Section-aware trimming would be better; this is the honest cap. */
 const MAX_JD_CHARS = 18_000;
-const MAX_RESUME_CHARS = 20_000;
+/**
+ * The whole resume, for any resume a person actually has.
+ *
+ * It was 20,000 while its sibling route used 50,000, so the same CV was cut in
+ * two different places depending on which button was pressed, and neither said
+ * so. A long consultant or academic CV reaches 20,000 characters, and past it the
+ * model never saw the last employers — it wrote a resume with jobs missing and
+ * reported nothing. Matched to the sibling, and a cut that does happen is now
+ * told to the person.
+ */
+const MAX_RESUME_CHARS = 50_000;
 const MAX_PRESETS = 6;
 
 const bad = (message: string, status: number, extra: Record<string, unknown> = {}) =>
@@ -70,7 +80,9 @@ export async function POST(request: Request) {
     });
   }
 
-  const resumeText = (await getResumeText(visitor.id)).slice(0, MAX_RESUME_CHARS);
+  const storedResume = await getResumeText(visitor.id);
+  const resumeText = storedResume.slice(0, MAX_RESUME_CHARS);
+  const resumeCutBy = storedResume.length - resumeText.length;
   if (!resumeText.trim()) {
     return bad('add your resume on your account page first', 409, { needsResume: true });
   }
@@ -124,6 +136,9 @@ export async function POST(request: Request) {
     model: result.model,
     note: result.note,
     needsAttention: result.needsAttention,
+    // Zero for every resume anybody has. If it is ever not zero, the person is
+    // told rather than handed a CV quietly missing its oldest jobs.
+    resumeCutBy,
     via: described.via,
     jobDescription: described.text.slice(0, MAX_JD_SHOWN),
     jobDescriptionTruncated: described.text.length > MAX_JD_SHOWN,

@@ -37,6 +37,17 @@ export default function AccountPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
+  /**
+   * What the reader changed, and what it wants a second opinion on.
+   *
+   * These were computed on every upload and thrown away — the handler
+   * destructured `{ text, warning }` and nothing else. So the cleaner could alter
+   * somebody's CV, write a sentence explaining itself, and have that sentence
+   * discarded before it reached the page. Silent is the one thing a file that
+   * goes to an employer must not be.
+   */
+  const [repairs, setRepairs] = useState<string[]>([]);
+  const [notices, setNotices] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -155,7 +166,9 @@ export default function AccountPage() {
     try {
       // Read first: if the file is unreadable the person learns immediately
       // rather than after a needless upload.
-      const { text, warning } = await extractResumeText(file);
+      const { text, warning, repairs: made, warnings: found } = await extractResumeText(file);
+      setRepairs(made ?? []);
+      setNotices(found ?? []);
 
       const form = new FormData();
       form.append('file', file);
@@ -314,6 +327,24 @@ export default function AccountPage() {
         )}
 
         {fileNote && <p className="filenote">{fileNote}</p>}
+
+        {/* Two lists, kept apart, because they are different promises. A repair
+            already happened to the text. A notice changed nothing and is asking
+            you to look. Running them together would make the second sound like
+            the first, which is how somebody ends up believing their CV was
+            edited when it was not. */}
+        {repairs.length > 0 && (
+          <div className="filefix">
+            <strong>Fixed in the text we read</strong>
+            {repairs.map((r, i) => <p key={i}>{r}</p>)}
+          </div>
+        )}
+        {notices.length > 0 && (
+          <div className="fileask">
+            <strong>Worth a look — nothing was changed</strong>
+            {notices.map((w, i) => <p key={i}>{w}</p>)}
+          </div>
+        )}
 
         <div className="row">
           {/* A label rather than a styled button, so the file picker opens from

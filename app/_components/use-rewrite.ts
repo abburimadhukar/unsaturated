@@ -44,6 +44,8 @@ export interface RewriteResponse {
   model?: string;
   note?: string;
   needsAttention?: boolean;
+  /** Characters of the stored resume the model never saw. Zero in every real case. */
+  resumeCutBy?: number;
   via?: string;
   jobDescription?: string;
   jobDescriptionTruncated?: boolean;

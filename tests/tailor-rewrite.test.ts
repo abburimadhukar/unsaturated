@@ -644,6 +644,40 @@ test('the rewrite route gates in the order that costs least', () => {
   assert.ok(describe < model, 'the model is called before the posting is read');
 });
 
+test('THE TWO ROUTES CUT A RESUME AT THE SAME LENGTH, AND SAY WHEN THEY DO', () => {
+  // They did not. The rewrite route cut at 20,000 characters and its sibling at
+  // 50,000, so the same CV was truncated in two different places depending on
+  // which button was pressed — and past the cut the model never saw the last
+  // employers, wrote a resume with jobs missing, and reported nothing.
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const capOf = (src: string) =>
+    /const MAX_RESUME_CHARS = ([\d_]+)/.exec(src)?.[1]?.replace(/_/g, '') ?? '';
+
+  const rewrite = read('../app/api/tailor/rewrite/route.ts');
+  const sibling = read('../app/api/tailor/route.ts');
+  assert.equal(capOf(rewrite), capOf(sibling), 'the two routes disagree about resume length');
+
+  // And the cut is measured and returned, rather than happening in silence.
+  assert.match(rewrite, /resumeCutBy/);
+  assert.match(
+    read('../app/_components/RewriteWorkspace.tsx'),
+    /resumeCutBy/,
+    'the route reports a truncated resume and the screen never shows it',
+  );
+});
+
+test('WHAT THE READER REPAIRED AND QUESTIONED REACHES THE PERSON', () => {
+  // The account page destructured `{ text, warning }` and dropped `repairs` and
+  // `warnings` on the floor. So the cleaner could alter somebody's CV, write the
+  // sentence explaining itself, and have that sentence discarded before it got
+  // anywhere near the screen.
+  const src = readFileSync(new URL('../app/account/page.tsx', import.meta.url), 'utf8');
+  assert.match(src, /repairs:\s*made/, 'the upload handler ignores what was repaired');
+  assert.match(src, /warnings:\s*found/, 'the upload handler ignores what was questioned');
+  assert.match(src, /filefix/, 'repairs are read but never rendered');
+  assert.match(src, /fileask/, 'warnings are read but never rendered');
+});
+
 test('both tailoring routes share one rate limiter', () => {
   // Two counters would let somebody spend twice the budget by alternating
   // between the endpoints, which is the obvious way round a per-endpoint limit.

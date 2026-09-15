@@ -940,6 +940,21 @@ a.stat:hover b { color: var(--accent); }
   border-left: 2px solid var(--warm); padding-left: 10px; margin: 12px 0 0;
 }
 
+/* What the reader did, and what it is only asking about. Two rules rather than
+   one, because "we changed this" and "we changed nothing, look at this" must not
+   read as the same sentence. */
+.filefix, .fileask {
+  font-size: 12.5px; line-height: 1.6; margin: 12px 0 0;
+  padding-left: 10px; border-left: 2px solid var(--line-strong);
+}
+.filefix strong, .fileask strong {
+  display: block; font-size: 11px; letter-spacing: 0.05em;
+  text-transform: uppercase; margin-bottom: 3px;
+}
+.filefix { color: var(--text-dim); }
+.fileask { color: var(--warm); border-left-color: var(--warm); }
+.filefix p, .fileask p { margin: 0 0 4px; }
+
 /* ---------------------------------------------------------------------------
    Tailoring
    ---------------------------------------------------------------------------
