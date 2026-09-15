@@ -74,7 +74,7 @@ if (result.needsAttention) console.log('NEEDS ATTENTION');
 if (!result.checked) process.exit(1);
 const c = result.checked;
 
-const mark = (v: string) => (v === 'kept' ? 'OK ' : v === 'ask' ? 'ASK' : 'DROP');
+const mark = (v: string) => (v === 'kept' ? 'OK  ' : 'FLAG');
 
 console.log(rule('WHAT THEY ASK FOR'));
 console.log(describeTally(c.tally));
@@ -109,22 +109,20 @@ for (const co of c.companies) {
   }
 }
 
-console.log(rule('DROPPED'));
+console.log(rule('WHAT THE MODEL CHOSE NOT TO CARRY OVER'));
 for (const d of c.dropped) console.log(`  - ${d.text}\n      ${d.why}`);
 
 console.log(rule('VOICE'));
 console.log(c.voice.length ? c.voice.join('\n') : 'no uniformity problems found');
-const kept = [
-  c.summary,
-  ...c.skills,
-  ...c.companies.flatMap((x) => x.lines),
-]
-  .filter((l) => l.verdict !== 'dropped')
-  .map((l) => l.text);
-const problems = voiceProblems(kept);
-console.log(`banned words / result clauses in what survived: ${problems.length}`);
+const all = [c.summary, ...c.skills, ...c.companies.flatMap((x) => x.lines)]
+  .map((l) => l.text)
+  .filter(Boolean);
+const problems = voiceProblems(all);
+console.log(`banned words / result clauses across the whole document: ${problems.length}`);
 for (const p of problems.slice(0, 8)) console.log(`  ${p.kind}: "${p.detail}" in ${p.line.slice(0, 80)}`);
 
-console.log(rule('THE DOCUMENT (verified lines only)'));
+// The checker deletes nothing, so this is everything the model wrote. The count
+// above it is what a person would be asked to look at before sending it.
+console.log(rule(`THE DOCUMENT — ${c.kept} verified, ${c.flagged} flagged, 0 removed`));
 console.log(assembleRewrite(c, readShape(resumeText), new Set()));
 console.log(rule('DONE'));

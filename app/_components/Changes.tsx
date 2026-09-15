@@ -31,11 +31,16 @@ interface Change {
   where: string;
 }
 
-/** Only lines that replaced something, and only where the replacement differs. */
+/**
+ * Only lines that replaced something, and only where the replacement differs.
+ *
+ * A flagged line belongs here as much as a verified one. It used to be excluded
+ * along with the deleted ones, which meant the changes you were least sure about
+ * were the ones you could not see the original for.
+ */
 export function changesIn(rewrite: CheckedRewrite): Change[] {
   const out: Change[] = [];
   const add = (line: CheckedLine, where: string) => {
-    if (line.verdict === 'dropped') return;
     if (!line.original || line.original.trim() === line.text.trim()) return;
     out.push({ line, where });
   };

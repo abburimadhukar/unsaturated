@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { PRESETS } from '../../src/tailor/rewrite-prompt.js';
+import type { Concern } from '../../src/tailor/rewrite.js';
 import { Changes, CompareView } from './Changes.js';
 import { Coverage } from './Coverage.js';
 import { Sheet } from './tailor-parts.js';
@@ -21,18 +22,29 @@ import { useRewrite } from './use-rewrite.js';
  * do anything with that.
  *
  * So the model writes the resume. The screen shows the resume. The only thing
- * asked of the person is the small number of questions software genuinely cannot
- * answer for them.
+ * asked of the person is the small amount of judgement software genuinely cannot
+ * supply.
  *
- * THE THREE THINGS ON SCREEN, IN ORDER
+ * THE WHOLE DOCUMENT ARRIVES. NOTHING IS HELD BACK.
  *
- *   1. The questions, if any. "Did you use Kubernetes at Infosys?" Each one is a
- *      line that is out of the document until it is answered yes. This is the
- *      only work, and there are usually none or a handful.
- *   2. The document, full width, at the measure it will be read at.
- *   3. What was cut, and why, collapsed. Available rather than insisted upon —
- *      but present, because a tool that silently shortens somebody's CV has taken
- *      a decision on their behalf without telling them.
+ * An earlier version of this screen kept unverified lines out of the document
+ * until they were confirmed, and threw away the ones it could not trace at all.
+ * Both were the code editing somebody's CV on evidence that could not support the
+ * decision — a resume is a summary of a career, not a record of it, and "I cannot
+ * find this" is a fact about the document, not about the person.
+ *
+ * Now everything the model wrote is in the resume on the right, flagged lines
+ * marked in place, and taking one out is one click. Louder, not quieter: what used
+ * to vanish is now something you have to look at.
+ *
+ * THE THINGS ON SCREEN, IN ORDER
+ *
+ *   1. Lines to check, if any, each with the reason in plain words and a button
+ *      to take it out. Usually none or a handful.
+ *   2. What the posting asks for, and the honest answer to each.
+ *   3. Every line that changed, with the original beside it.
+ *   4. The document, full width, at the measure it will be read at.
+ *   5. What the MODEL chose to leave out, collapsed — its decision, not ours.
  */
 
 export interface RewriteWorkspaceProps {
@@ -42,6 +54,22 @@ export interface RewriteWorkspaceProps {
   applyUrl: string | null;
   closed: boolean;
 }
+
+/**
+ * The flag, in two or three words, so a list of them can be skimmed.
+ *
+ * Ordered by how much they should worry somebody. "Not in your resume" is a claim
+ * that may be untrue; "wrong job" is almost certainly true of them but possibly
+ * not there; "reads generated" is a matter of taste and is marked as the mildest
+ * thing on the page rather than, as it once was, grounds for deletion.
+ */
+const CONCERN: Record<Concern, string> = {
+  none: '',
+  'no-employer': 'employer not in your resume',
+  'not-in-resume': 'not in your resume',
+  'other-employer': 'a different job',
+  voice: 'reads generated',
+};
 
 export function RewriteWorkspace({
   jobKey,
@@ -59,6 +87,8 @@ export function RewriteWorkspace({
 
   const rewrite = s.res?.rewrite ?? null;
   const dropped = rewrite?.dropped ?? [];
+  /** Flagged and still in the document — the number that actually needs a look. */
+  const toCheck = s.flagged.filter((l) => !s.removed.has(l.text));
 
   return (
     <div className={`twork pane-${pane === 'setup' ? 'changes' : 'resume'}`}>
@@ -83,7 +113,7 @@ export function RewriteWorkspace({
               className={pane === 'setup' ? 'on' : ''}
               onClick={() => setPane('setup')}
             >
-              Options{s.open.length > 0 ? ` · ${s.open.length}` : ''}
+              Options{toCheck.length > 0 ? ` · ${toCheck.length}` : ''}
             </button>
             <button
               type="button"
@@ -184,29 +214,37 @@ export function RewriteWorkspace({
           )}
 
           {/* ---- the only work there is ---- */}
-          {s.open.length > 0 && (
+          {s.flagged.length > 0 && (
             <section className="rwask">
               <h2>
-                {s.open.length} question{s.open.length === 1 ? '' : 's'} only you can answer
+                {s.flagged.length} line{s.flagged.length === 1 ? '' : 's'} to check
               </h2>
               <p className="tnote">
-                These lines say something your resume shows elsewhere but not at that job. They
-                are out of your resume until you say yes.
+                Nothing was removed. These are in your resume — the checker could not trace
+                them to what you wrote, and it says why for each. Take out anything that is not
+                true of you.
               </p>
-              {s.open.map((l, i) => (
-                <div className="rwq" key={i}>
-                  <p className="rwqtext">{l.text}</p>
-                  <p className="rwqwhy">{l.note}</p>
-                  <div className="tbuttons">
-                    <button type="button" className="ttake" onClick={() => s.confirm(l.text)}>
-                      Yes, that is true
-                    </button>
-                    <button type="button" className="tskip" onClick={() => s.decline(l.text)}>
-                      No — leave it out
-                    </button>
+              {s.flagged.map((l, i) => {
+                const out = s.removed.has(l.text);
+                return (
+                  <div className={`rwq${out ? ' gone' : ''}`} key={i}>
+                    <p className="rwqtext">{l.text}</p>
+                    <p className="rwqtag">{CONCERN[l.concern]}</p>
+                    <p className="rwqwhy">{l.question ?? l.note}</p>
+                    <div className="tbuttons">
+                      {out ? (
+                        <button type="button" className="ttake" onClick={() => s.keep(l.text)}>
+                          Put it back
+                        </button>
+                      ) : (
+                        <button type="button" className="tskip" onClick={() => s.remove(l.text)}>
+                          Take it out
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </section>
           )}
 
@@ -223,10 +261,9 @@ export function RewriteWorkspace({
             />
           )}
 
-          {s.confirmed.size > 0 && (
+          {s.removed.size > 0 && (
             <p className="rwconfirmed">
-              {s.confirmed.size} line{s.confirmed.size === 1 ? '' : 's'} added because you
-              confirmed {s.confirmed.size === 1 ? 'it' : 'them'}.
+              {s.removed.size} line{s.removed.size === 1 ? '' : 's'} taken out by you.
             </p>
           )}
 
@@ -242,7 +279,9 @@ export function RewriteWorkspace({
           {/* ---- what it cut, available rather than insisted upon ---- */}
           {dropped.length > 0 && (
             <details className="tdiscarded">
-              <summary>{dropped.length} lines left out of this version</summary>
+              {/* The model's own decisions, not the checker's — the checker no
+                  longer leaves anything out. */}
+              <summary>{dropped.length} lines it chose not to carry over</summary>
               {dropped.map((d, i) => (
                 <div key={i} className="tdrop">
                   <span className="tdroptext">{d.text}</span>
@@ -282,12 +321,14 @@ export function RewriteWorkspace({
               <div className="twsheetbar">
                 <span className="twtally">
                   Tailored for {company}
-                  {s.open.length > 0 && (
-                    <span className="twdim">
+                  {toCheck.length > 0 && (
+                    <span className="twflag">
                       {' '}
-                      · {s.open.length} line{s.open.length === 1 ? '' : 's'} held back pending your
-                      answer
+                      · {toCheck.length} marked line{toCheck.length === 1 ? '' : 's'} to check
                     </span>
+                  )}
+                  {s.removed.size > 0 && (
+                    <span className="twdim"> · {s.removed.size} taken out by you</span>
                   )}
                   {s.reverted.size > 0 && (
                     <span className="twdim"> · {s.reverted.size} of your originals kept</span>
@@ -333,10 +374,20 @@ export function RewriteWorkspace({
                 </div>
               ) : (
                 <div className="twsheet">
-                  <Sheet text={s.document} changed={new Set()} idPrefix="rw" />
+                  <Sheet text={s.document} changed={s.flaggedLines} idPrefix="rw" />
                   <p className="twcaption">
-                    Every line here traces back to something already in your resume, checked
-                    employer by employer. Nothing was added that you did not already say.
+                    {toCheck.length > 0 ? (
+                      <>
+                        The marked lines are the ones the checker could not trace to your own
+                        words. They are in the document — read them, and take out anything that
+                        is not true of you.
+                      </>
+                    ) : (
+                      <>
+                        Every line here traces back to something already in your resume, checked
+                        employer by employer. Nothing was added that you did not already say.
+                      </>
+                    )}
                   </p>
                 </div>
               )}
@@ -350,9 +401,8 @@ export function RewriteWorkspace({
           {rewrite ? (
             <>
               <b>{rewrite.kept}</b> lines verified
-              {rewrite.asked > 0 && <span className="twdim"> · {rewrite.asked} asked</span>}
-              {rewrite.discarded > 0 && (
-                <span className="twdim"> · {rewrite.discarded} discarded</span>
+              {toCheck.length > 0 && (
+                <span className="twflag"> · {toCheck.length} still to check</span>
               )}
             </>
           ) : (
@@ -366,13 +416,21 @@ export function RewriteWorkspace({
         <button type="button" className="twghost" onClick={s.printable} disabled={!s.document}>
           Save as PDF
         </button>
+        {/* The count travels with the button, because this is the moment the
+            document stops being a draft and starts being something an employer
+            reads. Not a block — it is their CV and their call — but not silent
+            either. */}
         <button
           type="button"
-          className="twprimary"
+          className={`twprimary${toCheck.length > 0 ? ' unchecked' : ''}`}
           onClick={() => void s.saveDocx()}
           disabled={!s.document || s.saving}
         >
-          {s.saving ? 'Building…' : 'Download .docx'}
+          {s.saving
+            ? 'Building…'
+            : toCheck.length > 0
+              ? `Download .docx · ${toCheck.length} unchecked`
+              : 'Download .docx'}
         </button>
       </footer>
 

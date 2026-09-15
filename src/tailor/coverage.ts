@@ -181,8 +181,15 @@ export function checkRequirements(
 
     if (!isCovered(r.answer)) {
       // A quote attached to "missing" is a contradiction, and the dangerous
-      // reading is the one where the quote wins.
-      return r.fromResume ? { ...r, fromResume: '' } : r;
+      // reading is the one where the quote wins. It is moved into the note rather
+      // than deleted, so the contradiction is visible instead of tidied away.
+      return r.fromResume
+        ? {
+            ...r,
+            fromResume: '',
+            note: `it called this ${r.answer} but also quoted “${r.fromResume}” — the two do not agree`,
+          }
+        : r;
     }
 
     if (!r.fromResume.trim()) {
@@ -193,11 +200,15 @@ export function checkRequirements(
       };
     }
     if (!quoteIsReal(resumeText, r.fromResume)) {
+      // The quote is repeated in the note. It cannot stand in the evidence slot,
+      // where it would read as confirmation — but hiding what was claimed leaves
+      // somebody unable to see what went wrong, and it is the thing they would
+      // most want to look up in their own CV.
       return {
         ...r,
         answer: 'unclear' as Answer,
         fromResume: '',
-        note: 'the quote given as evidence is not in your resume',
+        note: `it quoted “${r.fromResume}” as evidence, and that sentence is not in your resume`,
       };
     }
     return r;

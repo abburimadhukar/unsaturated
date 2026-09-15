@@ -120,6 +120,44 @@ test('THE EQUIVALENT IS CHECKED AS A CLAIM, NOT AS A QUOTE', () => {
   assert.match(invented[0]!.note ?? '', /not in your resume/);
 });
 
+test('A HYPHEN DOES NOT MAKE A TRUE EQUIVALENT INTO A FABRICATED ONE', () => {
+  // From a real run. The model offered "Azure PaaS, Azure IaaS, and Terraform-based
+  // Azure environment provisioning" against an AWS requirement, for a resume
+  // reading "Authored Terraform scripts to provision Azure environments". Every
+  // word of that is true. The check reported `it offered "terraform-based" as the
+  // equivalent, which is not in your resume` and downgraded a correct answer,
+  // because the hyphen made one token out of two.
+  const [out] = checkRequirements(
+    [
+      req({
+        name: 'AWS production cloud infrastructure',
+        answer: 'adjacent',
+        fromResume: '',
+        insteadYouHave: 'Terraform-based Azure environment provisioning',
+      }),
+    ],
+    RESUME,
+  );
+  assert.equal(out!.answer, 'adjacent', out!.note);
+
+  // And a compound whose head is NOT in the resume still fails.
+  const [bad] = checkRequirements(
+    [req({ answer: 'adjacent', fromResume: '', insteadYouHave: 'Kafka-based event pipelines' })],
+    RESUME,
+  );
+  assert.equal(bad!.answer, 'unclear');
+  assert.match(bad!.note ?? '', /kafka/);
+});
+
+test('a hyphenated compound claiming something extra still has to prove it', () => {
+  // "AWS-certified" is two claims, and the certificate is the one that matters.
+  const [out] = checkRequirements(
+    [req({ answer: 'adjacent', fromResume: '', insteadYouHave: 'Terraform-certified engineer' })],
+    RESUME,
+  );
+  assert.equal(out!.answer, 'unclear', 'a certification was waved through on a hyphen');
+});
+
 test('an equivalent that is not named at all is not an answer', () => {
   const [out] = checkRequirements(
     [req({ answer: 'adjacent', fromResume: '', insteadYouHave: '   ' })],

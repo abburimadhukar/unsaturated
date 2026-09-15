@@ -11,15 +11,24 @@ import { OPENAI_URL, TAILOR_MODEL, extractJson } from './run.js';
  * spent quota comes back as a sentence rather than a 500.
  */
 
-/** A resume with more employers than this is not a resume. */
-const MAX_COMPANIES = 12;
-/** Bullets per employer. Beyond this it is a job description, not a CV. */
-const MAX_BULLETS = 10;
-const MAX_SKILL_LINES = 12;
-const MAX_DROPPED = 20;
-/** A posting asking for more than this is listing adjectives. */
-const MAX_REQUIREMENTS = 24;
-const MAX_LINE_CHARS = 400;
+/**
+ * Ceilings, set well above anything a real resume or posting reaches.
+ *
+ * These are here to stop a runaway answer from filling a page with ten thousand
+ * bullets, and for nothing else. They used to be tight enough to bite — twelve
+ * employers, ten bullets each — which made them a silent editor: the eleventh
+ * bullet under a long job simply never existed, and nobody was told.
+ *
+ * So they are now loose enough that real content never meets them, and if one
+ * ever does fire it is recorded in `dropped` and shown on screen with the rest.
+ */
+const MAX_COMPANIES = 40;
+const MAX_BULLETS = 40;
+const MAX_SKILL_LINES = 40;
+const MAX_DROPPED = 80;
+const MAX_REQUIREMENTS = 80;
+/** Roughly six lines of prose. A CV bullet is a fifth of this. */
+const MAX_LINE_CHARS = 2_000;
 
 const RESPONSE_SCHEMA = {
   name: 'tailored_resume',
@@ -126,27 +135,54 @@ const trim = (v: unknown, max = MAX_LINE_CHARS): string =>
 /**
  * The model's answer, reduced to the shape this module promises.
  *
- * Tolerant in one direction only: a malformed bullet becomes a bullet with empty
- * fields, which checkBullet then drops. Nothing here decides a line is acceptable.
+ * NOTHING IS QUIETLY LOST HERE
+ *
+ * The only things this function removes are values with no content at all — a
+ * bullet whose text is the empty string, a requirement with no name. Everything
+ * else survives, including answers the checker will go on to disagree with,
+ * because deciding what is worth showing is not this layer's job and is not the
+ * checker's job either.
+ *
+ * Where a ceiling does fire, the overflow is written into `dropped`, which is the
+ * channel the screen already renders under "lines left out of this version". A
+ * cap somebody can read about is a cap; a cap nobody is told about is data loss.
  */
 export function parseRewrite(body: unknown): RewriteAnswer {
   const root = (body ?? {}) as Record<string, unknown>;
   const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
+  const over: { text: string; why: string }[] = [];
+  const cap = <T,>(items: T[], max: number, what: string): T[] => {
+    if (items.length <= max) return items;
+    over.push({
+      text: `${items.length - max} more ${what}`,
+      why: `over the ${max} ${what} this page will render — nothing real reaches this`,
+    });
+    return items.slice(0, max);
+  };
+
+  const rawCompanies = cap(arr(root.companies), MAX_COMPANIES, 'employers');
+
   return {
     summary: trim(root.summary, 800),
     summaryWhy: trim(root.summaryWhy),
-    skills: arr(root.skills).slice(0, MAX_SKILL_LINES).map((s) => trim(s)).filter(Boolean),
-    companies: arr(root.companies)
-      .slice(0, MAX_COMPANIES)
-      .map((c) => {
+    skills: cap(arr(root.skills), MAX_SKILL_LINES, 'skills lines')
+      .map((s) => trim(s))
+      .filter(Boolean),
+    companies: rawCompanies
+      .map((c, i) => {
         const row = (c ?? {}) as Record<string, unknown>;
+        const name = trim(row.company, 120);
+        const header = trim(row.header, 200);
         return {
-          company: trim(row.company, 120),
+          // An employer the model failed to name still has bullets under it, and
+          // throwing those away to tidy up a missing field is exactly the kind of
+          // silent edit this file no longer makes. The header is the better name
+          // anyway; the index is the last resort.
+          company: name || header || `employer ${i + 1}`,
           role: trim(row.role, 120),
-          header: trim(row.header, 200),
-          bullets: arr(row.bullets)
-            .slice(0, MAX_BULLETS)
+          header,
+          bullets: cap(arr(row.bullets), MAX_BULLETS, `bullets under ${name || 'one employer'}`)
             .map((b) => {
               const bb = (b ?? {}) as Record<string, unknown>;
               return {
@@ -156,15 +192,19 @@ export function parseRewrite(body: unknown): RewriteAnswer {
               };
             })
             .filter((b) => b.text.length > 0),
+          named: Boolean(name || header),
         };
       })
-      .filter((c) => c.company.length > 0),
+      // The one thing still removed here, and it removes nothing: an entry with
+      // no name, no header and no bullets is an empty object from a malformed
+      // answer. Keeping it would put a heading reading "employer 1" above nothing.
+      .filter((c) => c.named || c.bullets.length > 0)
+      .map(({ named: _named, ...c }) => c),
     // Anything unreadable becomes `unclear` and `must`, which is the safe
     // direction: "they want this and we could not confirm you have it" is true of
     // a value we cannot read, and treating an unknown need as a must-have errs
     // towards showing the person something rather than hiding it.
-    requirements: arr(root.requirements)
-      .slice(0, MAX_REQUIREMENTS)
+    requirements: cap(arr(root.requirements), MAX_REQUIREMENTS, 'requirements')
       .map((r) => {
         const row = (r ?? {}) as Record<string, unknown>;
         const need = trim(row.need, 20).toLowerCase();
@@ -182,13 +222,17 @@ export function parseRewrite(body: unknown): RewriteAnswer {
         };
       })
       .filter((r) => r.name.length > 0),
-    dropped: arr(root.dropped)
-      .slice(0, MAX_DROPPED)
-      .map((d) => {
-        const row = (d ?? {}) as Record<string, unknown>;
-        return { text: trim(row.text), why: trim(row.why) };
-      })
-      .filter((d) => d.text.length > 0),
+    // The model's own list of what it chose to leave out, plus anything a ceiling
+    // above truncated. `over` goes last so a real reason is read first.
+    dropped: [
+      ...cap(arr(root.dropped), MAX_DROPPED, 'left-out lines')
+        .map((d) => {
+          const row = (d ?? {}) as Record<string, unknown>;
+          return { text: trim(row.text), why: trim(row.why) };
+        })
+        .filter((d) => d.text.length > 0),
+      ...over,
+    ],
   };
 }
 
@@ -280,8 +324,8 @@ export async function rewriteResume(
       used,
       model,
       note:
-        `${checked.kept} lines verified, ${checked.asked} need a yes from you, ` +
-        `${checked.discarded} discarded`,
+        `${checked.kept} lines verified, ${checked.flagged} for you to check` +
+        (checked.flagged === 0 ? '' : ' — nothing was removed'),
       needsAttention: false,
     };
   }

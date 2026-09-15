@@ -6,10 +6,10 @@ import type { CheckedLine, CheckedRewrite } from '../../src/tailor/rewrite.js';
 import { assembleRewrite } from '../../src/tailor/rewrite.js';
 import type { ResumeShape } from '../../src/tailor/sections.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
-import { readResume } from '../../src/ui/resume-render.js';
+import { changedLines, readResume } from '../../src/ui/resume-render.js';
 
 /**
- * A whole rewritten resume, and the one thing the person has to do.
+ * A whole rewritten resume, and the small amount of judgement only a person has.
  *
  * WHAT CHANGED FROM THE OLD SESSION
  *
@@ -17,20 +17,24 @@ import { readResume } from '../../src/ui/resume-render.js';
  * it produced seven suggestions of which the most substantial moved "React.js"
  * two words earlier — homework, for no gain.
  *
- * This one hands back a finished document. Nothing needs accepting, because every
- * line in it has already been traced to the candidate's own words for the
- * employer it sits under.
+ * This one hands back a finished document, whole.
  *
- * EXCEPT THE QUESTIONS, WHICH ARE THE POINT
+ * INCLUSION IS THE DEFAULT AND REMOVAL IS THE CONTROL
  *
- * A line the model wrote that the resume supports SOMEWHERE but not at that
- * employer becomes a question: "Did you use Kubernetes at Infosys?" It is out of
- * the document until the person says yes. That is the only interaction, it is
- * short, and it is the one thing software genuinely cannot decide for them.
+ * It used to be the other way round. A line the checker could not verify was held
+ * OUT of the document until the person clicked to put it in, and a line it could
+ * not verify at all never arrived. Both of those were the code deciding what
+ * somebody's CV should say, on evidence — a one-page summary of a career — that
+ * was never good enough to support the decision.
  *
- * NOTHING IS ASSEMBLED FROM AN UNANSWERED QUESTION. An unanswered question is not
- * a yes, and a download containing something nobody stood behind is the worst
- * thing this feature could produce.
+ * So everything the model wrote is in the document. Lines the checker could not
+ * trace are marked in the sheet, listed with the reason in plain words, and one
+ * click takes any of them out. `removed` is that list.
+ *
+ * This is louder than the old behaviour, not quieter: a flagged line is visible in
+ * the document itself and its count travels with the download button, where
+ * before it was simply absent and the person had no idea what had been decided
+ * for them.
  */
 
 export interface RewriteResponse {
@@ -59,15 +63,14 @@ export interface RewriteSession {
   res: RewriteResponse | null;
   run: () => Promise<void>;
 
-  /** Lines the person has confirmed, by their exact text. */
-  confirmed: Set<string>;
-  confirm: (line: string) => void;
-  unconfirm: (line: string) => void;
-  /** Every line still waiting on a yes or a no. */
-  open: CheckedLine[];
-  /** Questions the person answered "no" to, so they stop being asked. */
-  declined: Set<string>;
-  decline: (line: string) => void;
+  /** Lines the person has taken out, by their exact text. */
+  removed: Set<string>;
+  remove: (line: string) => void;
+  keep: (line: string) => void;
+  /** Every line the checker could not confirm, in or out. */
+  flagged: CheckedLine[];
+  /** Which lines of the assembled document are flagged, so the sheet can mark them. */
+  flaggedLines: Set<number>;
 
   /** Lines put back to the person's own words, by the rewrite's text. */
   reverted: Set<string>;
@@ -95,8 +98,7 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const [ask, setAsk] = useState('');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<RewriteResponse | null>(null);
-  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
-  const [declined, setDeclined] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [reverted, setReverted] = useState<Set<string>>(new Set());
   const [edited, setEdited] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -109,8 +111,7 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const run = useCallback(async () => {
     setBusy(true);
     setRes(null);
-    setConfirmed(new Set());
-    setDeclined(new Set());
+    setRemoved(new Set());
     setReverted(new Set());
     setEdited(null);
     setError('');
@@ -132,28 +133,25 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
 
   const rewrite = res?.rewrite ?? null;
 
-  const open: CheckedLine[] = rewrite
+  // Every flagged line, whether or not it is still in the document. One that has
+  // been taken out stays on this list so it can be put back — a decision you
+  // cannot reverse is not much better than one you were never offered.
+  const flagged: CheckedLine[] = rewrite
     ? [rewrite.summary, ...rewrite.skills, ...rewrite.companies.flatMap((c) => c.lines)].filter(
-        (l) => l.verdict === 'ask' && !confirmed.has(l.text) && !declined.has(l.text),
+        (l) => l.verdict === 'flagged' && l.text,
       )
     : [];
 
-  const confirm = (line: string) =>
-    setConfirmed((c) => {
-      const next = new Set(c);
+  const remove = (line: string) =>
+    setRemoved((r) => {
+      const next = new Set(r);
       next.add(line);
       return next;
     });
-  const unconfirm = (line: string) =>
-    setConfirmed((c) => {
-      const next = new Set(c);
+  const keep = (line: string) =>
+    setRemoved((r) => {
+      const next = new Set(r);
       next.delete(line);
-      return next;
-    });
-  const decline = (line: string) =>
-    setDeclined((d) => {
-      const next = new Set(d);
-      next.add(line);
       return next;
     });
 
@@ -171,12 +169,21 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     });
 
   const built =
-    rewrite && res?.shape ? assembleRewrite(rewrite, res.shape, confirmed, reverted) : '';
+    rewrite && res?.shape ? assembleRewrite(rewrite, res.shape, removed, reverted) : '';
 
   // A hand edit wins over the assembled document until it is cleared. Assembling
   // over the top would throw away what somebody typed the moment they reverted an
   // unrelated line, which is the bug the old screen had.
   const document_ = edited ?? built;
+
+  // Marked in the sheet itself, not only in the list beside it. A flagged line
+  // that is in the document by default has to be visible IN the document, or
+  // inclusion-by-default becomes its own kind of silence. A line edited by hand
+  // stops matching and stops being marked, which is right: it is theirs now.
+  const flaggedLines = changedLines(
+    document_,
+    flagged.filter((l) => !removed.has(l.text)).map((l) => l.text),
+  );
 
   const original = res?.shape
     ? [
@@ -283,12 +290,11 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     busy,
     res,
     run,
-    confirmed,
-    confirm,
-    unconfirm,
-    open,
-    declined,
-    decline,
+    removed,
+    remove,
+    keep,
+    flagged,
+    flaggedLines,
     reverted,
     revert,
     restore,

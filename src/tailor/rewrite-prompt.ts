@@ -32,7 +32,8 @@ export const REWRITE_RULES = [
   'F2. EVIDENCE IS PER EMPLOYER. A bullet under a job may only use what that job\'s own lines',
   '    say. If the resume shows Kubernetes at one employer, you may NOT write it under a',
   '    different one. Never move a number, a tool or an achievement between jobs. This is',
-  '    checked per employer and a breach is discarded.',
+  '    checked per employer, and a breach is shown to the candidate as something to verify',
+  '    with your wording intact and your name on it.',
   'F3. THE POSTING IS NOT EVIDENCE. It says what matters, never what the candidate did.',
   '    A posting asking for Kafka does not make them a Kafka user.',
   'F4. NEVER ADD A METRIC the resume does not state. Not a plausible one, not a conservative',
@@ -43,6 +44,10 @@ export const REWRITE_RULES = [
   'F7. If the posting wants something the candidate PLAUSIBLY did but their lines for that',
   '    employer do not show, write the bullet anyway and it will be turned into a question',
   '    for them. Better a question they can answer than a silence.',
+  'F8. NOTHING YOU WRITE IS DELETED. Every line you return reaches the candidate, and the ones',
+  '    that cannot be traced reach them flagged, in your words, for them to keep or remove.',
+  '    So a line you are unsure of is worth writing and a line you have invented is not:',
+  '    the first becomes a question, the second becomes something they have to notice.',
   '',
   VOICE_RULES,
   '',
@@ -86,7 +91,8 @@ export const REWRITE_RULES = [
   '    against financial services. Adjacent means the skill transfers, not that the words',
   '    look similar. If it does not transfer, say missing.',
   'R4. "fromResume" is a quote copied EXACTLY, for shown and partial only. A quote that is',
-  '    not in the resume is discarded and the requirement is downgraded to unclear.',
+  '    not in the resume is struck out and the requirement is downgraded to unclear — the',
+  '    requirement itself is always kept, because the employer still asked for it.',
 ].join('\n');
 
 /**
@@ -258,8 +264,9 @@ export function buildRewriteMessages(input: RewriteInput): {
     'Anything you left out goes in "dropped" with a reason, and every requirement the posting',
     'makes goes in "requirements" with an honest answer.',
     '',
-    'Every bullet is checked against its own employer\'s lines. A tool that appears under a',
-    'different job will be discarded or turned into a question, so moving one wastes the attempt.',
+    'Every bullet is checked against its own employer\'s lines, and nothing you write is thrown',
+    'away. A tool that appears under a different job reaches the candidate with a note saying so,',
+    'in your wording — so moving one does not slip past, it just makes them distrust the rest.',
   ].join('\n');
 
   return { system: REWRITE_RULES, user, used };

@@ -23,13 +23,26 @@ import { uniformity, voiceProblems } from '../src/tailor/voice.js';
  * The whole-resume rewrite, and the one guarantee nobody else offers.
  *
  * Every tool in this space will write you a tailored resume. None of them can
- * tell you which parts of it are true. This one refuses to emit a line it cannot
- * trace — and traces EMPLOYER BY EMPLOYER, which is the part that actually
- * matters and the part a whole-document check silently misses.
+ * tell you which parts of it are true. This one traces every claim EMPLOYER BY
+ * EMPLOYER, which is the part that actually matters and the part a whole-document
+ * check silently misses.
  *
  * If Kubernetes appears anywhere in a CV, a document-level check lets a bullet
  * under a 2018 job claim it. That is a fabricated work history that passes every
  * other test in this repo. Most of this file is about that one failure.
+ *
+ * WHAT CHANGED: THE CHECKER LABELS, IT NO LONGER DELETES
+ *
+ * There used to be a third verdict, `dropped`, and a line that earned it never
+ * reached the screen. Several tests below were written to hold that behaviour in
+ * place and now hold the opposite, because it was the wrong division of labour:
+ * the evidence is a one-page summary of a career, which is not good enough to
+ * justify deciding that a sentence about somebody's own work should not exist.
+ *
+ * The trace is unchanged and every test of it still stands. What changed is what
+ * happens afterwards — the line arrives, marked, with the reason in plain words,
+ * and the person decides. So the assertions here are no longer "this is gone" but
+ * "this is present, flagged, and says why".
  */
 
 const NL = String.fromCharCode(10);
@@ -118,7 +131,8 @@ test('A TOOL FROM ONE EMPLOYER CANNOT BE CLAIMED AT ANOTHER', () => {
     evidenceFor(infosys),
     RESUME,
   );
-  assert.equal(bad.verdict, 'ask', 'a cross-employer claim was accepted outright');
+  assert.equal(bad.verdict, 'flagged', 'a cross-employer claim was accepted outright');
+  assert.equal(bad.concern, 'other-employer');
   assert.match(bad.note, /not at this job/);
   assert.deepEqual(bad.unverified, ['kubernetes']);
 
@@ -131,16 +145,35 @@ test('A TOOL FROM ONE EMPLOYER CANNOT BE CLAIMED AT ANOTHER', () => {
   assert.equal(good.verdict, 'kept');
 });
 
-test('a tool in NO employer is dropped, not asked about', () => {
-  // There is nothing to ask. The candidate has never mentioned Kafka, so a
-  // question about it is just an invitation to lie.
+test('A TOOL IN NO EMPLOYER IS FLAGGED, NEVER DELETED', () => {
+  // This used to be deleted outright, on the reasoning that there was nothing to
+  // ask about. But a resume is a summary, not a complete record: somebody who has
+  // used Kafka and did not have room to say so is a real case, and the old
+  // behaviour answered it by silently rewriting their history for them.
+  //
+  // So the line survives, marked as the most serious thing on the list, and the
+  // person who actually knows decides.
   const out = checkBullet(
     { text: 'Built event pipelines on Kafka.', from: [], why: 'the posting wants it' },
     evidenceFor(lifeBonder),
     RESUME,
   );
-  assert.equal(out.verdict, 'dropped');
+  assert.equal(out.verdict, 'flagged');
+  assert.equal(out.concern, 'not-in-resume');
+  assert.equal(out.text, 'Built event pipelines on Kafka.', 'the wording was altered');
   assert.match(out.note, /nowhere in your resume/);
+  assert.match(out.question ?? '', /kafka/i);
+});
+
+test('the flag names the exact word that could not be traced', () => {
+  // "Something in this line is unsupported" is not actionable. The word is.
+  const out = checkBullet(
+    { text: 'Built event pipelines on Kafka.', from: [], why: 'x' },
+    evidenceFor(lifeBonder),
+    RESUME,
+  );
+  assert.deepEqual(out.unverified, ['kafka']);
+  assert.match(out.note, /"kafka"/);
 });
 
 test('THE QUESTION NAMES THE EMPLOYER, BECAUSE THAT IS THE WHOLE QUESTION', () => {
@@ -182,9 +215,13 @@ test('A NUMBER CANNOT MOVE BETWEEN EMPLOYERS', () => {
   assert.ok(out.unverified.includes('12'));
 });
 
-test('AN INVENTED EMPLOYER IS DISCARDED ENTIRELY', () => {
-  // The largest fabrication this feature could produce, and it would arrive
-  // looking exactly like the real ones.
+test('AN INVENTED EMPLOYER IS SHOWN AND MARKED, NOT DELETED', () => {
+  // The largest fabrication this feature could produce, and it arrives looking
+  // exactly like the real ones — which was the argument for deleting it.
+  //
+  // The argument does not hold. Deleting it means somebody reads a resume with no
+  // Google on it and no explanation, and the one thing they cannot do is notice.
+  // Marked, it is the loudest row on the page and impossible to miss.
   const checked = checkRewrite(
     answer({
       companies: [
@@ -198,13 +235,41 @@ test('AN INVENTED EMPLOYER IS DISCARDED ENTIRELY', () => {
     }),
     RESUME,
   );
-  assert.equal(checked.companies.length, 0);
-  assert.match(checked.dropped.map((d) => d.why).join(' '), /not in your resume/);
+  assert.equal(checked.companies.length, 1, 'the employer was deleted');
+  const google = checked.companies[0]!;
+  assert.equal(google.inResume, false);
+  assert.equal(google.company, 'GOOGLE');
+  assert.equal(google.lines.length, 1);
+  assert.equal(google.lines[0]!.verdict, 'flagged');
+  assert.equal(google.lines[0]!.concern, 'no-employer');
+  assert.match(google.lines[0]!.note, /not an employer in your resume/);
+
+  // And the model's own "dropped" list is left alone — the checker adds nothing
+  // to it, because the checker no longer leaves anything out.
+  assert.deepEqual(checked.dropped, []);
 });
 
-test('an unanswered question is never in the document', () => {
-  // An unanswered question is not a yes. A download containing something nobody
-  // stood behind is the worst thing this feature could produce.
+test('a real employer is marked as being in the resume', () => {
+  const checked = checkRewrite(
+    answer({
+      companies: [
+        {
+          company: 'INFOSYS',
+          role: 'Software Developer',
+          header: infosys.header,
+          bullets: [{ text: 'Designed SQL procedures and triggers.', from: [], why: 'x' }],
+        },
+      ],
+    }),
+    RESUME,
+  );
+  assert.equal(checked.companies[0]!.inResume, true);
+});
+
+test('EVERY LINE THE MODEL WROTE IS IN THE DOCUMENT UNTIL SOMEBODY TAKES IT OUT', () => {
+  // The inversion. A flagged line used to be held out of the document until it
+  // was confirmed, which hands back a gutted CV and calls the missing parts
+  // optional extras. Inclusion is the default; removal is the control.
   const checked = checkRewrite(
     answer({
       companies: [
@@ -223,11 +288,36 @@ test('an unanswered question is never in the document', () => {
   );
   const doc = assembleRewrite(checked, shape, new Set());
   assert.match(doc, /Designed SQL procedures/);
-  assert.ok(!doc.includes('Kubernetes'), 'an unconfirmed line reached the document');
+  assert.match(doc, /Ran Kubernetes clusters/, 'a flagged line was held out of the document');
 
-  // And it IS there once the person says yes.
-  const confirmed = assembleRewrite(checked, shape, new Set(['Ran Kubernetes clusters.']));
-  assert.match(confirmed, /Ran Kubernetes clusters/);
+  // And it goes when they say so.
+  const pruned = assembleRewrite(checked, shape, new Set(['Ran Kubernetes clusters.']));
+  assert.ok(!pruned.includes('Kubernetes'), 'a removed line survived');
+  assert.match(pruned, /Designed SQL procedures/, 'removing one line took another with it');
+});
+
+test('a flagged line is counted as flagged, not lost', () => {
+  const checked = checkRewrite(
+    answer({
+      companies: [
+        {
+          company: 'INFOSYS',
+          role: 'Software Developer',
+          header: infosys.header,
+          bullets: [
+            { text: 'Designed SQL procedures and triggers.', from: [], why: 'x' },
+            { text: 'Ran Kubernetes clusters.', from: [], why: 'x' },
+            { text: 'Built event pipelines on Kafka.', from: [], why: 'x' },
+          ],
+        },
+      ],
+    }),
+    RESUME,
+  );
+  // Three bullets in, three bullets out — plus the summary and the skills line.
+  assert.equal(checked.companies[0]!.lines.length, 3);
+  assert.equal(checked.kept + checked.flagged, 5, 'a line went missing from the counts');
+  assert.equal(checked.flagged, 2);
 });
 
 test('the document keeps the parts that were never rewritten', () => {
@@ -243,24 +333,85 @@ test('the document keeps the parts that were never rewritten', () => {
 // Voice
 // ---------------------------------------------------------------------------
 
-test('A BULLET THAT READS AS MACHINE-WRITTEN IS DROPPED', () => {
-  // Not softened, not warned about. If it cannot be said plainly it does not go
-  // in somebody's CV.
+test('A BULLET THAT READS AS MACHINE-WRITTEN IS FLAGGED, NOT DELETED', () => {
+  // This was the weakest deletion of the three and the easiest to defend against.
+  // "Leveraged" is a matter of taste, and taste is not grounds for code to remove
+  // a sentence about somebody's work. It is the mildest concern on the list.
   const banned = checkBullet(
     { text: 'Leveraged Terraform to provision cloud environments.', from: [], why: 'x' },
     evidenceFor(lifeBonder),
     RESUME,
   );
-  assert.equal(banned.verdict, 'dropped');
+  assert.equal(banned.verdict, 'flagged');
+  assert.equal(banned.concern, 'voice');
   assert.match(banned.note, /leveraged/);
+  assert.equal(banned.text, 'Leveraged Terraform to provision cloud environments.');
 
   const clause = checkBullet(
     { text: 'Authored Terraform scripts, ensuring consistent provisioning.', from: [], why: 'x' },
     evidenceFor(lifeBonder),
     RESUME,
   );
-  assert.equal(clause.verdict, 'dropped');
+  assert.equal(clause.verdict, 'flagged');
+  assert.equal(clause.concern, 'voice');
   assert.match(clause.note, /result clause/);
+});
+
+test('THE CHECKER NEVER GRADES THE PROSE THE PERSON WROTE THEMSELVES', () => {
+  // From a real run against a live posting. The resume said, in the candidate's
+  // own words, "Authored Terraform scripts to provision cloud environments." A
+  // purpose-clause version of this — their own sentence, carried through
+  // untouched — was reported as "a result clause the resume never measured",
+  // about a clause the resume contains word for word.
+  //
+  // Under the old code that line was DELETED. Somebody's own bullet disappeared
+  // out of their CV on a false charge. The voice rules exist to stop the MODEL
+  // writing like a machine; they have no business grading what the person chose.
+  const own = 'Optimized system performance using Redis caching.';
+  const resume = [
+    'NAME',
+    'PROFESSIONAL EXPERIENCE',
+    'ACME, Remote Jan 2020 - Present',
+    'Engineer',
+    'Leveraged Terraform, ensuring consistent provisioning.',
+    own,
+  ].join(NL);
+  const s2 = readShape(resume);
+  const acme = s2.companies.find((c) => c.name === 'ACME')!;
+
+  // Their own line, banned word and purpose clause and all.
+  const theirs = checkBullet(
+    { text: 'Leveraged Terraform, ensuring consistent provisioning.', from: [], why: 'x' },
+    evidenceFor(acme),
+    resume,
+  );
+  assert.equal(theirs.verdict, 'kept', `their own sentence was flagged: ${theirs.note}`);
+  assert.equal(theirs.concern, 'none');
+
+  // The model's own wording still is graded.
+  const model = checkBullet(
+    { text: 'Leveraged Redis, ensuring consistent caching.', from: [], why: 'x' },
+    evidenceFor(acme),
+    resume,
+  );
+  assert.equal(model.verdict, 'flagged');
+  assert.equal(model.concern, 'voice');
+});
+
+test('EVIDENCE OUTRANKS VOICE WHEN A LINE HAS BOTH PROBLEMS', () => {
+  // A line that is both clumsily written and unsupported has one problem that
+  // matters. Reporting the adjective and burying the fabrication would be exactly
+  // backwards — and that is what the old short-circuit did, because voice was
+  // tested first and returned immediately.
+  const both = checkBullet(
+    { text: 'Leveraged Kafka to build event pipelines.', from: [], why: 'x' },
+    evidenceFor(lifeBonder),
+    RESUME,
+  );
+  assert.equal(both.concern, 'not-in-resume', 'a fabrication was filed as a style problem');
+  assert.match(both.note, /kafka/i);
+  // The voice problem is still said, second.
+  assert.match(both.note, /leveraged/);
 });
 
 test('the purpose-clause habit is caught as a shape, not by word', () => {
@@ -398,20 +549,63 @@ test('sanitiseAsk is hygiene and is documented as not being the boundary', () =>
 // ---------------------------------------------------------------------------
 
 test('A MALFORMED ANSWER FAILS SAFE', () => {
+  // An entry with no name, no header and nothing under it is an empty object, not
+  // a lost employer. It is the only thing the parser still removes.
   const parsed = parseRewrite({ summary: 42, skills: 'no', companies: [{ bullets: 'no' }] });
   assert.equal(parsed.summary, '');
   assert.deepEqual(parsed.skills, []);
   assert.deepEqual(parsed.companies, []);
 });
 
-test('a bullet with no text is dropped at the parse, not later', () => {
+test('AN EMPLOYER THE MODEL FORGOT TO NAME KEEPS ITS BULLETS', () => {
+  // The bullets are the content. Discarding them to tidy up a missing field is
+  // the kind of silent edit this file no longer makes.
+  const parsed = parseRewrite({
+    companies: [{ bullets: [{ text: 'Ran the platform.', from: [], why: 'x' }] }],
+  });
+  assert.equal(parsed.companies.length, 1);
+  assert.equal(parsed.companies[0]!.bullets.length, 1);
+  assert.ok(parsed.companies[0]!.company.length > 0, 'it has no name to show');
+});
+
+test('a bullet with no text at all is not a line somebody lost', () => {
   const parsed = parseRewrite({
     companies: [{ company: 'ACME', role: 'x', header: 'y', bullets: [{ text: '  ' }, { text: 'real' }] }],
   });
   assert.equal(parsed.companies[0]!.bullets.length, 1);
 });
 
-test('nothing is silently lost — what was cut comes back with a reason', () => {
+test('NO CEILING IN THE PARSER IS TIGHT ENOUGH TO BITE A REAL RESUME', () => {
+  // These used to be twelve employers and ten bullets each, which made them a
+  // silent editor: the eleventh bullet under a long job simply never existed.
+  const big = {
+    companies: Array.from({ length: 15 }, (_, i) => ({
+      company: `ACME ${i}`,
+      role: 'Engineer',
+      header: `ACME ${i} 2020 - 2021`,
+      bullets: Array.from({ length: 15 }, (_, j) => ({ text: `did thing ${j}`, from: [], why: 'x' })),
+    })),
+    skills: Array.from({ length: 15 }, (_, i) => `Skills ${i}: a, b, c`),
+    requirements: Array.from({ length: 30 }, (_, i) => ({ name: `req ${i}`, need: 'must', answer: 'shown' })),
+  };
+  const parsed = parseRewrite(big);
+  assert.equal(parsed.companies.length, 15, 'employers were truncated');
+  assert.equal(parsed.companies[0]!.bullets.length, 15, 'bullets were truncated');
+  assert.equal(parsed.skills.length, 15);
+  assert.equal(parsed.requirements.length, 30);
+  assert.deepEqual(parsed.dropped, [], 'a ceiling fired on an ordinary answer');
+});
+
+test('A CEILING THAT DOES FIRE SAYS SO, RATHER THAN TRUNCATING IN SILENCE', () => {
+  const parsed = parseRewrite({
+    companies: Array.from({ length: 50 }, (_, i) => ({ company: `ACME ${i}`, bullets: [] })),
+  });
+  assert.equal(parsed.companies.length, 40);
+  assert.equal(parsed.dropped.length, 1, 'ten employers vanished with no record');
+  assert.match(parsed.dropped[0]!.text, /10 more employers/);
+});
+
+test("the model's own list of what it left out is passed through untouched", () => {
   const checked = checkRewrite(
     answer({ dropped: [{ text: 'an old bullet', why: 'not relevant here' }] }),
     RESUME,

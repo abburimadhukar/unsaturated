@@ -1,3 +1,5 @@
+import { BANNED_WORDS } from './voice.js';
+
 /**
  * Checking what the model proposed, before a person ever sees it.
  *
@@ -176,6 +178,9 @@ const HARMLESS_NUMERICS = new Set(['24/7', '247', '360', '101', '1:1', '11']);
  * Nothing that is also the name of a technology appears here, which is why Go,
  * Rust, Swift and React are absent despite being ordinary words.
  */
+/** Words the voice rules already call filler. None of them is a product name. */
+const BANNED = new Set<string>(BANNED_WORDS);
+
 const COMMON_CAPITALISED = new Set<string>([
   // Closed class
   'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'than', 'as', 'at', 'by', 'for', 'from',
@@ -266,7 +271,18 @@ export function claimTokens(text: string): string[] {
     const isNamed =
       /^[A-Z]/.test(token) && !COMMON_CAPITALISED.has(token.toLowerCase().replace(/[.,;:]+$/, ''));
 
-    if (hasDigit && HARMLESS_NUMERICS.has(token.toLowerCase())) continue;
+    const lower = token.toLowerCase().replace(/[.,;:]+$/, '');
+    if (hasDigit && HARMLESS_NUMERICS.has(lower)) continue;
+    // A word already classified as generic CV filler cannot also be a technical
+    // claim — "Leveraged" is not a product, whatever the capital at the start of
+    // the sentence suggests.
+    //
+    // Found when voice stopped short-circuiting the evidence check. "Leveraged
+    // Terraform to provision cloud environments" was reported as `"leveraged" is
+    // nowhere in your resume`, which names the wrong word and accuses somebody of
+    // inventing an adverb. The old order hid it: the line was deleted for its
+    // vocabulary before anything looked for evidence in it.
+    if (BANNED.has(lower)) continue;
     if (hasDigit || isAcronym || isProductName || isNamed) out.push(token.toLowerCase());
   }
   return out;
@@ -315,7 +331,55 @@ export function containsClaim(source: string, token: string): boolean {
     }
   }
 
+  if (hyphenatedFormOf(hay, needle)) return true;
+
   return sameWordDifferentEnding(hay, needle);
+}
+
+/**
+ * Modifiers a compound may end in without asserting anything of its own.
+ *
+ * "Terraform-based" claims Terraform and nothing else. "AWS-certified" claims a
+ * certification, which is a separate fact and has to trace on its own — so the
+ * list is short, closed, and contains no word that could be an achievement.
+ */
+const EMPTY_MODIFIERS = new Set([
+  'based', 'native', 'driven', 'focused', 'related', 'specific', 'heavy', 'oriented',
+  'centric', 'style', 'like', 'level', 'side', 'first', 'only', 'ready', 'aware',
+  'facing', 'backed', 'powered', 'enabled', 'adjacent', 'agnostic', 'friendly',
+]);
+
+/**
+ * Whether a hyphenated compound is really a claim about something the source says.
+ *
+ * FROM A REAL RUN
+ *
+ * The model offered "Azure PaaS, Azure IaaS, and Terraform-based Azure environment
+ * provisioning" as the equivalent of AWS experience, against a resume reading
+ * "Authored Terraform scripts to provision Azure environments". Every word of that
+ * is true. The check reported `it offered "terraform-based" as the equivalent,
+ * which is not in your resume` and downgraded a correct answer, because the hyphen
+ * made one token out of two.
+ *
+ * So a compound traces when every part of it that asserts anything traces. The
+ * modifier that asserts nothing is dropped; anything else still has to be found.
+ */
+function hyphenatedFormOf(hay: string, needle: string): boolean {
+  if (!needle.includes('-')) return false;
+  const parts = needle.split('-').filter(Boolean);
+  if (parts.length < 2) return false;
+
+  const asserting = parts.filter((p) => !EMPTY_MODIFIERS.has(p));
+  // Nothing left to check. `every` on an empty list is true, which would verify a
+  // claim by virtue of it containing no claim.
+  if (asserting.length === 0) return false;
+
+  return asserting.every((p) => {
+    const esc = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return (
+      new RegExp(`(^|[^\\w])${esc}($|[^\\w])`).test(hay) || sameWordDifferentEnding(hay, p)
+    );
+  });
 }
 
 /**

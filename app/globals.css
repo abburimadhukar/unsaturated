@@ -1250,9 +1250,14 @@ a.stat:hover b { color: var(--accent); }
 /* A blank line in the source is real spacing, not nothing. */
 .sgap { height: 9px; }
 
-/* The accepted lines, marked in place. A left rule and a wash rather than a
-   highlighter: the point is to find them while still reading the document as a
-   document, and a block of yellow stops it looking like a resume at all. */
+/* Lines marked in place. A left rule and a wash rather than a highlighter: the
+   point is to find them while still reading the document as a document, and a
+   block of yellow stops it looking like a resume at all.
+
+   Two screens use it for two things. On the old line-edit panel it means "you
+   accepted this". On the rewrite workspace it means "the checker could not trace
+   this, read it" — which is the same visual asking for the same action, a second
+   look at one line, so it carries both. */
 .schanged {
   background: #fff6e8;
   box-shadow: inset 2px 0 0 #e08a63;
@@ -1488,6 +1493,13 @@ header.twtop {
 }
 .twghost:disabled, .twprimary:disabled { opacity: 0.45; cursor: default; }
 
+/* Downloading with lines still unchecked is allowed — it is their CV — but the
+   button says so, because this is the moment it stops being a draft. */
+.twprimary.unchecked {
+  background: var(--warm);
+  border-color: var(--warm);
+}
+
 /* Shown only when there is not room for both panes. */
 .twtabs { display: none; gap: 4px; }
 .twtabs button {
@@ -1575,6 +1587,9 @@ footer.twbot {
 .twcount { font-size: 12.5px; color: var(--text-dim); margin-right: auto; }
 .twcount b { color: var(--text); }
 .twdim { color: var(--text-faint); }
+/* The count of lines still to look at. Not dim: it is the one number on this bar
+   that should pull the eye. */
+.twflag { color: var(--warm); font-weight: 600; }
 .twerr { font-size: 11.5px; color: var(--danger); }
 
 /* The posting, behind a button. */
@@ -1705,6 +1720,25 @@ footer.twbot {
 }
 .rwqtext { margin: 0 0 5px; font-size: 13px; line-height: 1.55; color: var(--text); }
 .rwqwhy { margin: 0 0 9px; font-size: 11.5px; line-height: 1.5; color: var(--text-dim); }
+
+/* What the checker could not confirm, in two or three words, so a list of these
+   can be skimmed without opening each one. */
+.rwqtag {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--warm);
+}
+
+/* A line the person has taken out. Struck through rather than removed from the
+   list: a decision you cannot see is a decision you cannot reverse, and putting
+   it back is the other half of being allowed to take it out. */
+.rwq.gone .rwqtext {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+.rwq.gone .rwqtag, .rwq.gone .rwqwhy { opacity: 0.55; }
 
 .rwconfirmed { margin: 10px 0; font-size: 12px; color: var(--hot); }
 

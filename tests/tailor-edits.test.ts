@@ -163,6 +163,33 @@ test('A NUMBER IS NOT VERIFIED BY APPEARING INSIDE ANOTHER NUMBER', () => {
   assert.equal(containsClaim('Grew revenue 40% year on year', '40'), true);
 });
 
+test('A HYPHENATED COMPOUND TRACES WHEN EVERY PART OF IT THAT CLAIMS SOMETHING TRACES', () => {
+  // From a real run: "Terraform-based Azure environment provisioning" offered as
+  // an equivalent, against a resume saying "Authored Terraform scripts to
+  // provision Azure environments". True in every word, reported as fabricated,
+  // because the hyphen made one token out of two.
+  const cv = 'Authored Terraform scripts to provision Azure environments.';
+  assert.equal(containsClaim(cv, 'terraform-based'), true);
+  assert.equal(containsClaim(cv, 'azure-native'), true);
+  // Both halves real, both found.
+  assert.equal(containsClaim(cv, 'azure-terraform'), true);
+});
+
+test('a compound that smuggles in a second claim is not verified by its first half', () => {
+  // "AWS-certified" is two claims and the certificate is the one that matters.
+  // The modifier list is closed and contains no word that could be an achievement.
+  const cv = 'Authored Terraform scripts to provision Azure environments.';
+  assert.equal(containsClaim(cv, 'terraform-certified'), false);
+  assert.equal(containsClaim(cv, 'kafka-based'), false);
+  assert.equal(containsClaim(cv, 'aws-native'), false);
+});
+
+test('a compound of nothing but modifiers verifies nothing', () => {
+  // `every` on an empty list is true, which would verify a claim by virtue of it
+  // containing no claim at all.
+  assert.equal(containsClaim('Anything at all.', 'based-driven'), false);
+});
+
 test('the same number written two ways is the same number', () => {
   assert.equal(containsClaim('Processed 15,000 events a second', '15000'), true);
   assert.equal(containsClaim('Processed 15000 events a second', '15,000'), true);
