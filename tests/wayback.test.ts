@@ -185,6 +185,17 @@ test('the Archive harvest runs in the weekly job, not just in the code', () => {
   assert.match(wf, /--provider \$\{\{ matrix\.provider \}\}/);
 });
 
+test('the job has time for two verification passes, not one', () => {
+  // Each harvest verifies up to 3,000 boards at one request a second — 50
+  // minutes — and the greenhouse shard also carries the 600-board
+  // re-verification. A ceiling sized for a single pass kills a run part-way
+  // through writing, which leaves the registry holding a partial harvest with
+  // no record of where it stopped.
+  const wf = read('../.github/workflows/discover.yml');
+  const timeout = Number(/timeout-minutes: (\d+)/.exec(wf)?.[1] ?? 0);
+  assert.ok(timeout >= 150, `timeout-minutes is ${timeout}, too tight for two verification passes`);
+});
+
 test('a failing Archive cannot take the Common Crawl harvest red with it', () => {
   // The Archive goes offline. If that failed the job, the Common Crawl step
   // that ran successfully above it would be reported as a failed run — and a

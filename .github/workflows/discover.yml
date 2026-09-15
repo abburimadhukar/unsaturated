@@ -93,7 +93,18 @@ jobs:
     #
     # 50 minutes against a 90-minute ceiling leaves room for the harvest itself
     # and for a slow vendor, so a full run still cannot be killed mid-write.
-    timeout-minutes: 120
+    #
+    # Raised to 180 on 15 Sep 2026, when a SECOND harvest-and-verify step was
+    # added for the Internet Archive. The ceiling was sized for one verification
+    # pass and there are now two, each capped at 3,000 boards at one request a
+    # second — 50 minutes apiece. The greenhouse shard is the worst case, since
+    # it also carries the 600-board re-verification below: 50 + 50 + 10 is 110
+    # minutes of checking alone, before either index has been read.
+    #
+    # In practice a run is a fraction of this. The ceiling exists so that a run
+    # is never killed part-way through writing, which would leave the registry
+    # holding a partial harvest and no record of where it stopped.
+    timeout-minutes: 180
     permissions:
       contents: read
       issues: write
