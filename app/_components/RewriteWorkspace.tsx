@@ -7,6 +7,7 @@ import { PRESETS } from '../../src/tailor/rewrite-prompt.js';
 import type { Concern } from '../../src/tailor/rewrite.js';
 import { Changes, CompareView } from './Changes.js';
 import { Coverage } from './Coverage.js';
+import { RoleSuggestions, SkillSuggestions } from './Suggestions.js';
 import { Sheet } from './tailor-parts.js';
 import { useRewrite } from './use-rewrite.js';
 
@@ -89,6 +90,12 @@ export function RewriteWorkspace({
   const dropped = rewrite?.dropped ?? [];
   /** Flagged and still in the document — the number that actually needs a look. */
   const toCheck = s.flagged.filter((l) => !s.removed.has(l.text));
+  /** Suggestions ticked, counted off the answer rather than off the tick set, so
+      a stale tick from a previous run cannot inflate it. */
+  const pickedCount =
+    (s.sug?.skills?.skills ?? []).filter((x) => s.picked.has(x.skill)).length +
+    (s.sug?.roles?.companies ?? []).flatMap((c) => c.bullets).filter((b) => s.picked.has(b.text))
+      .length;
 
   return (
     <div className={`twork pane-${pane === 'setup' ? 'changes' : 'resume'}`}>
@@ -199,6 +206,32 @@ export function RewriteWorkspace({
                 </span>
               )}
             </div>
+
+            {/* Two different questions, and neither needs the rewrite above.
+                They work on the CV on file, so somebody can ask what they are
+                missing without paying for a document they may not want. */}
+            <div className="sugbuttons">
+              <button
+                type="button"
+                className="sugbtn"
+                onClick={() => void s.askFor('skills')}
+                disabled={s.asking !== null}
+              >
+                {s.asking === 'skills' ? 'Reading the posting…' : 'Skills validation'}
+              </button>
+              <button
+                type="button"
+                className="sugbtn"
+                onClick={() => void s.askFor('roles')}
+                disabled={s.asking !== null}
+              >
+                {s.asking === 'roles' ? 'Writing points…' : 'Roles validation'}
+              </button>
+            </div>
+            <p className="tnote">
+              Skills: what this posting wants that your resume does not show, and where it
+              would go. Roles: two responsibilities per employer covering those gaps.
+            </p>
           </div>
 
           {s.error && (
@@ -211,6 +244,42 @@ export function RewriteWorkspace({
                 </>
               )}
             </div>
+          )}
+
+          {/* ---- what the model suggested, ticked one at a time ---- */}
+          {s.sug?.error && <div className="terror">{s.sug.error}</div>}
+
+          {(s.sug?.skills || s.sug?.roles) && (
+            <section className="sug">
+              <div className="sughead">
+                <h2>
+                  {s.sug.mode === 'roles' ? 'Suggested responsibilities' : 'Skills you are missing'}
+                </h2>
+                {pickedCount > 0 && (
+                  <span className="sugcount">{pickedCount} added to your resume</span>
+                )}
+              </div>
+              {/* Said once, plainly, and not repeated on every row. Somebody told
+                  six times stops reading the seventh. */}
+              <p className="tnote">
+                Nothing here was checked against your resume — it cannot be, because all of it
+                is by definition what your resume does not say. These describe work you may
+                have done and not written down. <strong>Tick only what is true of you.</strong>
+              </p>
+
+              {s.sug.skills && (
+                <SkillSuggestions answer={s.sug.skills} picked={s.picked} onPick={s.pick} />
+              )}
+              {s.sug.roles && (
+                <RoleSuggestions answer={s.sug.roles} picked={s.picked} onPick={s.pick} />
+              )}
+
+              {s.sug.note && (
+                <p className="tfoot">
+                  {s.sug.note} · {s.sug.model}
+                </p>
+              )}
+            </section>
           )}
 
           {/* ---- the only work there is ---- */}
@@ -318,6 +387,12 @@ export function RewriteWorkspace({
             <p className="twempty">
               Reading the posting and writing your resume. About twenty seconds.
             </p>
+          ) : s.asking ? (
+            <p className="twempty">
+              Reading the posting against your resume.
+              <br />
+              {s.asking === 'skills' ? 'Finding what is missing.' : 'Writing the points.'}
+            </p>
           ) : !s.document ? (
             <p className="twempty">
               Your tailored resume appears here.
@@ -328,7 +403,16 @@ export function RewriteWorkspace({
             <>
               <div className="twsheetbar">
                 <span className="twtally">
-                  Tailored for {company}
+                  {/* Honest about which document this is. Without a rewrite it is
+                      their own CV with whatever they ticked added, and calling
+                      that "tailored" would overstate what happened to it. */}
+                  {rewrite ? `Tailored for ${company}` : 'Your resume'}
+                  {pickedCount > 0 && (
+                    <span className="twflag">
+                      {' '}
+                      · {pickedCount} suggestion{pickedCount === 1 ? '' : 's'} added
+                    </span>
+                  )}
                   {toCheck.length > 0 && (
                     <span className="twflag">
                       {' '}

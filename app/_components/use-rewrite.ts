@@ -2,9 +2,12 @@
 
 import { useCallback, useState } from 'react';
 
+import type { ChosenBullet, ChosenSkill } from '../../src/tailor/additions.js';
+import { applyAdditions, documentFromShape } from '../../src/tailor/additions.js';
 import type { CheckedLine, CheckedRewrite } from '../../src/tailor/rewrite.js';
 import { assembleRewrite } from '../../src/tailor/rewrite.js';
 import type { ResumeShape } from '../../src/tailor/sections.js';
+import type { RolesAnswer, SkillsAnswer, SuggestMode } from '../../src/tailor/suggest.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
 import { changedLines, readResume } from '../../src/ui/resume-render.js';
 
@@ -55,6 +58,22 @@ export interface RewriteResponse {
   noDescription?: boolean;
 }
 
+/** What /api/tailor/suggest returns. No verdicts — see src/tailor/suggest.ts. */
+export interface SuggestResponse {
+  mode?: SuggestMode;
+  skills?: SkillsAnswer | null;
+  roles?: RolesAnswer | null;
+  shape?: ResumeShape;
+  model?: string;
+  note?: string;
+  needsAttention?: boolean;
+  resumeCutBy?: number;
+  error?: string;
+  needsResume?: boolean;
+  retryable?: boolean;
+  noDescription?: boolean;
+}
+
 export interface RewriteSession {
   presets: string[];
   togglePreset: (id: string) => void;
@@ -73,6 +92,15 @@ export interface RewriteSession {
   flagged: CheckedLine[];
   /** Which lines of the assembled document are flagged, so the sheet can mark them. */
   flaggedLines: Set<number>;
+
+  /** The two suggestion buttons. Nothing here is checked against the resume. */
+  sug: SuggestResponse | null;
+  /** Which button is waiting on the model, if either. */
+  asking: SuggestMode | null;
+  askFor: (mode: SuggestMode) => Promise<void>;
+  /** Suggestions the person ticked, by the exact text of the item. */
+  picked: Set<string>;
+  pick: (key: string) => void;
 
   /** Lines put back to the person's own words, by the rewrite's text. */
   reverted: Set<string>;
@@ -107,8 +135,31 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
 
+  /**
+   * The two suggestion buttons, which are their own feature.
+   *
+   * Kept apart from `res` on purpose: they answer a different question, they do
+   * not produce a document, and either can be run without the other or without a
+   * rewrite at all. Sharing one response object would have made "have you run the
+   * rewrite" a precondition for a button that has nothing to do with it.
+   *
+   * `picked` holds what the person ticked, by the exact text of the item. Nothing
+   * reaches the document until it is in here.
+   */
+  const [sug, setSug] = useState<SuggestResponse | null>(null);
+  const [asking, setAsking] = useState<SuggestMode | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
   const togglePreset = (id: string) =>
     setPresets((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+
+  const pick = (key: string) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -133,7 +184,52 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     }
   }, [jobKey, presets, ask]);
 
+  /**
+   * One question to the model, and nothing done to the answer.
+   *
+   * Ticks are cleared on every run, because a tick refers to one exact suggestion
+   * and the next run produces different ones. Keeping them would leave the
+   * document holding a line nothing on screen accounts for.
+   */
+  const askFor = useCallback(
+    async (mode: SuggestMode) => {
+      setAsking(mode);
+      setSug(null);
+      setPicked(new Set());
+      setError('');
+      try {
+        const r = await fetch('/api/tailor/suggest', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jobKey, mode }),
+        });
+        setSug((await r.json().catch(() => ({}))) as SuggestResponse);
+      } catch {
+        setSug({ error: 'could not reach the server — check your connection and try again' });
+      } finally {
+        setAsking(null);
+      }
+    },
+    [jobKey],
+  );
+
   const rewrite = res?.rewrite ?? null;
+  // The rewrite's copy wins when both exist: it is the one the document is built
+  // from, and two shapes of the same CV would differ only by being read twice.
+  const shape = res?.shape ?? sug?.shape ?? null;
+
+  const suggestedSkills = sug?.skills?.skills ?? [];
+  const suggestedCompanies = sug?.roles?.companies ?? [];
+
+  const chosenSkills: ChosenSkill[] = suggestedSkills
+    .filter((s) => picked.has(s.skill))
+    .map((s) => ({ skill: s.skill, intoLine: s.intoLine, newLine: s.newLine }));
+
+  const chosenBullets: ChosenBullet[] = suggestedCompanies.flatMap((c) =>
+    c.bullets
+      .filter((b) => picked.has(b.text))
+      .map((b) => ({ company: c.company, header: c.header, text: b.text })),
+  );
 
   // Every flagged line, whether or not it is still in the document. One that has
   // been taken out stays on this list so it can be put back — a decision you
@@ -170,13 +266,22 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
       return next;
     });
 
-  const built =
-    rewrite && res?.shape ? assembleRewrite(rewrite, res.shape, removed, reverted) : '';
+  // The document in three layers, each rebuilt from the one below it.
+  //
+  //   base       the rewrite if one was run, otherwise the person's own CV — so
+  //              the two suggestion buttons work without paying for a rewrite
+  //   additions  the suggestions they ticked, put in place
+  //   edited     whatever they typed, which wins until they clear it
+  //
+  // Rebuilt rather than accumulated, so un-ticking a suggestion removes it again.
+  const original = shape ? documentFromShape(shape) : '';
+  const base = rewrite && shape ? assembleRewrite(rewrite, shape, removed, reverted) : original;
+  const withAdditions = applyAdditions(base, chosenSkills, chosenBullets);
 
   // A hand edit wins over the assembled document until it is cleared. Assembling
   // over the top would throw away what somebody typed the moment they reverted an
   // unrelated line, which is the bug the old screen had.
-  const document_ = edited ?? built;
+  const document_ = edited ?? withAdditions;
 
   // Marked in the sheet itself, not only in the list beside it. A flagged line
   // that is in the document by default has to be visible IN the document, or
@@ -187,31 +292,6 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     flagged.filter((l) => !removed.has(l.text)).map((l) => l.text),
   );
 
-  const original = res?.shape
-    ? [
-        res.shape.name,
-        ...res.shape.contact,
-        '',
-        ...res.shape.summary,
-        '',
-        ...(res.shape.skills.length ? ['TECHNICAL SKILLS', ...res.shape.skills, ''] : []),
-        ...(res.shape.companies.length
-          ? [
-              'PROFESSIONAL EXPERIENCE',
-              ...res.shape.companies.flatMap((c) => [
-                c.header,
-                ...(c.role ? [c.role] : []),
-                ...c.bullets.map((b) => `\u00b7 ${b}`),
-                '',
-              ]),
-            ]
-          : []),
-        ...(res.shape.education.length ? ['EDUCATION', ...res.shape.education] : []),
-      ]
-        .join('\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim()
-    : '';
 
   const copy = () => {
     if (!document_) return;
@@ -297,6 +377,11 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     keep,
     flagged,
     flaggedLines,
+    sug,
+    asking,
+    askFor,
+    picked,
+    pick,
     reverted,
     revert,
     restore,
