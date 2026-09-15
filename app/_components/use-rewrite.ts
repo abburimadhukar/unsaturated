@@ -3,11 +3,11 @@
 import { useCallback, useState } from 'react';
 
 import type { ChosenBullet, ChosenSkill } from '../../src/tailor/additions.js';
-import { applyAdditions, documentFromShape } from '../../src/tailor/additions.js';
+import { FULL_PICK, applyAdditions, documentFromShape, replaceSummary } from '../../src/tailor/additions.js';
 import type { CheckedLine, CheckedRewrite } from '../../src/tailor/rewrite.js';
 import { assembleRewrite } from '../../src/tailor/rewrite.js';
 import type { ResumeShape } from '../../src/tailor/sections.js';
-import type { RolesAnswer, SkillsAnswer, SuggestMode } from '../../src/tailor/suggest.js';
+import { fullAsText, type FullAnswer, type RolesAnswer, type SkillsAnswer, type SuggestMode, type SummaryAnswer } from '../../src/tailor/suggest.js';
 import { docxBlob, docxFileName } from '../../src/ui/docx.js';
 import { changedLines, readResume } from '../../src/ui/resume-render.js';
 
@@ -62,6 +62,8 @@ export interface SuggestResponse {
   mode?: SuggestMode;
   skills?: SkillsAnswer | null;
   roles?: RolesAnswer | null;
+  summary?: SummaryAnswer | null;
+  full?: FullAnswer | null;
   shape?: ResumeShape;
   model?: string;
   note?: string;
@@ -105,6 +107,8 @@ export interface RewriteSession {
   /** Suggestions the person ticked, by the exact text of the item. */
   picked: Set<string>;
   pick: (key: string) => void;
+  /** Tick one of a mutually exclusive set — the summary versions. */
+  pickOne: (key: string, among: readonly string[]) => void;
 
   /** Lines put back to the person's own words, by the rewrite's text. */
   reverted: Set<string>;
@@ -152,6 +156,8 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   const [sug, setSug] = useState<Record<SuggestMode, SuggestResponse | null>>({
     skills: null,
     roles: null,
+    summary: null,
+    full: null,
   });
   const [asking, setAsking] = useState<SuggestMode | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -162,6 +168,22 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
       const next = new Set(p);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+
+  /**
+   * One of a set, or none of them.
+   *
+   * The summary options are three versions of the same paragraph, so ticking a
+   * second one has to untick the first — a resume with two summaries in it is
+   * not a thing anybody meant to ask for.
+   */
+  const pickOne = (key: string, among: readonly string[]) =>
+    setPicked((p) => {
+      const next = new Set(p);
+      const already = next.has(key);
+      for (const k of among) next.delete(k);
+      if (!already) next.add(key);
       return next;
     });
 
@@ -229,6 +251,10 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
 
   const suggestedSkills = sug.skills?.skills?.skills ?? [];
   const suggestedCompanies = sug.roles?.roles?.companies ?? [];
+  const summaryAnswer = sug.summary?.summary ?? null;
+  const fullAnswer = sug.full?.full ?? null;
+  const chosenSummary = summaryAnswer?.options.find((o) => picked.has(o.text)) ?? null;
+  const fullChosen = picked.has(FULL_PICK);
 
   const chosenSkills: ChosenSkill[] = suggestedSkills
     .filter((s) => picked.has(s.skill))
@@ -284,8 +310,25 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
   //
   // Rebuilt rather than accumulated, so un-ticking a suggestion removes it again.
   const original = shape ? documentFromShape(shape) : '';
-  const base = rewrite && shape ? assembleRewrite(rewrite, shape, removed, reverted) : original;
-  const withAdditions = applyAdditions(base, chosenSkills, chosenBullets);
+
+  // The whole rewrite, if they took it, is the base the rest is layered onto —
+  // so a ticked skill lands in the rewritten skills line rather than the old one.
+  const rewritten =
+    fullChosen && fullAnswer && shape ? fullAsText(fullAnswer, shape) : null;
+  const base =
+    rewritten ?? (rewrite && shape ? assembleRewrite(rewrite, shape, removed, reverted) : original);
+
+  // The summary goes on before the additions: a chosen summary replaces a line,
+  // and the additions only ever touch skills lines and employer bullets, so the
+  // order cannot make either lose the other.
+  const withSummary = chosenSummary
+    ? replaceSummary(
+        base,
+        rewritten ? [fullAnswer?.summary ?? ''] : (shape?.summary ?? []),
+        chosenSummary.text,
+      )
+    : base;
+  const withAdditions = applyAdditions(withSummary, chosenSkills, chosenBullets);
 
   // A hand edit wins over the assembled document until it is cleared. Assembling
   // over the top would throw away what somebody typed the moment they reverted an
@@ -389,6 +432,7 @@ export function useRewrite(jobKey: string, jobTitle: string): RewriteSession {
     askFor,
     picked,
     pick,
+    pickOne,
     reverted,
     revert,
     restore,

@@ -1,8 +1,14 @@
 'use client';
 
-import { labelOf, mergeSkillLine } from '../../src/tailor/additions.js';
+import { FULL_PICK, labelOf, mergeSkillLine } from '../../src/tailor/additions.js';
 import { normalise } from '../../src/tailor/edits.js';
-import type { RolesAnswer, SkillSuggestion, SkillsAnswer } from '../../src/tailor/suggest.js';
+import type {
+  FullAnswer,
+  RolesAnswer,
+  SkillSuggestion,
+  SkillsAnswer,
+  SummaryAnswer,
+} from '../../src/tailor/suggest.js';
 
 /**
  * What the model suggested, one item at a time, with a tick beside each.
@@ -142,6 +148,116 @@ export function RoleSuggestions({
           })}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Three lightly edited summaries, and the one they already have.
+ *
+ * Mutually exclusive, because they are three versions of one paragraph. The
+ * original is shown first and is always an option — "keep mine" has to be as
+ * easy to choose as the alternatives, or the screen is only offering to change
+ * something.
+ */
+export function SummaryOptions({
+  answer,
+  picked,
+  onPickOne,
+}: {
+  answer: SummaryAnswer;
+  picked: Set<string>;
+  onPickOne: (key: string, among: readonly string[]) => void;
+}) {
+  const keys = answer.options.map((o) => o.text);
+
+  if (answer.options.length === 0) {
+    return (
+      <p className="sugempty">
+        Your summary already reads for this posting — nothing here was worth changing.
+      </p>
+    );
+  }
+
+  return (
+    <div className="suglist">
+      {answer.original && (
+        <div className="sugrow flat">
+          <span className="sugbody">
+            <span className="suglabel">Yours now</span>
+            <span className="sugtitle">{answer.original}</span>
+          </span>
+        </div>
+      )}
+      {answer.options.map((o, i) => {
+        const on = picked.has(o.text);
+        return (
+          <label className={`sugrow${on ? ' on' : ''}`} key={i}>
+            <input type="checkbox" checked={on} onChange={() => onPickOne(o.text, keys)} />
+            <span className="sugbody">
+              <span className="sugtitle">{o.text}</span>
+              {/* What it actually altered, in the model's own words, so the two
+                  paragraphs can be checked against a claim rather than compared
+                  word by word by eye. */}
+              {o.changed && (
+                <span className="sugquote">
+                  <span className="suglabel">Changed</span>
+                  {o.changed}
+                </span>
+              )}
+              {o.why && <span className="sugwhy">{o.why}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The whole resume, rewritten. One tick, and it becomes the document on the right.
+ *
+ * Not a list of things to accept — it is a document, and the only honest way to
+ * judge a document is to read it. So this is a short summary of what changed and
+ * a single choice, and the reading happens in the Compare view where the two
+ * resumes sit side by side.
+ */
+export function FullRewrite({
+  answer,
+  original,
+  picked,
+  onPick,
+}: {
+  answer: FullAnswer;
+  /** The resume as it stands, for the counts. */
+  original: { skills: string[]; companies: { bullets: string[] }[] };
+  picked: Set<string>;
+  onPick: (key: string) => void;
+}) {
+  const on = picked.has(FULL_PICK);
+  const was = original.companies.reduce((n, c) => n + c.bullets.length, 0);
+  const now = answer.companies.reduce((n, c) => n + c.bullets.length, 0);
+
+  return (
+    <div className="suglist">
+      <label className={`sugrow${on ? ' on' : ''}`}>
+        <input type="checkbox" checked={on} onChange={() => onPick(FULL_PICK)} />
+        <span className="sugbody">
+          <span className="sugtitle">Use this rewritten resume</span>
+          {answer.approach && <span className="sugwhy">{answer.approach}</span>}
+          {/* The arithmetic, because "rewritten for this job" says nothing and
+              "28 lines became 19" says what happened to the document. */}
+          <span className="sugquote">
+            <span className="suglabel">Lines</span>
+            {was} → {now} across {answer.companies.length} employer
+            {answer.companies.length === 1 ? '' : 's'}
+            {original.skills.length > 0 && ` · ${answer.skills.length} skills lines`}
+          </span>
+          <span className="sugwhy">
+            Open <strong>Compare</strong> on the right to read it beside your own before you decide.
+          </span>
+        </span>
+      </label>
     </div>
   );
 }

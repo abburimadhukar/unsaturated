@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
+import { FULL_PICK } from '../../src/tailor/additions.js';
 import type { Concern } from '../../src/tailor/rewrite.js';
+import type { SuggestMode } from '../../src/tailor/suggest.js';
 import { Changes, CompareView } from './Changes.js';
 import { Coverage } from './Coverage.js';
-import { RoleSuggestions, SkillSuggestions } from './Suggestions.js';
+import { FullRewrite, RoleSuggestions, SkillSuggestions, SummaryOptions } from './Suggestions.js';
 import { Sheet } from './tailor-parts.js';
 import { useRewrite } from './use-rewrite.js';
 
@@ -56,12 +58,25 @@ export interface RewriteWorkspaceProps {
 }
 
 /**
+ * The four buttons, in the order somebody works through them.
+ *
+ * Summary first because it is the cheapest change and the top of the page;
+ * the whole rewrite second because it replaces everything and wants deciding
+ * early; then the two that add.
+ */
+const BUTTONS: [SuggestMode, string, string][] = [
+  ['summary', 'Summary rewrite', 'Reading your summary…'],
+  ['full', 'Entire resume rewrite', 'Rewriting…'],
+  ['skills', 'Skills validation', 'Reading the posting…'],
+  ['roles', 'Roles validation', 'Writing points…'],
+];
+
+/**
  * The flag, in two or three words, so a list of them can be skimmed.
  *
  * Ordered by how much they should worry somebody. "Not in your resume" is a claim
  * that may be untrue; "wrong job" is almost certainly true of them but possibly
- * not there; "reads generated" is a matter of taste and is marked as the mildest
- * thing on the page rather than, as it once was, grounds for deletion.
+ * not there; "reads generated" is a matter of taste.
  */
 const CONCERN: Record<Concern, string> = {
   none: '',
@@ -95,7 +110,15 @@ export function RewriteWorkspace({
     (s.sug.skills?.skills?.skills ?? []).filter((x) => s.picked.has(x.skill)).length +
     (s.sug.roles?.roles?.companies ?? [])
       .flatMap((c) => c.bullets)
-      .filter((b) => s.picked.has(b.text)).length;
+      .filter((b) => s.picked.has(b.text)).length +
+    (s.sug.summary?.summary?.options ?? []).filter((o) => s.picked.has(o.text)).length +
+    (s.picked.has(FULL_PICK) ? 1 : 0);
+
+  const shape = s.res?.shape ?? BUTTONS.map(([m]) => s.sug[m]?.shape).find(Boolean) ?? null;
+  const firstError = BUTTONS.map(([m]) => s.sug[m]?.error).find(Boolean);
+  const anyAnswer = BUTTONS.some(
+    ([m]) => s.sug[m]?.skills || s.sug[m]?.roles || s.sug[m]?.summary || s.sug[m]?.full,
+  );
 
   return (
     <div className={`twork pane-${pane === 'setup' ? 'changes' : 'resume'}`}>
@@ -150,9 +173,8 @@ export function RewriteWorkspace({
         <section className="twleft" aria-label="Options">
           <div className="twcontrols">
             <p className="rwlead">
-              {rewrite
-                ? 'Rewritten for this job. Every line traces back to something you already wrote.'
-                : 'This rewrites your whole resume for this job — summary, skills order and the bullets under each employer. Nothing is invented.'}
+              Four questions about your resume against this posting. Run any of them, in any
+              order — nothing changes your resume until you tick it.
             </p>
 
             {/* The six preset chips — "Fit one page", "Show the depth", "Lead
@@ -177,53 +199,31 @@ export function RewriteWorkspace({
               </button>
             )}
 
-            <div className="tactions">
-              <button
-                type="button"
-                className="tgo"
-                onClick={() => {
-                  setPane('resume');
-                  void s.run();
-                }}
-                disabled={s.busy}
-              >
-                {s.busy
-                  ? 'Writing your resume…'
-                  : rewrite
-                    ? 'Write it again'
-                    : 'Write my resume for this job'}
-              </button>
-              {s.res?.via && (
-                <span className="tnote">
-                  read live from the employer — nothing about this posting is stored
-                </span>
-              )}
-            </div>
-
-            {/* Two different questions, and neither needs the rewrite above.
-                They work on the CV on file, so somebody can ask what they are
-                missing without paying for a document they may not want. */}
+            {/* FOUR QUESTIONS, ONE SHAPE.
+                "Write my resume for this job" is gone at the owner's
+                instruction; "Entire resume rewrite" is what replaced it, and it
+                answers in the same way the other three do — the model writes,
+                the screen shows, you tick. Each runs on the CV on file and none
+                of them needs any of the others to have been run first. */}
             <div className="sugbuttons">
-              <button
-                type="button"
-                className="sugbtn"
-                onClick={() => void s.askFor('skills')}
-                disabled={s.asking !== null}
-              >
-                {s.asking === 'skills' ? 'Reading the posting…' : 'Skills validation'}
-              </button>
-              <button
-                type="button"
-                className="sugbtn"
-                onClick={() => void s.askFor('roles')}
-                disabled={s.asking !== null}
-              >
-                {s.asking === 'roles' ? 'Writing points…' : 'Roles validation'}
-              </button>
+              {BUTTONS.map(([mode, label, working]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`sugbtn${s.sug[mode] ? ' done' : ''}`}
+                  onClick={() => void s.askFor(mode)}
+                  disabled={s.asking !== null}
+                >
+                  {s.asking === mode ? working : label}
+                </button>
+              ))}
             </div>
             <p className="tnote">
-              Skills: what this posting wants that your resume does not show, and where it
-              would go. Roles: two responsibilities per employer covering those gaps.
+              <strong>Summary</strong> touches your opening paragraph only, lightly.{' '}
+              <strong>Entire resume</strong> rewrites the whole document from what you already
+              wrote. <strong>Skills</strong> finds what this posting wants that your CV does not
+              show. <strong>Roles</strong> writes two responsibilities per employer covering
+              those gaps.
             </p>
           </div>
 
@@ -248,23 +248,54 @@ export function RewriteWorkspace({
 
               The caution is said ONCE, above both, rather than per panel or per
               row — somebody told six times stops reading the seventh. */}
-          {(s.sug.skills?.error || s.sug.roles?.error) && (
-            <div className="terror">{s.sug.skills?.error ?? s.sug.roles?.error}</div>
-          )}
+          {firstError && <div className="terror">{firstError}</div>}
 
-          {(s.sug.skills?.skills || s.sug.roles?.roles) && (
+          {anyAnswer && (
             <section className="sug">
               <div className="sughead">
                 <h2>Suggestions</h2>
                 {pickedCount > 0 && (
-                  <span className="sugcount">{pickedCount} added to your resume</span>
+                  <span className="sugcount">{pickedCount} applied to your resume</span>
                 )}
               </div>
+              {/* Two different promises, so two sentences rather than one that
+                  covers neither properly. The summary and the whole rewrite are
+                  made of what you already wrote; the skills and the
+                  responsibilities are, by construction, what you did not. */}
               <p className="tnote">
-                Nothing here was checked against your resume — it cannot be, because all of it
-                is by definition what your resume does not say. These describe work you may
-                have done and not written down. <strong>Tick only what is true of you.</strong>
+                {(s.sug.skills?.skills || s.sug.roles?.roles) && (
+                  <>
+                    Skills and responsibilities were <strong>not</strong> checked against your
+                    resume — they cannot be, because they are what it does not say.{' '}
+                    <strong>Tick only what is true of you.</strong>{' '}
+                  </>
+                )}
+                {(s.sug.summary?.summary || s.sug.full?.full) &&
+                  'The summary and the full rewrite are made only from what you already wrote — read them before you take them.'}
               </p>
+
+              {s.sug.summary?.summary && (
+                <>
+                  <h3 className="sugpart">Your summary, lightly edited</h3>
+                  <SummaryOptions
+                    answer={s.sug.summary.summary}
+                    picked={s.picked}
+                    onPickOne={s.pickOne}
+                  />
+                </>
+              )}
+
+              {s.sug.full?.full && shape && (
+                <>
+                  <h3 className="sugpart">The whole resume, rewritten</h3>
+                  <FullRewrite
+                    answer={s.sug.full.full}
+                    original={shape}
+                    picked={s.picked}
+                    onPick={s.pick}
+                  />
+                </>
+              )}
 
               {s.sug.skills?.skills && (
                 <>
@@ -285,7 +316,7 @@ export function RewriteWorkspace({
               )}
 
               <p className="tfoot">
-                {[s.sug.skills?.note, s.sug.roles?.note].filter(Boolean).join(' · ')}
+                {BUTTONS.map(([m]) => s.sug[m]?.note).filter(Boolean).join(' · ')}
               </p>
             </section>
           )}

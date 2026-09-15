@@ -12,6 +12,8 @@ import { applyAdditions, documentFromShape } from '../src/tailor/additions.js';
 import { describeJob } from '../src/tailor/jd.js';
 import { readShape } from '../src/tailor/sections.js';
 import { suggest } from '../src/tailor/suggest-run.js';
+import { fullAsText } from '../src/tailor/suggest.js';
+import { claimTokens, containsClaim } from '../src/tailor/edits.js';
 import type { SuggestMode } from '../src/tailor/suggest.js';
 import { voiceProblems } from '../src/tailor/voice.js';
 
@@ -20,8 +22,8 @@ if (!resumePath || !jobKey) {
   console.error('usage: tsx scripts/suggest-eval.mts <resume.txt> <job-key> <title> <company> [skills|roles|both]');
   process.exit(1);
 }
-const modes: SuggestMode[] =
-  modeArg === 'skills' ? ['skills'] : modeArg === 'roles' ? ['roles'] : ['skills', 'roles'];
+const ALL: SuggestMode[] = ['summary', 'full', 'skills', 'roles'];
+const modes: SuggestMode[] = ALL.includes(modeArg as SuggestMode) ? [modeArg as SuggestMode] : ALL;
 
 function apiKey(): string {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
@@ -93,6 +95,54 @@ for (const mode of modes) {
     const from = doc.indexOf('TECHNICAL SKILLS');
     const to = doc.indexOf('PROFESSIONAL EXPERIENCE');
     console.log(doc.slice(from, to > from ? to : undefined).trim());
+  }
+
+  if (mode === 'summary' && out.summary) {
+    console.log(`
+  YOURS NOW (${out.summary.original.length} chars)
+  ${out.summary.original}`);
+    for (const o of out.summary.options) {
+      // A third longer is where the prompt says it stops being a light touch.
+      const grew = o.text.length > out.summary.original.length * 1.34;
+      console.log(`
+  [ ] (${o.text.length} chars${grew ? '  !! A THIRD LONGER — NOT A LIGHT TOUCH' : ''})`);
+      console.log(`      ${o.text}`);
+      console.log(`      changed : ${o.changed}`);
+      console.log(`      why     : ${o.why}`);
+      // The budget the prompt sets: at most a quarter of the words changed.
+      const a = out.summary.original.toLowerCase().split(/\W+/).filter(Boolean);
+      const b = o.text.toLowerCase().split(/\W+/).filter(Boolean);
+      const kept = a.filter((w) => b.includes(w)).length;
+      const pct = a.length ? Math.round((1 - kept / a.length) * 100) : 0;
+      console.log(`      ${pct}% of your words gone${pct > 25 ? '  !! OVER THE 25% BUDGET' : ''}`);
+      for (const t of claimTokens(o.text)) {
+        if (!containsClaim(resumeText, t)) console.log(`      !! "${t}" IS NOT IN THE RESUME`);
+      }
+    }
+  }
+
+  if (mode === 'full' && out.full) {
+    const known = shape.companies.map((c) => c.header);
+    console.log(`
+  approach: ${out.full.approach}`);
+    for (const h of known) {
+      if (!out.full.companies.some((c) => c.header.trim() === h.trim())) {
+        console.log(`  !! EMPLOYER MISSING OR ALTERED: ${h}`);
+      }
+    }
+    for (const c of out.full.companies) {
+      if (c.bullets.length === 0) console.log(`  !! ${c.header} HAS NO BULLETS`);
+    }
+    const text = fullAsText(out.full, shape);
+    for (const t of claimTokens(text)) {
+      if (!containsClaim(resumeText, t)) console.log(`  !! "${t}" IS NOT IN THE RESUME`);
+    }
+    console.log(rule('THE REWRITTEN RESUME'));
+    console.log(text);
+    const vp = voiceProblems([out.full.summary, ...out.full.companies.flatMap((c) => c.bullets)]);
+    console.log(`
+banned words / result clauses: ${vp.filter((x) => x.kind !== 'uniform shape').length}`);
+    for (const x of vp.slice(0, 6)) console.log(`  ${x.kind}: "${x.detail}" in ${x.line.slice(0, 70)}`);
   }
 
   if (mode === 'roles' && out.roles) {

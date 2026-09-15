@@ -1,4 +1,4 @@
-import { readShape } from './sections.js';
+import { readShape, type ResumeShape } from './sections.js';
 import { VOICE_RULES } from './voice.js';
 
 /**
@@ -85,7 +85,40 @@ export interface RolesAnswer {
   companies: CompanySuggestion[];
 }
 
-export type SuggestMode = 'skills' | 'roles';
+/** One summary, rewritten lightly. Two or three to choose between. */
+export interface SummaryOption {
+  text: string;
+  /** What was actually altered, in the model's words, so the diff is readable. */
+  changed: string;
+  /** Why this version suits this posting. */
+  why: string;
+}
+
+export interface SummaryAnswer {
+  /** The summary as it stands, echoed back so the screen can show both. */
+  original: string;
+  options: SummaryOption[];
+}
+
+export interface FullCompany {
+  /** The employer line, copied from the resume exactly. */
+  header: string;
+  role: string;
+  bullets: string[];
+}
+
+export interface FullAnswer {
+  summary: string;
+  skills: string[];
+  companies: FullCompany[];
+  /** One sentence on what this version leads with and why. */
+  approach: string;
+}
+
+export type SuggestMode = 'skills' | 'roles' | 'summary' | 'full';
+
+/** How many summaries to choose between. Three is a choice; six is a chore. */
+export const SUMMARY_OPTIONS = 3;
 
 /**
  * Rules both prompts carry.
@@ -217,8 +250,155 @@ const ROLES_TASK = [
   'R5. "why" is one plain sentence on why this belongs at this employer.',
 ].join('\n');
 
+/**
+ * A light touch on the summary, which is the hardest of the four to get right.
+ *
+ * The instruction was "a minor change only, without overwriting", and a model
+ * asked to improve a paragraph will rewrite the paragraph — that is the default
+ * behaviour and it has to be argued out of it explicitly, with a budget it can
+ * count against rather than a word like "minor" it can interpret generously.
+ */
+const SUMMARY_TASK = [
+  'YOUR TASK — THE SUMMARY, TOUCHED LIGHTLY',
+  '',
+  'The candidate has a summary at the top of their resume. Aim it at this posting by',
+  'changing as little as possible. You are editing their sentence, not replacing it.',
+  '',
+  'M1. THIS IS NOT A REWRITE. Their summary is the starting text and most of it must',
+  '    survive word for word. If you find yourself writing a fresh paragraph, stop and',
+  '    start again from theirs.',
+  'M2. A BUDGET YOU CAN COUNT. Change at most a quarter of the words. Reorder a clause,',
+  '    swap a term for the posting\'s term, move the thing this employer cares about to',
+  '    the front, cut a word that carries nothing. That is the whole range.',
+  'M3. NEVER ADD A FACT. No tool, no employer, no number, no year, no claim about scale',
+  '    or seniority that is not already in the summary or elsewhere in the resume. If',
+  '    the posting wants something they have not got, the summary is not where it goes.',
+  'M4. KEEP THEIR VOICE. If they write short sentences, keep them short. If they say',
+  '    "engineer" do not promote them to "engineering leader". A summary that reads',
+  '    better than the rest of the CV is a summary somebody else wrote, and the next',
+  '    person to notice is the interviewer.',
+  'M5. IT MAY GROW BY A FEW WORDS, AND ONLY TO NAME SOMETHING. Adding "and Azure',
+  '    infrastructure" to reach what this posting opens with is the edit working.',
+  '    Adding "highly experienced" or "proven track record" is padding, and padding',
+  '    is the thing a summary is most often already full of — if you can cut some,',
+  '    do. A version a third longer than theirs has stopped being a light touch.',
+  '',
+  `Give ${SUMMARY_OPTIONS} versions that differ in WHAT THEY LEAD WITH — not three wordings of the`,
+  'same idea. One might lead with the years and the stack, one with the thing this',
+  'posting opens its requirements with, one with the domain or the kind of product.',
+  'If their summary only supports one honest angle, return fewer. Two real choices',
+  'beat three where one is filler.',
+  '',
+  '"changed" names what you actually altered, plainly — "moved the Terraform clause to',
+  'the front and cut \'various\'". Not "improved clarity and impact". Somebody is going',
+  'to read your sentence and then read the two summaries to check you.',
+  '"why" is one sentence on why this angle suits this posting.',
+  '',
+  'IF THEIR SUMMARY IS ALREADY RIGHT FOR THIS POSTING, SAY SO by returning no options.',
+  'A version that changes nothing worth changing wastes the only attention they have.',
+].join('\n');
+
+/**
+ * The whole document, and the one prompt in this file that could do real damage.
+ *
+ * The other three add or adjust. This one replaces the resume, so every rule that
+ * matters is about what must SURVIVE rather than what to produce. The order is
+ * deliberate: what cannot change, then what must not be invented, then what to do
+ * with the freedom that is left.
+ */
+const FULL_TASK = [
+  'YOUR TASK — THE WHOLE RESUME, REWRITTEN FOR THIS POSTING',
+  '',
+  'Return the complete document. The candidate will read it beside their own and',
+  'decide whether to use it, so it has to be a resume they recognise as theirs.',
+  '',
+  'WHAT CANNOT CHANGE',
+  '',
+  'W1. EVERY EMPLOYER APPEARS, IN THE SAME ORDER, WITH THE HEADER COPIED EXACTLY.',
+  '    Not reworded, not reformatted, not re-dated. A missing job is a hole somebody',
+  '    has to explain in an interview; a moved date is a lie on a document that gets',
+  '    checked.',
+  'W2. NO JOB IS EMPTIED. An employer this posting has no use for still keeps its two',
+  '    strongest lines. Shortening a job is editing; deleting it is falsifying a career.',
+  'W3. Education, certifications, name and contact details are carried through',
+  '    untouched.',
+  '',
+  'WHAT MUST NOT BE INVENTED',
+  '',
+  'W4. EVERY FACT COMES FROM THE RESUME. Every tool, framework, language, product,',
+  '    client, certification and number. You may reorder, merge, shorten, sharpen and',
+  '    rephrase. You may not add.',
+  'W5. FACTS DO NOT MOVE BETWEEN JOBS. If Kubernetes is at one employer it cannot',
+  '    appear under another, and neither can a number. That is a fabricated work',
+  '    history and it is the single worst thing this feature can produce — it reads',
+  '    perfectly and is false in a way only the candidate can catch.',
+  'W6. THE POSTING IS NOT EVIDENCE. It says what the employer wants, never what this',
+  '    person did. A posting asking for Kafka does not make them a Kafka user.',
+  'W7. NO NEW NUMBERS. Not a plausible one, not a rounded one, not "multiple" or',
+  '    "several" standing in for a figure the resume never gave. Keep the numbers they',
+  '    already wrote, exactly as written.',
+  '',
+  'WHAT TO DO WITH THE REST',
+  '',
+  'W8. LEAD WITH WHAT THIS EMPLOYER ASKED FOR. Within each job, the bullet that',
+  '    answers their top requirement goes first. Within the skills lines, their words',
+  '    come first inside each category. This is most of the value of the whole',
+  '    exercise.',
+  'W9. CUT WHAT THIS POSTING HAS NO USE FOR, down to W2. Four sharp bullets under a',
+  '    job beat eight thin ones. Cut whole bullets rather than trimming every line to',
+  '    the bone — a resume of clipped fragments reads worse than a shorter one.',
+  'W10. USE THEIR WORD WHEN IT IS THE SAME THING. "K8s" and "Kubernetes" are the same',
+  '    thing and the posting\'s spelling wins. "Containers" and "Kubernetes" are not;',
+  '    leave that alone. This is the difference between matching a filter and lying to',
+  '    one.',
+  'W11. KEEP THE SENTENCES THAT ALREADY WORK. A resume that comes back entirely',
+  '    reworded reads as somebody else\'s writing, because it is. Rewrite the lines',
+  '    that need it and leave the rest alone — most of them do not need it.',
+  '',
+  '"approach" is one plain sentence saying what this version leads with and what it cut,',
+  'so the candidate knows what they are comparing before they read a whole document.',
+].join('\n');
+
+/**
+ * The preamble for the two modes that EDIT rather than ADD.
+ *
+ * `SHARED` tells the model to write what somebody in that role plausibly did and
+ * may not have written down. That is exactly right for the skills and roles
+ * buttons, whose whole job is to surface things the resume does not say — and it
+ * is exactly wrong here, where it would authorise the one thing a rewrite must
+ * never do. Two preambles, because one of them would have to lie to the model
+ * about which feature it was being used for.
+ */
+const SHARED_EDIT = [
+  'You are helping somebody apply for one job. You are given their resume and the posting.',
+  '',
+  'WHAT YOU ARE BEING ASKED FOR',
+  '',
+  'A version of what they already wrote, aimed at this posting. Not additions, not',
+  'suggestions of work they might have done — this is their own material, rearranged and',
+  'sharpened. They will read it beside the original and decide whether to use it, and',
+  'nothing replaces anything until they do.',
+  '',
+  'THE LINE THAT MATTERS',
+  '',
+  'Everything you write must already be true of them, from the resume in front of you.',
+  'Reordering, cutting, merging and rephrasing are yours. Adding is not — not a tool,',
+  'not a number, not a title, not a year, not an implication of scale or seniority the',
+  'resume does not carry. A rewrite that quietly upgrades somebody is worse than no',
+  'rewrite, because it reads perfectly and only they can catch it.',
+].join('\n');
+
 export function suggestSystem(mode: SuggestMode): string {
-  return [SHARED, '', VOICE_RULES, '', mode === 'skills' ? SKILLS_TASK : ROLES_TASK].join('\n');
+  const editing = mode === 'summary' || mode === 'full';
+  const task =
+    mode === 'skills'
+      ? SKILLS_TASK
+      : mode === 'roles'
+        ? ROLES_TASK
+        : mode === 'summary'
+          ? SUMMARY_TASK
+          : FULL_TASK;
+  return [editing ? SHARED_EDIT : SHARED, '', VOICE_RULES, '', task].join('\n');
 }
 
 function block(label: string, body: string): string {
@@ -243,8 +423,12 @@ export function suggestUser(input: SuggestInput, mode: SuggestMode): string {
     '',
     mode === 'skills'
       ? 'Return the missing skills and where each one goes.'
-      : `Return every employer with ${BULLETS_PER_COMPANY} responsibilities each.`,
-    'Nothing you return is added to anything until the candidate ticks it.',
+      : mode === 'roles'
+        ? `Return every employer with ${BULLETS_PER_COMPANY} responsibilities each.`
+        : mode === 'summary'
+          ? `Return up to ${SUMMARY_OPTIONS} lightly edited versions of their summary, and echo their current one back in "original".`
+          : 'Return the whole resume: summary, skills lines, and every employer with its bullets.',
+    'Nothing you return replaces anything until the candidate chooses it.',
   ].join('\n');
 }
 
@@ -319,6 +503,60 @@ export const ROLES_SCHEMA = {
   },
 } as const;
 
+export const SUMMARY_SCHEMA = {
+  name: 'summary_options',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['original', 'options'],
+    properties: {
+      original: { type: 'string', description: "the candidate's summary, copied exactly" },
+      options: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['text', 'changed', 'why'],
+          properties: {
+            text: { type: 'string', description: 'their summary with a light edit' },
+            changed: { type: 'string', description: 'what was actually altered, plainly' },
+            why: { type: 'string', description: 'one sentence' },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+export const FULL_SCHEMA = {
+  name: 'rewritten_resume',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['summary', 'skills', 'companies', 'approach'],
+    properties: {
+      summary: { type: 'string' },
+      skills: { type: 'array', items: { type: 'string' }, description: 'the skills lines, reordered' },
+      companies: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['header', 'role', 'bullets'],
+          properties: {
+            header: { type: 'string', description: 'the employer line, copied EXACTLY' },
+            role: { type: 'string' },
+            bullets: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+      approach: { type: 'string', description: 'one sentence on what this version leads with' },
+    },
+  },
+} as const;
+
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const trim = (v: unknown, max = 400): string => str(v).replace(/\s+/g, ' ').trim().slice(0, max);
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
@@ -369,4 +607,74 @@ export function parseRoles(body: unknown): RolesAnswer {
       })
       .filter((c) => c.company.length > 0 && c.bullets.length > 0),
   };
+}
+
+/**
+ * The summary options, with nothing done to them.
+ *
+ * The one thing removed is an option identical to what they already have — that
+ * is not a choice, it is a row that wastes the attention this screen is asking
+ * for. A shorter or longer version is kept, because length is the edit.
+ */
+export function parseSummary(body: unknown): SummaryAnswer {
+  const root = (body ?? {}) as Record<string, unknown>;
+  const original = trim(root.original, 1200);
+  const seen = new Set<string>([original.replace(/\s+/g, ' ').trim().toLowerCase()]);
+  const options: SummaryOption[] = [];
+  for (const o of arr(root.options).slice(0, SUMMARY_OPTIONS)) {
+    const row = (o ?? {}) as Record<string, unknown>;
+    const text = trim(row.text, 1200);
+    const key = text.replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    options.push({ text, changed: trim(row.changed), why: trim(row.why) });
+  }
+  return { original, options };
+}
+
+/** The rewritten resume, reduced to the shape this module promises. Nothing judged. */
+export function parseFull(body: unknown): FullAnswer {
+  const root = (body ?? {}) as Record<string, unknown>;
+  return {
+    summary: trim(root.summary, 1200),
+    skills: arr(root.skills).slice(0, MAX_SKILLS).map((s) => trim(s, 500)).filter(Boolean),
+    companies: arr(root.companies)
+      .slice(0, MAX_COMPANIES)
+      .map((c) => {
+        const row = (c ?? {}) as Record<string, unknown>;
+        return {
+          header: trim(row.header, 200),
+          role: trim(row.role, 120),
+          bullets: arr(row.bullets).slice(0, 40).map((b) => trim(b)).filter(Boolean),
+        };
+      })
+      .filter((c) => c.header.length > 0),
+    approach: trim(root.approach),
+  };
+}
+
+/**
+ * The rewritten resume as text, using the parts of the original it never touched.
+ *
+ * Name, contact and education come from the parsed resume rather than from the
+ * model: it is not asked for them, and asking would be inviting it to retype
+ * somebody's phone number.
+ */
+export function fullAsText(answer: FullAnswer, shape: ResumeShape): string {
+  const out: string[] = [];
+  if (shape.name) out.push(shape.name);
+  out.push(...shape.contact, '');
+  if (answer.summary) out.push(answer.summary, '');
+  if (answer.skills.length) out.push('TECHNICAL SKILLS', ...answer.skills, '');
+  if (answer.companies.length) {
+    out.push('PROFESSIONAL EXPERIENCE');
+    for (const c of answer.companies) {
+      out.push(c.header);
+      if (c.role) out.push(c.role);
+      for (const b of c.bullets) out.push(`· ${b}`);
+      out.push('');
+    }
+  }
+  if (shape.education.length) out.push('EDUCATION', ...shape.education);
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

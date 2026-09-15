@@ -1,15 +1,21 @@
 import { OPENAI_URL, TAILOR_MODEL, extractJson } from './run.js';
 import {
+  FULL_SCHEMA,
   ROLES_SCHEMA,
   SKILLS_SCHEMA,
+  SUMMARY_SCHEMA,
+  parseFull,
   parseRoles,
   parseSkills,
+  parseSummary,
   suggestSystem,
   suggestUser,
+  type FullAnswer,
   type RolesAnswer,
   type SkillsAnswer,
   type SuggestInput,
   type SuggestMode,
+  type SummaryAnswer,
 } from './suggest.js';
 
 /**
@@ -26,6 +32,8 @@ import {
 export interface SuggestResult {
   skills: SkillsAnswer | null;
   roles: RolesAnswer | null;
+  summary: SummaryAnswer | null;
+  full: FullAnswer | null;
   model: string;
   note: string;
   needsAttention: boolean;
@@ -42,6 +50,8 @@ export interface SuggestOptions {
 const idle = (model: string, note: string, needsAttention = false): SuggestResult => ({
   skills: null,
   roles: null,
+  summary: null,
+  full: null,
   model,
   note,
   needsAttention,
@@ -84,10 +94,7 @@ export async function suggest(
             { role: 'system', content: suggestSystem(mode) },
             { role: 'user', content: suggestUser(input, mode) },
           ],
-          response_format: {
-            type: 'json_schema',
-            json_schema: mode === 'skills' ? SKILLS_SCHEMA : ROLES_SCHEMA,
-          },
+          response_format: { type: 'json_schema', json_schema: schemaFor(mode) },
         }),
       });
     } catch (err) {
@@ -117,27 +124,55 @@ export async function suggest(
     if (!content) return idle(model, 'OpenAI returned an empty answer');
 
     const json = extractJson(content);
+    const empty = { skills: null, roles: null, summary: null, full: null, model, needsAttention: false };
+
     if (mode === 'skills') {
       const skills = parseSkills(json);
+      const n = skills.skills.length;
+      return { ...empty, skills, note: `${n} skill${n === 1 ? '' : 's'} the posting asks for that your resume does not show` };
+    }
+
+    if (mode === 'roles') {
+      const roles = parseRoles(json);
+      const total = roles.companies.reduce((n, c) => n + c.bullets.length, 0);
       return {
-        skills,
-        roles: null,
-        model,
-        note: `${skills.skills.length} skill${skills.skills.length === 1 ? '' : 's'} the posting asks for that your resume does not show`,
-        needsAttention: false,
+        ...empty,
+        roles,
+        note: `${total} suggested point${total === 1 ? '' : 's'} across ${roles.companies.length} employer${roles.companies.length === 1 ? '' : 's'}`,
       };
     }
 
-    const roles = parseRoles(json);
-    const total = roles.companies.reduce((n, c) => n + c.bullets.length, 0);
+    if (mode === 'summary') {
+      const summary = parseSummary(json);
+      const n = summary.options.length;
+      return {
+        ...empty,
+        summary,
+        // Zero is a real answer here and the prompt asks for it explicitly: a
+        // summary already aimed at this posting does not need three versions of
+        // itself offered back.
+        note: n === 0
+          ? 'your summary already reads for this posting — nothing worth changing'
+          : `${n} lightly edited version${n === 1 ? '' : 's'} to choose between`,
+      };
+    }
+
+    const full = parseFull(json);
+    const bullets = full.companies.reduce((n, c) => n + c.bullets.length, 0);
     return {
-      skills: null,
-      roles,
-      model,
-      note: `${total} suggested point${total === 1 ? '' : 's'} across ${roles.companies.length} employer${roles.companies.length === 1 ? '' : 's'}`,
-      needsAttention: false,
+      ...empty,
+      full,
+      note: `${full.companies.length} employer${full.companies.length === 1 ? '' : 's'}, ${bullets} lines`,
     };
   }
 
   return idle(model, `OpenAI was unreachable after ${attempts} attempts: ${lastError}`);
+}
+
+/** Which JSON shape the model is held to, per question. */
+function schemaFor(mode: SuggestMode) {
+  if (mode === 'skills') return SKILLS_SCHEMA;
+  if (mode === 'roles') return ROLES_SCHEMA;
+  if (mode === 'summary') return SUMMARY_SCHEMA;
+  return FULL_SCHEMA;
 }

@@ -1978,3 +1978,11 @@ footer.twbot {
   line-height: 1.5;
   color: var(--text);
 }
+
+/* A question that has already been answered, so four buttons do not all look
+   equally unvisited after three of them have run. */
+.sugbtn.done { border-color: var(--accent); color: var(--accent); }
+/* The summary they already have: shown for comparison, with no tick of its own
+   — keeping it is what happens when none of the others is chosen. */
+.sugrow.flat { cursor: default; background: none; border-style: dashed; }
+.sugrow.flat:hover { border-color: var(--line); }

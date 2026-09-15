@@ -629,10 +629,24 @@ test('THE SCREEN SAYS THE SUGGESTIONS WERE NOT CHECKED', () => {
   // The only thing standing between an invented responsibility and somebody's CV
   // is that they read the row and did not tick it. The page has to say so.
   const src = readFileSync(new URL('../app/_components/RewriteWorkspace.tsx', import.meta.url), 'utf8');
-  assert.match(src, /Nothing here was checked against your resume/);
+  assert.match(src, /were <strong>not<\/strong> checked against your\s+resume/);
   assert.match(src, /Tick only what is true of you/);
-  assert.match(src, /Skills validation/);
-  assert.match(src, /Roles validation/);
+  for (const label of ['Summary rewrite', 'Entire resume rewrite', 'Skills validation', 'Roles validation']) {
+    assert.match(src, new RegExp(label), `the ${label} button is missing`);
+  }
+  // And the button it replaced is gone. Checked as code, not as prose: the
+  // comment above the buttons names it while explaining the removal, and that
+  // history is worth more than the button was.
+  assert.ok(!/className="tgo"/.test(src), 'the old rewrite button still renders');
+  assert.ok(!/void s\.run\(\)/.test(src), 'the old rewrite call is still wired up');
+});
+
+test('THE SUMMARY AND THE FULL REWRITE ARE NOT DESCRIBED AS UNCHECKED', () => {
+  // They are made only from what the person already wrote, so the sentence that
+  // covers skills and responsibilities would be false about them — and a caution
+  // that is false about half of what it covers teaches people to skip it.
+  const src = readFileSync(new URL('../app/_components/RewriteWorkspace.tsx', import.meta.url), 'utf8');
+  assert.match(src, /made only from what you already wrote/);
 });
 
 test('the suggestion rows start unticked', () => {

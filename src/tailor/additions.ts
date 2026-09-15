@@ -262,3 +262,46 @@ export function documentFromShape(shape: {
   if (shape.education.length) out.push('EDUCATION', ...shape.education);
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+/**
+ * The summary swapped for a chosen version, in place.
+ *
+ * The summary is not always one line — plenty of CVs run to two or three — so
+ * the whole run is located and replaced together rather than the first line of
+ * it, which would leave the tail of the old summary sitting under the new one.
+ *
+ * A miss cannot happen in practice: the old lines come from the same parse the
+ * document was built from. It is handled anyway, by putting the new summary
+ * where a summary goes, because silently not applying something somebody ticked
+ * is the failure they would never find.
+ */
+export function replaceSummary(
+  document: string,
+  oldLines: readonly string[],
+  newText: string,
+): string {
+  const text = newText.trim();
+  if (!text) return document;
+  const lines = document.replace(/\r\n?/g, '\n').split('\n');
+  const wanted = oldLines.map((l) => l.trim()).filter(Boolean);
+
+  if (wanted.length > 0) {
+    const at = lines.findIndex((l) => l.trim() && same(l, wanted[0]!));
+    if (at >= 0) {
+      // Only the lines that still match, so a document already edited by hand
+      // loses no more than the summary it was asked to lose.
+      let run = 0;
+      while (run < wanted.length && same(lines[at + run] ?? '', wanted[run]!)) run += 1;
+      lines.splice(at, run, text);
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+  }
+
+  // No summary found. It goes after the contact block, which is where one lives.
+  const firstBlank = lines.findIndex((l, i) => i > 0 && !l.trim());
+  lines.splice(firstBlank >= 0 ? firstBlank + 1 : 1, 0, text, '');
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/** The tick that means "use the whole rewritten resume". One of a kind, so a constant. */
+export const FULL_PICK = 'use-the-entire-rewrite';

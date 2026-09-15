@@ -55,7 +55,8 @@ export async function POST(request: Request) {
   const jobKey = typeof body.jobKey === 'string' ? body.jobKey : '';
   if (!jobKey) return bad('which job?', 400);
 
-  const mode: SuggestMode = body.mode === 'roles' ? 'roles' : 'skills';
+  const MODES: SuggestMode[] = ['skills', 'roles', 'summary', 'full'];
+  const mode: SuggestMode = MODES.find((m) => m === body.mode) ?? 'skills';
 
   if (!sharedLimiter().allow(visitor.id)) {
     return bad(`that is more than ${PER_WINDOW} in a minute — give it a moment`, 429, {
@@ -107,6 +108,8 @@ export async function POST(request: Request) {
     mode,
     skills: result.skills,
     roles: result.roles,
+    summary: result.summary,
+    full: result.full,
     // The parsed resume, so the page can build and edit the document without the
     // CV making a second trip — and so these two buttons work for somebody who
     // has not run a rewrite and may not want to.
