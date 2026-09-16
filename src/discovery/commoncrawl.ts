@@ -277,7 +277,7 @@ export async function latestCrawl(userAgent: string): Promise<string> {
   return id;
 }
 
-function titleise(token: string): string {
+export function titleise(token: string): string {
   return token
     .replace(/[-_.]+/g, ' ')
     .split(/\s+/)

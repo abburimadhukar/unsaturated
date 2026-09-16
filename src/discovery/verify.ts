@@ -1,4 +1,9 @@
-import { oracleCompanyFrom, oracleSearchUrl } from '../ats/adapters/oracle.js';
+import {
+  oracleCompanyFrom,
+  oracleCompanyFromPage,
+  oracleSearchUrl,
+  oracleSitePageUrl,
+} from '../ats/adapters/oracle.js';
 import { WORKDAY_SHARDS, discoverWorkdaySite } from '../ats/adapters/workday.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { OpenBoard } from './opendata.js';
@@ -42,9 +47,12 @@ export interface VerifyResult {
    *
    * Discovery names a board by title-casing its token, which works because most
    * tokens are the company: greenhouse/stripe is Stripe. Oracle's are not —
-   * tenants are opaque four-letter codes, so `hccz` would be stored as "Hccz"
-   * and shown that way in the feed. It is Pearson, and its own search response
-   * says so in `organizationsFacet`.
+   * tenants are opaque four-letter codes, so `hccz` is stored as "Hccz" and
+   * shown that way in the feed unless something better is found. It is Pearson.
+   *
+   * The first discovery run proved this is not a nicety: 764 Oracle boards
+   * landed, and among them Tata Capital, Lifepoint Health, WSP and Kotak
+   * Mahindra Bank were recorded as Eofh, Ibnjjb, Emit and Hcbt.
    */
   company?: string;
   /**
@@ -286,6 +294,42 @@ export function summariseVerification(results: VerifyResult[]): string {
 }
 
 /**
+ * An Oracle career site's page title, or nothing.
+ *
+ * One extra request per Oracle candidate, and it buys the difference between
+ * "Ibnjjb" and "Lifepoint Health" in the feed. Costed before adding: at the
+ * one-request-a-second verification pace it roughly doubles Oracle's share of a
+ * discovery run, which is minutes against a budget measured in hours.
+ *
+ * Every failure returns undefined rather than throwing. This is a nicety on top
+ * of a verdict that has already been reached from the API — a career site that
+ * will not serve its own front page has still answered the jobs endpoint, and
+ * must not be recorded as dead because of it.
+ */
+async function oracleTitle(
+  board: OpenBoard,
+  userAgent: string,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  const host = board.extra?.host;
+  const site = board.extra?.site;
+  if (!host || !site) return undefined;
+  try {
+    const res = await fetch(oracleSitePageUrl(host, site), {
+      headers: { 'user-agent': userAgent, accept: 'text/html' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return undefined;
+    // The title is in the head, so the whole page is not needed and some of
+    // these are large single-page applications.
+    return oracleCompanyFromPage((await res.text()).slice(0, 20_000));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Fills in what a candidate needs before it can be checked at all.
  *
  * ONE CASE, AND IT IS WORKDAY'S SECOND ADDRESS
@@ -378,7 +422,14 @@ export async function verifyBoards(
         const domain = board.provider === 'greenhouse' ? domainFrom(body) : undefined;
         // Oracle's tokens are opaque codes, so the only place the employer's
         // name exists is the response we already have in hand.
-        const company = board.provider === 'oracle' ? oracleCompanyFrom(body) : undefined;
+        // The career site's own page title first, its organisation facet second.
+        // The title is the name the employer chose — "Tata Capital" rather than
+        // "Tata Capital Limited" — but a site left on Oracle's stock template
+        // has no name in it at all, and those are the ones the facet answers.
+        const company =
+          board.provider === 'oracle'
+            ? (await oracleTitle(board, opts.userAgent, timeoutMs)) ?? oracleCompanyFrom(body)
+            : undefined;
         result = {
           board,
           verdict: 'live',

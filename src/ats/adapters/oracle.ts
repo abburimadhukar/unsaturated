@@ -219,19 +219,104 @@ export const oracleAdapter: AtsAdapter = {
 };
 
 /**
- * The employer's own name, from the facet the search returns alongside the jobs.
+ * The employer's own name. Two sources, because neither is enough alone.
  *
- * Exported because discovery needs it and the adapter does not: a board row
- * carries one company name and the tenant code cannot supply it. `hccz` is
- * Pearson and `efuf` is Amplifon — no naming rule reaches either.
+ * Exported because discovery needs this and the adapter does not: a board row
+ * carries one company name and an opaque tenant code cannot supply it.
  *
- * Only a single-organisation facet is trusted. A site spanning several
- * organisations has no one employer, and picking the first would label every
- * posting with whichever happened to sort first.
+ * THE FIRST ATTEMPT AT THIS WAS WRONG, AND IT SHIPPED
+ *
+ * The original rule trusted `organizationsFacet` only when it named exactly one
+ * organisation, reasoning that a site spanning several has no single employer.
+ * That is true of the facet and false of the board. Measured after the first
+ * real discovery run stored 764 Oracle boards: the large tenants are precisely
+ * the ones listing their subsidiaries, so the rule refused to name any of them
+ * and the registry recorded Tata Capital as "Eofh", Lifepoint Health as
+ * "Ibnjjb", WSP as "Emit" and Kotak Mahindra Bank as "Hcbt".
+ *
+ * The facet is ordered by posting count, so its first entry is the parent in
+ * every case checked — "Tata Capital Limited", "Lifepoint Health",
+ * "WSP USA Inc.", "Kotak Mahindra Bank Ltd". Taking the first is right; the old
+ * comment's fear was of a list that does not occur.
+ *
+ * Better still is the career site's own page title, which carries the name the
+ * employer chose to be called: "Tata Capital", not "Tata Capital Limited". So
+ * the page is preferred and the facet is the fallback for the sites whose title
+ * is Oracle's untouched template.
  */
 export function oracleCompanyFrom(body: unknown): string | undefined {
   const facet = (body as OracleResponse | null)?.items?.[0]?.organizationsFacet;
-  if (!Array.isArray(facet) || facet.length !== 1) return undefined;
+  if (!Array.isArray(facet) || facet.length === 0) return undefined;
   const name = facet[0]?.Name?.trim();
   return name || undefined;
+}
+
+/**
+ * Boilerplate Oracle's template wraps around the name, stripped from the title.
+ *
+ *   "Pearson Candidate Experience Site" -> Pearson
+ *   "IHG Career"                        -> IHG
+ *   "Candidate Experience site"         -> nothing, so the facet answers instead
+ *   "Tata Capital"                      -> untouched
+ *
+ * Deliberately a short list of multi-word template phrases plus "career(s)".
+ * Stripping every job-shaped word would eat real names — there is an employer
+ * called Talent and one called Jobs — and the cost of being wrong here is a
+ * company mislabelled in the feed.
+ */
+const SITE_BOILERPLATE =
+  /[\s|·—–-]*(candidate\s+experience(\s+site)?|careers?\s+(site|portal|home|page)|external\s+careers?|careers?|recruiting)\s*$/i;
+
+/** Shortest name treated as real, so a title trimmed to "A" is refused. */
+const MIN_COMPANY_CHARS = 2;
+
+/**
+ * Titles that are not a name, however confidently the page serves them.
+ *
+ * Oracle career sites answer HTTP 200 with an error page. Two boards in the
+ * first repair run were about to be renamed to "Page not found" — a phrase that
+ * would have gone straight into the feed as an employer, and would have
+ * replaced the names those two rows already had.
+ *
+ * A 200 is not proof of a page, in exactly the way a 200 is not proof of a
+ * board elsewhere in this codebase.
+ */
+const NOT_A_NAME =
+  /^(page not found|not found|error|404|403|access denied|forbidden|unauthori[sz]ed|loading|untitled|home|welcome|sign in|login|redirecting|service unavailable|maintenance)\.?$/i;
+
+/**
+ * A lead-in some employers put before their own name: "Careers at WorkplaceNL".
+ * Stripped from the front, where SITE_BOILERPLATE only strips from the end.
+ */
+const NAME_PREFIX = /^\s*(careers?|jobs?|work|working)\s+(at|with|for)\s+/i;
+
+export function oracleCompanyFromPage(html: string): string | undefined {
+  const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
+  if (!m?.[1]) return undefined;
+
+  let name = m[1]
+    .replace(/&amp;/g, '&')
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  name = name.replace(NAME_PREFIX, '').trim();
+
+  // Twice over: "Pearson Candidate Experience Site" needs one pass, and a title
+  // like "Acme Careers Site Careers" needs two. Bounded so a pathological title
+  // cannot loop.
+  for (let i = 0; i < 3; i++) {
+    const next = name.replace(SITE_BOILERPLATE, '').trim();
+    if (next === name) break;
+    name = next;
+  }
+
+  if (name.length < MIN_COMPANY_CHARS) return undefined;
+  if (NOT_A_NAME.test(name)) return undefined;
+  return name;
+}
+
+/** The career site's front page, which is where the title lives. */
+export function oracleSitePageUrl(host: string, site: string): string {
+  return `https://${host}/hcmUI/CandidateExperience/en/sites/${encodeURIComponent(site)}/`;
 }
