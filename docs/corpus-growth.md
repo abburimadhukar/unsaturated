@@ -128,9 +128,10 @@ uncontested half of the market this project exists to surface.
 **Three things about it worth knowing before touching the code.**
 
 The tenant is an opaque four-letter code. `hccz` is Pearson and `efuf` is
-Amplifon; no naming rule reaches either, so the employer's name is read from
-`organizationsFacet` in the board's own search response and only when that facet
-names exactly one organisation.
+Amplifon; no naming rule reaches either. The name is read from the career
+site's own page title, falling back to the first entry of `organizationsFacet`
+(ordered by posting count, so the parent). An earlier rule trusted the facet only
+when it named exactly one organisation, and it named almost nobody — see §7.
 
 The listing carries no description at all — not a truncated one, an empty
 string — so Oracle is a `BACKFILLABLE` provider like Workday and
