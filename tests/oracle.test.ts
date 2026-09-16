@@ -240,6 +240,30 @@ test('an error page served with HTTP 200 is not an employer', () => {
   }
 });
 
+test('a title carrying javascript escaping is decoded', () => {
+  // These titles are injected by Oracle's own single-page app and some arrive
+  // with the bundle's escaping still on them. Both real, from the first repair
+  // run: without this, one employer is stored with a stray backslash and the
+  // other with a literal í where the í belongs.
+  assert.equal(oracleCompanyFromPage("<title>Chili\\'s</title>"), "Chili's");
+  assert.equal(
+    oracleCompanyFromPage('<title>Bolsa de Trabajo Taj\\u00EDn</title>'),
+    'Bolsa de Trabajo Tajín',
+  );
+  assert.equal(oracleCompanyFromPage('<title>Ben &#x26; Jerry&#39;s</title>'), "Ben & Jerry's");
+});
+
+test('a site descriptor is stripped, and a bare one names nobody', () => {
+  // All from the first repair run, where they would have been stored as the
+  // employer: a career site's name is not a company's name.
+  assert.equal(oracleCompanyFromPage('<title>WTW External</title>'), 'WTW');
+  assert.equal(oracleCompanyFromPage('<title>AICC External Site</title>'), 'AICC');
+  assert.equal(oracleCompanyFromPage('<title>Linamar Career Site - New</title>'), 'Linamar');
+  assert.equal(oracleCompanyFromPage('<title>daa All Open Jobs</title>'), 'daa');
+  assert.equal(oracleCompanyFromPage('<title>Our vacancies</title>'), undefined);
+  assert.equal(oracleCompanyFromPage('<title>Jobs and</title>'), undefined);
+});
+
 test('a name the employer puts after a lead-in is still found', () => {
   assert.equal(oracleCompanyFromPage('<title>Careers at WorkplaceNL</title>'), 'WorkplaceNL');
   assert.equal(oracleCompanyFromPage('<title>Jobs at Arcadis</title>'), 'Arcadis');

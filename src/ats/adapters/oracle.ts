@@ -219,6 +219,16 @@ export const oracleAdapter: AtsAdapter = {
 };
 
 /**
+ * An internal organisation code, which the facet sometimes offers as a name.
+ *
+ * Three of 506 in the first full repair: "5098 - US East" and
+ * "MO003 - BSS - BSS EUROPE - Tanger". These are cost centres, not employers.
+ * Anchored on the leading code so a real name containing a number — there is an
+ * employer called "KPMG Delivery Network India 1" — is untouched.
+ */
+const ORG_CODE = /^([0-9]{2,}|[A-Z]{1,3}[0-9]{3,})\s*[-–]/;
+
+/**
  * The employer's own name. Two sources, because neither is enough alone.
  *
  * Exported because discovery needs this and the adapter does not: a board row
@@ -248,7 +258,12 @@ export function oracleCompanyFrom(body: unknown): string | undefined {
   const facet = (body as OracleResponse | null)?.items?.[0]?.organizationsFacet;
   if (!Array.isArray(facet) || facet.length === 0) return undefined;
   const name = facet[0]?.Name?.trim();
-  return name || undefined;
+  if (!name) return undefined;
+  // The facet is the employer's own org tree, so its first entry is sometimes a
+  // cost centre rather than a company — "5098 - US East". Better to leave the
+  // board named after its tenant code than to name it after an internal ledger.
+  if (ORG_CODE.test(name)) return undefined;
+  return name;
 }
 
 /**
@@ -265,7 +280,7 @@ export function oracleCompanyFrom(body: unknown): string | undefined {
  * company mislabelled in the feed.
  */
 const SITE_BOILERPLATE =
-  /[\s|·—–-]*(candidate\s+experience(\s+site)?|careers?\s+(site|portal|home|page)|external\s+careers?|careers?|recruiting)\s*$/i;
+  /[\s|·—–-]*(candidate\s+experience(\s+site)?|careers?\s+site(\s*-\s*new)?|careers?\s+(portal|home|page)|external\s+(careers?|site)|external|all\s+open\s+jobs|open\s+jobs|job\s+search|vacancies|careers?|recruiting)\s*$/i;
 
 /** Shortest name treated as real, so a title trimmed to "A" is refused. */
 const MIN_COMPANY_CHARS = 2;
@@ -282,13 +297,18 @@ const MIN_COMPANY_CHARS = 2;
  * board elsewhere in this codebase.
  */
 const NOT_A_NAME =
-  /^(page not found|not found|error|404|403|access denied|forbidden|unauthori[sz]ed|loading|untitled|home|welcome|sign in|login|redirecting|service unavailable|maintenance)\.?$/i;
+  /^(page not found|not found|error|404|403|access denied|forbidden|unauthori[sz]ed|loading|untitled|home|welcome|sign in|login|redirecting|service unavailable|maintenance|our vacancies|vacancies|job search|all open jobs|open jobs|jobs and|current opportunities|opportunities|apply now|search jobs)\.?$/i;
 
 /**
- * A lead-in some employers put before their own name: "Careers at WorkplaceNL".
+ * A lead-in some employers put before their own name, in either shape:
+ * "Careers at WorkplaceNL" and "Careers - Langham Hospitality Group".
  * Stripped from the front, where SITE_BOILERPLATE only strips from the end.
  */
-const NAME_PREFIX = /^\s*(careers?|jobs?|work|working)\s+(at|with|for)\s+/i;
+const NAME_PREFIX = /^\s*(careers?|jobs?|work|working)\s*((at|with|for)\s+|[-|:·–—]\s*)/i;
+
+/** A separator left behind once the words around it are gone: "FAB |", "Findex -". */
+const DANGLING_SEPARATOR = /[\s|:·–—-]+$/;
+
 
 export function oracleCompanyFromPage(html: string): string | undefined {
   const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
@@ -297,8 +317,22 @@ export function oracleCompanyFromPage(html: string): string | undefined {
   let name = m[1]
     .replace(/&amp;/g, '&')
     .replace(/&#(\d+);/g, (_, d: string) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+    // JAVASCRIPT escapes, not HTML ones, and they are really there.
+    //
+    // These titles are written into the page by Oracle's own single-page app,
+    // and some arrive with the bundle's escaping still on them. Measured in the
+    // first full repair run: "Chili\'s" and "Bolsa de Trabajo Tajín" — two
+    // employers whose names would have been stored with a stray backslash and a
+    // literal í where the í belongs.
+    .replace(/\\u([0-9a-f]{4})/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\\(['"\\/])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Before any stripping. "Our vacancies" is not a name, but SITE_BOILERPLATE
+  // removes "vacancies" and leaves "Our", which reads like one.
+  if (NOT_A_NAME.test(name)) return undefined;
 
   name = name.replace(NAME_PREFIX, '').trim();
 
@@ -311,8 +345,14 @@ export function oracleCompanyFromPage(html: string): string | undefined {
     name = next;
   }
 
+  name = name.replace(DANGLING_SEPARATOR, '');
+
   if (name.length < MIN_COMPANY_CHARS) return undefined;
   if (NOT_A_NAME.test(name)) return undefined;
+  if (ORG_CODE.test(name)) return undefined;
+  // What a stripped title can leave behind: the article in front of the phrase
+  // that was removed. "Our vacancies" must not become the employer "Our".
+  if (/^(our|the|my|your|all|current|welcome to)$/i.test(name)) return undefined;
   return name;
 }
 
