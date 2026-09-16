@@ -104,6 +104,12 @@ each hour still update, and nothing degrades. **Leave it.**
 - **The Internet Archive as a second index** — 15 Sep. See §3.
 - **Workday tenant names from `myworkdaysite.com`** — 15 Sep, though not in the
   way the old §2 of this file proposed. See §4.
+- **Eightfold** — adapter, pattern and discovery matrix, 16 Sep. See §6.
+- **Duplicate Oracle sites retired** — 16 Sep. See §7.
+
+**What landed, 15 → 16 September 2026:** open jobs 65,205 → **83,049** (+27%),
+classified 35,829 → 44,594, companies hiring 9,359 → 10,658. Oracle alone is
+4,426 open roles.
 
 ---
 
@@ -297,7 +303,7 @@ Measured 15 September 2026 against CC-MAIN-2026-34 unless stated.
 | System | Footprint | JSON? | Verdict |
 |---|---|---|---|
 | **iCIMS** | 4 pages, 16 blocks; 692 hosts on page 0 alone, so ~2,000–2,800 boards | **No** | The largest thing left. Tested directly: `?in_iframe=1` returns server-rendered HTML with a parseable job table; `format=rss` and `format=json` both return HTML. It would be the first HTML scraper in the codebase, which is the whole decision. |
-| **Eightfold** | 1 page, 3 blocks; 102 hosts on page 0 | **Yes** | Keyless JSON confirmed — Bayer returned `count: 603` from one call. Tenants are blue chips: Amex, Amgen, AstraZeneca, Bayer, BCG, BMS, BNY Mellon, Applied Materials. One wrinkle: the API needs each tenant's own domain as a parameter and 403s or 404s on a wrong guess, so domain resolution is the work. |
+| **Eightfold** | 1 page — the whole index | **Yes — connected 16 Sep** | The domain the API requires is in Eightfold's own archived links as `?domain=`, so there was no resolution work after all. Dry run: 49 tenant/domain pairs, **16 open**, 25 gated (403 "Not authorized for PCSX" — Amgen, AstraZeneca, Capital One), 8 gone, **3,847 postings**. Page size is fixed at 10. Pages are read `sort_by=new` because the crawl keeps 300 a board and the default order dropped Bayer's newest posting. The earlier estimate of ~45 open boards was an extrapolation from 24 and was too high. |
 | **Paylocity** | 1 page, 4 blocks; 2,518 company GUIDs on page 0 | **No** | Server-rendered HTML. US mid-market, thin per board. Breadth without depth. |
 | Jobvite | 2 pages, 7 blocks | No | Browser-rendered. Ruled out. |
 | Avature | 2 pages, 6 blocks | Unknown | Unmeasured. |
@@ -337,6 +343,35 @@ at any moment. Oracle's 156 multi-site tenants would have joined them.
 `sliceForShard` now round-robins by tenant; `tests/shard-tenants.test.ts` fails
 on the old split.
 
+**Proven in production the same day.** One crawl before the fix and one after,
+Workday and Oracle together:
+
+```
+                    before              after
+multi-site closed   7,041 (93.5/100)    65 (0.45/100)
+single-site closed  1,013  (3.7/100)   153 (0.56/100)
+multi-site open     7,534              14,336
+```
+
+**Duplicate Oracle sites — retired 16 September 2026.** An Oracle tenant's
+default `CX` address is very often the same requisition pool as its named site.
+`oracle-aliases` fetched every posting id of all 381 sites in the 156 multi-site
+tenants: **122** were exact copies (none unreadable), 57,807 postings a sweep read
+twice. They are retired with `duplicate site of …`, which boards-revive never
+undoes, and discovery now treats deliberately retired boards as known and will
+not store a new site that copies one it holds. 642 Oracle boards remain active;
+all 539 tenants are still crawled.
+
+Some tenants run one pool under several BRAND sites, and there the kept site's
+name labels every posting. The keeper rule (named site over `CX`, then
+alphabetical) chose a subsidiary in three cases, so those were set by hand to
+the site already carrying the group's name: STO Building Group rather than
+Abbott, Lucy Group Head Office rather than Lawson Fuses, NHA rather than
+"Classroom Teaching". Leicestershire and Nottingham councils share one pool and
+no single name is right; it stays Leicestershire. The backup, with every
+retired row and its kept site, is `backups/oracle-aliases-2026-09-16.json`
+(local only).
+
 **Oracle names — repaired 16 September 2026.** The first discovery run stored
 764 Oracle boards and named almost none, because the facet rule refused any
 tenant listing subsidiaries. 503 were renamed from the career site's page title
@@ -357,11 +392,16 @@ newer. Worth knowing before optimising anything for freshness.
 
 1. **Turn on USAJobs** — an adapter that already exists, has never run, and
    fills the documented HRIS gap. A free key and two lines of workflow.
-2. **Eightfold** — 102 blue-chip tenants, keyless JSON already confirmed. The
-   work is resolving each tenant's domain, not reading the API.
-3. **Raise the shard count before anything large lands**, and watch the 500 MB.
-4. **iCIMS** — the largest remaining, and the only one that requires deciding
+2. **Watch the 500 MB.** 315 MB after Oracle. The next source of Oracle's size
+   is where the free tier, not the clock, becomes the limit.
+3. **iCIMS** — the largest remaining, and the only one that requires deciding
    whether this codebase takes on an HTML scraper.
+4. **A posting's own employer for brand pools.** One board name labels every
+   posting in a multi-brand Oracle pool; the right answer is per posting.
+
+Closed with measurements: Taleo (its REST search needs a session: 405 on GET,
+400 on POST across ten real tenants), Avature (7 URLs in the whole index),
+Breezy discovery (7 subdomains across both pages, 2 jobs).
 
 Workable is deliberately absent — see §0b. Older snapshots and Certificate
 Transparency are deliberately absent — see §5. Both are closed.
