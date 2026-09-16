@@ -26,6 +26,7 @@
     "harvest:cc": "tsx src/cli/harvest-cc.ts",
     "harvest:ia": "tsx src/cli/harvest-ia.ts",
     "oracle:names": "tsx src/cli/oracle-names.ts",
+    "oracle:aliases": "tsx src/cli/oracle-aliases.ts",
     "build:snapshot": "tsx src/cli/snapshot.ts && next build",
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",

@@ -126,6 +126,17 @@ const SUPPORTED_RULES: SupportedRule[] = [
       return { token: tenant, extra: { host: url.hostname, site } };
     },
   },
+  {
+    // Eightfold, when the URL carries the employer's domain — without it the
+    // board cannot be addressed, so a bare eightfold.ai link stays unresolved.
+    provider: 'eightfold',
+    test: (url) => {
+      const tenant = subdomain(url, '.eightfold.ai');
+      const domain = url.searchParams.get('domain')?.toLowerCase();
+      if (!tenant || !domain) return undefined;
+      return { token: tenant, extra: { domain, site: domain } };
+    },
+  },
   { provider: 'breezy', test: (url) => subdomain(url, '.breezy.hr') },
   {
     provider: 'personio',

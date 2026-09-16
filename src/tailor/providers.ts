@@ -42,6 +42,9 @@ export const FROM_DETAIL: readonly AtsProvider[] = [
   // tenant on 15 September 2026: ExternalDescriptionStr came back with the full
   // posting body for a requisition whose listing row carried an empty string.
   'oracle',
+  // /api/apply/v2/jobs/{id}, verified 16 September 2026: 14,563 characters of
+  // description for a Bayer posting whose listing row carried an empty string.
+  'eightfold',
 ];
 
 /**

@@ -79,6 +79,9 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   // manufacturers, and their postings syndicate poorly and are almost never
   // browsed by the tech job-seeking crowd.
   oracle: 0.8,
+  // Eightfold sells to large enterprises whose postings are read mostly by
+  // people already looking at that one employer.
+  eightfold: 0.75,
   // Government postings are rarely syndicated and almost never browsed by the
   // tech job-seeking crowd, so competition per opening is unusually low.
   usajobs: 0.85,
@@ -113,6 +116,9 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   // applicants stop at — but Oracle at least lets a profile be reused across
   // sites of one tenant, which Workday does not.
   oracle: 0.9,
+  // An account and a profile before applying, though Eightfold pre-fills it
+  // from an uploaded resume, which Workday and Oracle do not.
+  eightfold: 0.7,
   // Federal and municipal applications are long, form-heavy and demand
   // supporting documents - exactly the friction most applicants abandon.
   usajobs: 0.95,

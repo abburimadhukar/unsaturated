@@ -77,6 +77,35 @@ export async function readActiveBoards(): Promise<CorpusBoard[] | null> {
 }
 
 /**
+ * Boards somebody retired on purpose — duplicate spellings, duplicate sites.
+ *
+ * Discovery treats only ACTIVE boards as already known, so without this a board
+ * retired deliberately is rediscovered the next week, verifies live (it is
+ * live, which is the point) and is upserted straight back to active. Returns an
+ * empty list rather than null when unreadable: the worst case is a candidate
+ * re-verified, and the alias guard still catches a copied site.
+ */
+export async function readDeliberateRetirements(): Promise<
+  { provider: string; token: string; extra?: Record<string, string> }[]
+> {
+  try {
+    const { data, error } = await db()
+      .from('boards')
+      .select('provider,token,extra,last_error')
+      .eq('active', false)
+      .ilike('last_error', 'duplicate %')
+      .limit(10_000);
+    if (error) return [];
+    const { isDeliberateRetirement } = await import('./revival.js');
+    return ((data ?? []) as { provider: string; token: string; extra: Record<string, string> | null; last_error: string | null }[])
+      .filter((r) => isDeliberateRetirement(r.last_error))
+      .map((r) => ({ provider: r.provider, token: r.token, ...(r.extra ? { extra: r.extra } : {}) }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * The boards least recently confirmed working, oldest first.
  *
  * The re-verification pass used to take the first N of the crawl list, which is

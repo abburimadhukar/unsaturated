@@ -70,7 +70,11 @@ jobs:
         # CC-MAIN-2026-34: 38,335 indexed urls yielded 1,170 boards nobody held,
         # and 25 of 25 sampled answered HTTP 200 with 2,710 postings between
         # them — 108 per board, against Workday's 6.7 and Greenhouse's 2.4.
-        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle]
+        #
+        # eightfold added 16 Sep 2026. 24 tenant/domain pairs sampled from the
+        # index: 7 open with 2,096 postings between them (299 a board), 11 gated
+        # with a 403, 6 not serving the API. Only the open ones are stored.
+        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle, eightfold]
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run

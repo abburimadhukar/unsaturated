@@ -200,6 +200,19 @@ export const PATTERNS: Pattern[] = [
     extract:
       /https?:\/\/([a-z0-9-]+\.fa\.[a-z0-9-]+\.oraclecloud\.com)\/hcmUI\/CandidateExperience\/[A-Za-z_-]+\/sites\/([A-Za-z0-9_]+)/i,
   },
+  // Eightfold: the tenant is the subdomain, and the API also needs the
+  // employer's own domain, which Eightfold's links carry as `?domain=`:
+  //
+  //   albemarle.eightfold.ai/careers/job/1099540838895-…?domain=albemarle.com
+  //
+  // Measured 16 Sep 2026 on CC-MAIN-2026-34 page 0: 103 hosts and 50 usable
+  // tenant/domain pairs. A URL with no domain parameter is skipped — a wrong
+  // domain answers 404, so it cannot be guessed.
+  {
+    provider: 'eightfold',
+    match: '*.eightfold.ai/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*)\.eightfold\.ai\/[^?#]*\?(?:[^#]*&)?domain=([a-z0-9][a-z0-9.-]*\.[a-z]{2,})/i,
+  },
 ];
 
 /** Path segments that are routing, not a company. */
@@ -306,6 +319,23 @@ export function toBoard(p: Pattern, url: string): OpenBoard | null {
       // otherwise put "Hccz" in the feed.
       company: titleise(tenant),
       extra: { host, site },
+    };
+  }
+
+  if (p.provider === 'eightfold') {
+    const [, tenant, domain] = m;
+    if (!tenant || !domain) return null;
+    // Eightfold's own hosts, and the sandbox and staging copies customers keep
+    // beside their real board. Those answer, and would be stored as employers
+    // with test postings on them.
+    if (/^(www|app|eightfold|api|docs|status)$/i.test(tenant)) return null;
+    if (/(^|[-.])(sandbox|staging|stage|dev|test|uat|qa|demo)([-.]|$)/i.test(`${tenant}.${domain}`)) return null;
+    const dom = domain.toLowerCase();
+    return {
+      provider: 'eightfold',
+      token: tenant,
+      company: titleise(tenant),
+      extra: { domain: dom, site: dom },
     };
   }
 

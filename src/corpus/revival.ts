@@ -19,11 +19,16 @@ import type { VerifyResult } from '../discovery/verify.js';
  * active. Reviving one means crawling that company twice and storing every
  * posting under two job keys, which is the bug dedupe exists to prevent.
  *
+ * `oracle-aliases` does the same for a career site that is an exact copy of
+ * another site of the same tenant — Oracle's default `CX` address very often is.
+ * Every posting id is compared before one is retired, and reviving it would read
+ * the same postings twice on every crawl.
+ *
  * Anchored at the start of the string on purpose. A message that merely mentions
  * the phrase is an ordinary failure and stays eligible.
  */
 export function isDeliberateRetirement(lastError: string | null): boolean {
-  return /^\s*duplicate spelling of /i.test(lastError ?? '');
+  return /^\s*duplicate (spelling|site) of /i.test(lastError ?? '');
 }
 
 /**

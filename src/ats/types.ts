@@ -20,6 +20,7 @@ export type AtsProvider =
   | 'teamtailor'
   | 'rippling'
   | 'oracle'
+  | 'eightfold'
   | 'usajobs'
   | 'socrata';
 

@@ -117,7 +117,12 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const known = new Set(registered.map(keyOf));
+  // Deliberately retired boards count as known too. Otherwise a duplicate
+  // retired on purpose is "new" again next week, verifies live — it is live —
+  // and goes straight back to active.
+  const { readDeliberateRetirements } = await import('../corpus/board-store.js');
+  const retiredOnPurpose = await readDeliberateRetirements();
+  const known = new Set([...registered, ...retiredOnPurpose].map(keyOf));
   // Sliced by vendor rather than by count, so several runs in parallel still
   // give each ATS exactly one request per second. Splitting by count instead
   // would point every runner at every vendor at once, which is how Greenhouse
@@ -149,7 +154,18 @@ async function main(): Promise<void> {
     },
   });
 
-  const live = results.filter((r) => r.verdict === 'live');
+  const verified = results.filter((r) => r.verdict === 'live');
+  // An Oracle site that is an exact copy of one already held — or of another
+  // newcomer — is not a new board. See alias-guard.ts.
+  const { oracleIdFetcher, withoutOracleAliases } = await import('../discovery/alias-guard.js');
+  const { kept: live, dropped } = await withoutOracleAliases(
+    verified,
+    registered,
+    oracleIdFetcher({ userAgent: config.userAgent, timeoutMs: 60_000 }),
+  );
+  for (const d of dropped) {
+    console.log(`  not storing ${d.candidate.board.token}/${d.candidate.board.extra?.site}: an exact copy of site ${d.copyOf}`);
+  }
   // The status codes, not just the verdicts — see summariseVerification. This
   // run reporting "dead 701" told us nothing about whether those boards were
   // gone or whether we were being turned away.

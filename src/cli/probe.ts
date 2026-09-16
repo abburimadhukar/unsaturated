@@ -33,6 +33,9 @@ const PROBE_TOKENS: Partial<Record<AtsProvider, string>> = {
   // Workday: the API caps a page at 200 however many are asked for, so a
   // paginator that fails to advance looks perfectly healthy at 200 jobs.
   oracle: 'hccz',
+  // Bayer: 601 postings at ten a page, so this is the probe that catches a
+  // paginator trusting the page size it asked for.
+  eightfold: 'bayer',
 };
 
 /** Providers needing more than a bare token to address a board. */
@@ -43,6 +46,7 @@ const PROBE_EXTRA: Partial<Record<AtsProvider, Record<string, string>>> = {
     locale: 'en-US',
   },
   oracle: { host: 'hccz.fa.em3.oraclecloud.com', site: 'CX' },
+  eightfold: { domain: 'bayer.com', site: 'bayer.com' },
 };
 
 /**
@@ -58,6 +62,7 @@ const MIN_EXPECTED: Partial<Record<AtsProvider, number>> = {
   // Above one page, so a paginator that stops after the first is caught. The
   // board held 394 when this was written.
   oracle: 250,
+  eightfold: 300,
 };
 
 function coverage(jobs: NormalizedJob[], field: keyof NormalizedJob): string {

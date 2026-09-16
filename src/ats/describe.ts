@@ -1,3 +1,4 @@
+import { eightfoldDetailUrl } from './adapters/eightfold.js';
 import { parseDate, stripHtml } from './normalize.js';
 import type { AtsProvider, BoardRef, FetchContext, NormalizedJob } from './types.js';
 
@@ -65,6 +66,8 @@ const BACKFILLABLE: AtsProvider[] = [
   // string — so without this every Oracle posting reaches scoring with nothing
   // to match a resume against.
   'oracle',
+  // Same as Oracle: an empty job_description on every listing row.
+  'eightfold',
 ];
 
 export function needsBackfill(provider: AtsProvider): boolean {
@@ -202,6 +205,32 @@ async function oracleDetail(
 }
 
 /**
+ * Eightfold — /api/apply/v2/jobs/{id}?domain={domain}
+ *
+ * The listing's job_description is an empty string; the per-posting resource
+ * carries the whole body. The domain is required here exactly as it is on the
+ * listing, and a wrong one answers 404.
+ */
+async function eightfoldDetail(
+  board: BoardRef,
+  job: NormalizedJob,
+  ctx: FetchContext,
+): Promise<JobDetail | null> {
+  const domain = board.extra?.domain ?? board.extra?.site;
+  if (!domain) return null;
+  const body = await getJson<{ job_description?: string; t_create?: number }>(
+    eightfoldDetailUrl(board.token, domain, job.externalId),
+    ctx,
+  );
+  if (!body) return null;
+  const description = stripHtml(body.job_description);
+  // Epoch seconds, as on the listing.
+  const postedAt = typeof body.t_create === 'number' ? new Date(body.t_create * 1000) : undefined;
+  if (!description && !postedAt) return null;
+  return { ...(description ? { description } : {}), ...(postedAt ? { postedAt } : {}) };
+}
+
+/**
  * BambooHR — {token}.bamboohr.com/careers/{id}/detail
  *
  * The only provider here fetched for its DATE rather than its text. `datePosted`
@@ -246,6 +275,8 @@ export async function fetchDetail(
       return bambooHrDetail(board, job, ctx);
     case 'oracle':
       return oracleDetail(board, job, ctx);
+    case 'eightfold':
+      return eightfoldDetail(board, job, ctx);
     default:
       return null;
   }

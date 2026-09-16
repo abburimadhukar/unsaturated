@@ -5,6 +5,7 @@ import {
   oracleSitePageUrl,
 } from '../ats/adapters/oracle.js';
 import { WORKDAY_SHARDS, discoverWorkdaySite } from '../ats/adapters/workday.js';
+import { eightfoldCompanyFrom, eightfoldListUrl } from '../ats/adapters/eightfold.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { OpenBoard } from './opendata.js';
 
@@ -125,6 +126,14 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
       if (!host || !site) return null;
       return { url: oracleSearchUrl(host, site, 1, 0) };
     }
+    // Eightfold refuses without the employer's own domain, and a wrong one is a
+    // 404 — so no domain means no check. Gated tenants answer 403, which is not
+    // a live verdict, so they are never stored.
+    case 'eightfold': {
+      const domain = b.extra?.domain ?? b.extra?.site;
+      if (!domain) return null;
+      return { url: eightfoldListUrl(b.token, domain, 0, 1) };
+    }
     case 'recruitee':
       return { url: `https://${b.token}.recruitee.com/api/offers/` };
     case 'teamtailor':
@@ -180,6 +189,8 @@ function countJobs(provider: AtsProvider, body: unknown): number {
     return typeof search?.TotalJobsCount === 'number' ? search.TotalJobsCount : 0;
   }
   if (provider === 'smartrecruiters') return typeof o.totalFound === 'number' ? o.totalFound : 0;
+  // `count` is the board's total; `positions` is only the one row asked for.
+  if (provider === 'eightfold') return typeof o.count === 'number' ? o.count : 0;
   if (provider === 'ukg') return typeof o.totalCount === 'number' ? o.totalCount : 0;
   if (provider === 'bamboohr') return Array.isArray(o.result) ? o.result.length : 0;
   if (provider === 'recruitee') return Array.isArray(o.offers) ? o.offers.length : 0;
@@ -429,7 +440,9 @@ export async function verifyBoards(
         const company =
           board.provider === 'oracle'
             ? (await oracleTitle(board, opts.userAgent, timeoutMs)) ?? oracleCompanyFrom(body)
-            : undefined;
+            : board.provider === 'eightfold'
+              ? eightfoldCompanyFrom(body)
+              : undefined;
         result = {
           board,
           verdict: 'live',
