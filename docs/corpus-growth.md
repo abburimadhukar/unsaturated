@@ -325,6 +325,26 @@ is 117 MB for 126,926 rows, about 0.92 KB a row. Oracle at ~19,500 expected
 in-family postings adds roughly 18 MB. Two more sources that size and the tier
 is the binding constraint, not the clock.
 
+**Shards must keep an employer together — fixed 16 September 2026.** Crawl
+shards were split by board position, so a tenant's career sites could land in
+different shards. The close pass only closes a token when every board under it
+was read, but a shard can only judge the boards it holds — so each shard saw one
+healthy site and closed its siblings' postings, and the next upsert reopened
+them. Measured: multi-site Workday tenants closed **170.8** postings per 100 open
+in 48 hours against **15.1** for single-site ones, roughly 8,600 live jobs hidden
+at any moment. Oracle's 156 multi-site tenants would have joined them.
+`sliceForShard` now round-robins by tenant; `tests/shard-tenants.test.ts` fails
+on the old split.
+
+**Oracle names — repaired 16 September 2026.** The first discovery run stored
+764 Oracle boards and named almost none, because the facet rule refused any
+tenant listing subsidiaries. 503 were renamed from the career site's page title
+(facet as fallback), plus 21 follow-up corrections. The previous values are in
+`backups/oracle-names-2026-09-16.json` — local only, as `backups/` is gitignored. Six remain on their tenant code on
+purpose: three the vendor would not name and three whose only candidate was a
+cost-centre code. A few dozen carry a department rather than an employer
+("Apparel", "Social Worker") — not reliably separable from a real name, and left.
+
 **Cadence, separately.** The crawl advertises itself as hourly and in practice
 runs every 2–6 hours: GitHub drops scheduled runs. Every active board carried a
 `last_crawled_at` between 3 and 6 hours old when this was measured, with none

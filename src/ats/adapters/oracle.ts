@@ -280,7 +280,7 @@ export function oracleCompanyFrom(body: unknown): string | undefined {
  * company mislabelled in the feed.
  */
 const SITE_BOILERPLATE =
-  /[\s|·—–-]*(candidate\s+experience(\s+site)?|careers?\s+site(\s*-\s*new)?|careers?\s+(portal|home|page)|external\s+(careers?|site)|external|all\s+open\s+jobs|open\s+jobs|job\s+search|vacancies|careers?|recruiting)\s*$/i;
+  /(?:^|[\s|·—–-]+)(candidate\s+experience(\s+site)?|careers?\s+site(\s*-\s*new)?|careers?\s+(portal|home|page|website)|external\s+(careers?|site)|external|all\s+open\s+jobs|open\s+jobs|recommended\s+jobs|job\s+search|job\s+listings(\s*-\s*global)?|(administrative\s+)?jobs|staff\s+positions|employment|(talent\s+acquisition|recruitment)\s+(site|team)|e-?recruitment\s+system|vacancies|careers?|recruiting)\s*$/i;
 
 /** Shortest name treated as real, so a title trimmed to "A" is refused. */
 const MIN_COMPANY_CHARS = 2;
@@ -300,14 +300,36 @@ const NOT_A_NAME =
   /^(page not found|not found|error|404|403|access denied|forbidden|unauthori[sz]ed|loading|untitled|home|welcome|sign in|login|redirecting|service unavailable|maintenance|our vacancies|vacancies|job search|all open jobs|open jobs|jobs and|current opportunities|opportunities|apply now|search jobs)\.?$/i;
 
 /**
- * A lead-in some employers put before their own name, in either shape:
- * "Careers at WorkplaceNL" and "Careers - Langham Hospitality Group".
+ * A lead-in some employers put before their own name: "Careers at WorkplaceNL",
+ * "Careers - Langham Hospitality Group", "Careers @ MUFG", "Check out Arqiva",
+ * "Find Jobs - Historic Environment Scotland", and the French "Site carriere
+ * externe sodiaal".
  * Stripped from the front, where SITE_BOILERPLATE only strips from the end.
  */
-const NAME_PREFIX = /^\s*(careers?|jobs?|work|working)\s*((at|with|for)\s+|[-|:·–—]\s*)/i;
+const NAME_PREFIX =
+  /^\s*((careers?|jobs?|work|working)\s*((at|with|for)\s+|[-|:·–—@]\s*)|check\s+out\s+|find\s+jobs\s*[-–:]\s*|site\s+carri[eè]re\s+(externe\s+)?)/i;
 
 /** A separator left behind once the words around it are gone: "FAB |", "Findex -". */
-const DANGLING_SEPARATOR = /[\s|:·–—-]+$/;
+const DANGLING_SEPARATOR = /[\s|:·–—_-]+$/;
+
+/**
+ * A site descriptor in the MIDDLE of a title, and everything after it.
+ *
+ * SITE_BOILERPLATE only strips from the end, and the second full repair pass
+ * still left 14 of 503 names like these:
+ *
+ *   Ajman University Career Site Academic Support   -> Ajman University
+ *   Howden Career Site 1                            -> Howden
+ *   Co-op External Career Section                   -> Co-op
+ *   EDB Career Site Portal                          -> EDB
+ *   Fife Council Jobs and                           -> Fife Council
+ *
+ * What follows "Career Site" is always the site's own label — a department, a
+ * region, a version number — never more of the employer's name, so cutting
+ * there is safe. Requires a word before it, so a title that IS "Career Site"
+ * is left for the reject list rather than cut to nothing here.
+ */
+const SITE_DESCRIPTOR_ONWARD = /(?<=\S)\s+((external\s+)?career\s+(sites?|section)\b.*|jobs\s+and)$/i;
 
 
 export function oracleCompanyFromPage(html: string): string | undefined {
@@ -322,9 +344,10 @@ export function oracleCompanyFromPage(html: string): string | undefined {
     //
     // These titles are written into the page by Oracle's own single-page app,
     // and some arrive with the bundle's escaping still on them. Measured in the
-    // first full repair run: "Chili\'s" and "Bolsa de Trabajo Tajín" — two
-    // employers whose names would have been stored with a stray backslash and a
-    // literal í where the í belongs.
+    // first full repair run: Chili's arrived with a backslash before the
+    // apostrophe, and "Bolsa de Trabajo Tajin" with a six-character unicode
+    // escape where the accented i belongs. Both would have been stored as
+    // written. tests/oracle.test.ts carries the exact strings.
     .replace(/\\u([0-9a-f]{4})/gi, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\(['"\\/])/g, '$1')
     .replace(/\s+/g, ' ')
@@ -335,6 +358,7 @@ export function oracleCompanyFromPage(html: string): string | undefined {
   if (NOT_A_NAME.test(name)) return undefined;
 
   name = name.replace(NAME_PREFIX, '').trim();
+  name = name.replace(SITE_DESCRIPTOR_ONWARD, '').trim();
 
   // Twice over: "Pearson Candidate Experience Site" needs one pass, and a title
   // like "Acme Careers Site Careers" needs two. Bounded so a pathological title

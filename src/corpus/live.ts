@@ -419,17 +419,52 @@ async function loadBoard(board: CorpusBoard, now: number) {
  * not finish. Splitting the list across parallel jobs keeps each one short and
  * scales without another redesign.
  *
- * Sliced round-robin by index rather than hashed, so every board is covered
- * exactly once and the split is reproducible.
+ * Sliced round-robin rather than hashed, so every board is covered exactly once
+ * and the split is reproducible.
+ *
+ * ROUND-ROBIN BY EMPLOYER, NOT BY BOARD
+ *
+ * Since 7 September a tenant can hold several career sites, and every site's
+ * postings carry the same board_token. closableBoards only lets a run close a
+ * token's postings when EVERY board under that token came back healthy — but it
+ * can only judge the boards in its own shard. Sliced by board, a tenant's sites
+ * landed in different shards, so each shard saw one healthy site, took the
+ * tenant as fully read, and closed the other sites' postings as withdrawn. The
+ * next upsert reopened them, and whichever shard finished last decided what the
+ * site showed.
+ *
+ * Measured 16 September 2026 on Workday: tenants with several sites closed 170.8
+ * postings per 100 open in 48 hours, against 15.1 for single-site tenants —
+ * about 8,600 live jobs hidden at any moment. Oracle, added the day before, has
+ * 156 such tenants and would have joined them.
+ *
+ * So every board of one tenant goes to the same shard, and the all-or-nothing
+ * check sees all of them. The split stays balanced because it is still
+ * round-robin — over tenants in the order they first appear rather than over
+ * boards, and a tenant's extra sites are few against thousands of tenants.
  */
 export interface Shard {
   index: number;
   of: number;
 }
 
-function sliceForShard<T>(items: T[], shard?: Shard): T[] {
+export function sliceForShard<T extends { provider: string; token: string }>(
+  items: T[],
+  shard?: Shard,
+): T[] {
   if (!shard || shard.of <= 1) return items;
-  return items.filter((_, i) => i % shard.of === shard.index);
+  // Case-folded, because that is how the registry decides two tokens are one
+  // board — see boardIdentity.
+  const ordinal = new Map<string, number>();
+  return items.filter((b) => {
+    const tenant = `${b.provider}:${b.token.toLowerCase()}`;
+    let n = ordinal.get(tenant);
+    if (n === undefined) {
+      n = ordinal.size;
+      ordinal.set(tenant, n);
+    }
+    return n % shard.of === shard.index;
+  });
 }
 
 

@@ -264,6 +264,33 @@ test('a site descriptor is stripped, and a bare one names nobody', () => {
   assert.equal(oracleCompanyFromPage('<title>Jobs and</title>'), undefined);
 });
 
+test('a site descriptor mid-title is cut along with what follows it', () => {
+  // All 14 residuals from the second full repair pass had this shape.
+  const cases: [string, string][] = [
+    ['Ajman University Career Site Academic Support', 'Ajman University'],
+    ['Ajman University Career Site V2', 'Ajman University'],
+    ['Howden Career Site 1', 'Howden'],
+    ['Mayo Career Site US', 'Mayo'],
+    ['BTN Career Sites', 'BTN'],
+    ['EDB Career Site Portal', 'EDB'],
+    ['Co-op External Career Section', 'Co-op'],
+    ['Fife Council Jobs and', 'Fife Council'],
+  ];
+  for (const [title, want] of cases) {
+    assert.equal(oracleCompanyFromPage(`<title>${title}</title>`), want, title);
+  }
+  // A title that is nothing but the descriptor names nobody.
+  assert.equal(oracleCompanyFromPage('<title>Career Site</title>'), undefined);
+});
+
+test('cleaning a clean name changes nothing', () => {
+  // The repair re-applies this function to names it already produced, so it
+  // must be idempotent on anything it would itself return.
+  for (const n of ["Chili's", 'Bolsa de Trabajo Tajín', 'Tata Capital', 'Kotak Mahindra Bank Ltd', 'Co-op', 'IHG']) {
+    assert.equal(oracleCompanyFromPage(`<title>${n}</title>`), n, n);
+  }
+});
+
 test('a name the employer puts after a lead-in is still found', () => {
   assert.equal(oracleCompanyFromPage('<title>Careers at WorkplaceNL</title>'), 'WorkplaceNL');
   assert.equal(oracleCompanyFromPage('<title>Jobs at Arcadis</title>'), 'Arcadis');
@@ -352,4 +379,33 @@ test('oracle is wired for descriptions in both places that decide it', () => {
   // button that can only ever fail.
   assert.equal(needsBackfill('oracle'), true);
   assert.equal(canDescribe('oracle'), true);
+});
+
+test('a descriptor is only stripped as a whole word', () => {
+  // "EniJobs" is what that employer calls its site, and cutting inside the
+  // word would turn a company called SmartJobs into "Smart".
+  assert.equal(oracleCompanyFromPage('<title>EniJobs</title>'), 'EniJobs');
+  assert.equal(oracleCompanyFromPage('<title>Suffolk Jobs Direct</title>'), 'Suffolk Jobs Direct');
+});
+
+test('the long tail of lead-ins and descriptors from the first repair', () => {
+  const cases: [string, string][] = [
+    ['Careers @ MUFG Pension &amp; Market Services', 'MUFG Pension & Market Services'],
+    ['Jobs @ Carmeuse', 'Carmeuse'],
+    ['Check out Arqiva', 'Arqiva'],
+    ['McAllister Towing Career Website', 'McAllister Towing'],
+    ['Crawford Job Listings - Global', 'Crawford'],
+    ['IRENA Employment', 'IRENA'],
+    ['UKF Administrative Jobs', 'UKF'],
+    ['UT Health San Antonio Staff Positions', 'UT Health San Antonio'],
+    ['ArcelorMittal - Recommended Jobs', 'ArcelorMittal'],
+    ['Find Jobs - Historic Environment Scotland', 'Historic Environment Scotland'],
+    ['Emirate Islamic Bank Recruitment Team', 'Emirate Islamic Bank'],
+    ['HKBU e-Recruitment System', 'HKBU'],
+    ['Site carrière externe sodiaal', 'sodiaal'],
+    ['UNIPOL_', 'UNIPOL'],
+  ];
+  for (const [title, want] of cases) {
+    assert.equal(oracleCompanyFromPage(`<title>${title}</title>`), want, title);
+  }
 });
