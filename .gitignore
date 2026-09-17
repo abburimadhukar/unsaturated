@@ -19,3 +19,6 @@ backups/
 
 # Output of scripts/fill-live.mjs — screenshots of test fills
 tmp-fill/
+
+# Chrome for Testing, downloaded for the extension end-to-end check
+chrome/

@@ -43,8 +43,25 @@ unused extension can read nothing.
 npm test -- tests/extension-matcher.test.ts   # against saved copies of 7 real forms
 node scripts/fill-live.mjs                    # fills a live Greenhouse form, never submits
 node scripts/fill-live.mjs <url> tmp-fill     # any other application page
+node scripts/extension-e2e.mjs                # the PACKAGED extension, end to end
 node scripts/ats-survey.mjs <dir>             # re-capture how vendors name their fields
 ```
+
+The end-to-end check loads this folder as a real unpacked extension and drives
+the path a click takes: service worker → `chrome.storage.local` → injected
+content script → panel. It needs a Chrome that still accepts
+`--load-extension`, which everyday Chrome 152 does not:
+
+```
+npx @puppeteer/browsers install chrome@stable
+CHROME_PATH=<that chrome.exe> node scripts/extension-e2e.mjs
+```
+
+**Two things only a person can check**, because no script may answer them:
+the site permission prompt Chrome shows on the first click, and any CAPTCHA
+(Greenhouse runs reCAPTCHA on its forms, Lever uses hCaptcha, Oracle can require
+hCaptcha). Both are fine in normal use — the extension runs in your browser,
+where you solve them as you always would.
 
 Measured on live forms, 17 September 2026:
 
