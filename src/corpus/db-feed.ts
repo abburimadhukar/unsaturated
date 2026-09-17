@@ -365,6 +365,18 @@ const TRANSIENT = new RegExp(
  *
  * `read` is injected so this can be tested without a database.
  */
+/**
+ * How long the read path waits before each retry, in order; the last repeats.
+ *
+ * Measured 17 September 2026: every close-scan failure on record landed while
+ * another shard was mid-write, and those writes run three to seven minutes. The
+ * old fixed 250 ms pause spent all five retries inside the same 45-second
+ * window, so each one met the same busy database. On 15 Sep 20:38 one scan did
+ * get through on its fourth try, because by then the others had finished —
+ * waiting is what helps, not the smaller page. These add up to a minute.
+ */
+export const READ_BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 30_000] as const;
+
 export async function readInPages<T>(
   read: (from: number, size: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
   opts: {
@@ -373,15 +385,20 @@ export async function readInPages<T>(
     floor?: number;
     onRetry?: (size: number, next: number, message: string) => void;
     wait?: (ms: number) => Promise<void>;
+    backoff?: readonly number[];
   } = {},
 ): Promise<T[]> {
   const start = opts.page ?? PAGE;
   const floor = opts.floor ?? 50;
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const backoff = opts.backoff ?? READ_BACKOFF_MS;
 
   const out: T[] = [];
   let from = 0;
   let size = start;
+  // Failures since the last page that came back. A busy spell later in the scan
+  // starts again from the shortest wait.
+  let retries = 0;
   for (;;) {
     const { data, error } = await read(from, size);
     if (error) {
@@ -391,11 +408,13 @@ export async function readInPages<T>(
       const next = Math.max(floor, Math.floor(size / 2));
       opts.onRetry?.(size, next, error.message);
       size = next;
-      // The other three shards are writing into this table right now; a moment's
-      // pause is as much of the remedy as the smaller page.
-      await wait(250);
+      // The other three shards are writing into this table right now. The pause
+      // is the remedy; see READ_BACKOFF_MS.
+      await wait(backoff[Math.min(retries, backoff.length - 1)] ?? 0);
+      retries++;
       continue;
     }
+    retries = 0;
     const batch = data ?? [];
     // Empty, not short — see above.
     if (batch.length === 0) return out;

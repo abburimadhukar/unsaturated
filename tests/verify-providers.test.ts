@@ -25,6 +25,24 @@ const HARVESTED = [
   'bamboohr', 'ukg', 'recruitee', 'teamtailor', 'rippling',
 ];
 
+/**
+ * The providers a full discovery run covers.
+ *
+ * The matrix is an expression since 17 Sep 2026, so a manual run can name one
+ * provider: fromJSON(<one> || '["greenhouse","workday",...]'). The quoted JSON
+ * list is the full run, and it is what these tests are about.
+ */
+function matrixProviders(workflow: string): string[] | null {
+  const m = workflow.match(/provider: \$\{\{ fromJSON\(.*'(\["[a-z]+"(?:,"[a-z]+")*\])'\) \}\}/);
+  return m ? (JSON.parse(m[1]!) as string[]) : null;
+}
+
+/** The providers offered when a run is started by hand, "all" aside. */
+function choiceProviders(workflow: string): string[] | null {
+  const m = workflow.match(/options: \[all, ([^\]]+)\]/);
+  return m ? m[1]!.split(',').map((s) => s.trim()).filter(Boolean) : null;
+}
+
 test('every harvested provider has a verification endpoint', () => {
   const missing = HARVESTED.filter((p) => !verify.includes(`case '${p}':`));
   assert.deepEqual(missing, [],
@@ -33,9 +51,8 @@ test('every harvested provider has a verification endpoint', () => {
 
 test('every provider named in the discovery workflow can be verified', () => {
   const workflow = read('../.github/workflows/discover.yml');
-  const line = workflow.match(/provider: \[([^\]]+)\]/);
-  assert.ok(line, 'the discovery matrix is gone');
-  const providers = line[1]!.split(',').map((s) => s.trim()).filter(Boolean);
+  const providers = matrixProviders(workflow);
+  assert.ok(providers, 'the discovery matrix is gone');
   assert.ok(providers.length >= 4, `matrix looks wrong: ${providers.join(', ')}`);
   const unverifiable = providers.filter((p) => !verify.includes(`case '${p}':`));
   assert.deepEqual(unverifiable, [],
@@ -62,8 +79,9 @@ test('a provider with no adapter is not in the discovery matrix', () => {
   // Discovering boards the crawler cannot read would fill the registry with
   // rows that fail every crawl forever.
   const workflow = read('../.github/workflows/discover.yml');
-  const line = workflow.match(/provider: \[([^\]]+)\]/)![1];
-  for (const p of line!.split(',').map((s) => s.trim()).filter(Boolean)) {
+  const providers = matrixProviders(workflow);
+  assert.ok(providers, 'the discovery matrix is gone');
+  for (const p of providers) {
     assert.ok(adapters.includes(p), `${p} is discovered but has no adapter to crawl it`);
   }
 });
@@ -122,10 +140,21 @@ test('a token that is only routing is refused before it reaches a board', () => 
 
 test('rippling is in the discovery matrix, not just in the code', () => {
   const workflow = read('../.github/workflows/discover.yml');
-  const line = workflow.match(/provider: \[([^\]]+)\]/);
-  assert.ok(line);
+  const providers = matrixProviders(workflow);
+  assert.ok(providers);
   assert.ok(
-    line[1]!.split(',').map((s) => s.trim()).includes('rippling'),
+    providers.includes('rippling'),
     'the pattern and the verifier exist but nothing runs the harvest',
   );
+});
+
+test('a manual run can pick exactly the providers a full run covers', () => {
+  // Two copies of one list. A provider missing from the choice cannot be run on
+  // its own; one missing from the matrix is never discovered on Sunday.
+  const workflow = read('../.github/workflows/discover.yml');
+  const full = matrixProviders(workflow);
+  const offered = choiceProviders(workflow);
+  assert.ok(full && offered, 'the matrix or the provider choice is gone');
+  assert.deepEqual([...offered].sort(), [...full].sort());
+  assert.ok(full.includes('eightfold') && full.includes('oracle'));
 });

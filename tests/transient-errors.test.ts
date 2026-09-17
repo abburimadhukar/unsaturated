@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   isTransientWriteError,
+  READ_BACKOFF_MS,
   readInPages,
   upsertInChunks,
 } from '../src/corpus/db-feed.js';
@@ -243,6 +244,38 @@ test('a database that refuses every size eventually throws, never silently trunc
     /close-scan failed: Gateway Timeout/,
   );
   assert.deepEqual(sizes, [1000, 500, 250, 125], 'halves to the floor, then throws');
+});
+
+test('retries WAIT longer each time, so they outlast the other shards’ writes', async () => {
+  // 17 Sep 2026: five retries 250 ms apart all fell inside one busy spell.
+  const waits: number[] = [];
+  await assert.rejects(
+    readInPages<{ key: string }>(
+      async () => ({ data: null, error: { message: 'canceling statement due to statement timeout' } }),
+      { page: 1000, wait: async (ms) => void waits.push(ms) },
+    ),
+    /statement timeout/,
+  );
+  assert.deepEqual(waits, [2_000, 4_000, 8_000, 16_000, 30_000], 'a minute in all, not a second');
+  assert.deepEqual(waits, [...READ_BACKOFF_MS]);
+});
+
+test('a page that succeeds resets the wait for the next busy spell', async () => {
+  const waits: number[] = [];
+  let calls = 0;
+  const out = await readInPages<{ key: string }>(
+    async (from, size) => {
+      calls++;
+      // Refused on the 1st, 2nd and 4th asks; the 3rd returns a page.
+      if (calls === 1 || calls === 2 || calls === 4) {
+        return { data: null, error: { message: 'Gateway Timeout' } };
+      }
+      return { data: rows(300).slice(from, from + size), error: null };
+    },
+    { page: 1000, wait: async (ms) => void waits.push(ms) },
+  );
+  assert.equal(out.length, 300, 'nothing skipped');
+  assert.deepEqual(waits, [2_000, 4_000, 2_000]);
 });
 
 test('an empty table is a valid answer, not a failure', async () => {
