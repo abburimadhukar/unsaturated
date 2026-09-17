@@ -210,9 +210,17 @@ export async function GET(request: Request) {
   // about 365 cache misses before the allowance is gone. This asks for the page
   // instead, roughly 37 KB, and keeps the old path as the fallback so a database
   // outage still serves the build snapshot.
-  const fromDb = await queryFeedFromDb(query, offset, limit);
+  //
+  // Both questions at once. They are independent — the counts never read the
+  // page — and asked one after the other the visitor waited for their SUM:
+  // measured 17 Sep 2026, ~0.55 s for the page then ~1 s for the counts, from a
+  // client, on every cache miss. Now it is the slower of the two. If the page
+  // fails the counts are simply not used.
+  const [fromDb, realFacets] = await Promise.all([
+    queryFeedFromDb(query, offset, limit),
+    facetsFromDb(query),
+  ]);
   if (fromDb) {
-    const realFacets = await facetsFromDb(query);
     // Remembered, because the cache header depends on it. Without this the
     // degraded answer was indistinguishable from a real one by the time the
     // header was set, and got the full 60+300 seconds.

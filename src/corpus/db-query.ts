@@ -61,13 +61,26 @@ function cutoffIso(): string {
 /** null rather than '' — the function treats null as "no filter". */
 const orNull = (v: string | undefined) => (v && v.trim() ? v : null);
 
+/**
+ * One page of the feed, and the total it came from.
+ *
+ * ONE RETRY, AND ONLY FOR A REFUSAL — the same rule as facetsFromDb below, and
+ * for the same reason. Measured 17 Sep 2026: 44 calls in 24 hours were cancelled
+ * by anon's 3-second statement timeout, clustered on crawl hours, and each one
+ * reached a visitor as "job data is temporarily unavailable". The facets, which
+ * already retried, were cancelled 3 times in the same window.
+ */
 export async function queryFeedFromDb(
   f: FeedQuery,
   offset: number,
   limit: number,
+  opts: FacetOptions = {},
 ): Promise<FeedPage | null> {
+  const attempt = opts.attempt ?? 0;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const client = opts.client ?? db();
   try {
-    const { data, error } = await db().rpc('feed_page', {
+    const { data, error } = await client.rpc('feed_page', {
       p_cutoff: cutoffIso(),
       p_in_scope: f.cloudOnly !== false,
       p_family: orNull(f.family),
@@ -95,7 +108,12 @@ export async function queryFeedFromDb(
     });
 
     if (error) {
-      // Never fatal: the caller falls back to the in-memory corpus.
+      if (attempt === 0 && isTransientWriteError(error.message)) {
+        console.warn(`feed_page refused, retrying once: ${error.message}`);
+        await wait(FACET_RETRY_PAUSE_MS);
+        return queryFeedFromDb(f, offset, limit, { ...opts, attempt: 1 });
+      }
+      // Never fatal: the caller answers 503 rather than hanging.
       console.error('feed_page failed:', error.message);
       return null;
     }
@@ -108,6 +126,12 @@ export async function queryFeedFromDb(
       jobs: body.rows.map((r) => toFeedJob(r)),
     };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (attempt === 0 && isTransientWriteError(message)) {
+      console.warn(`feed_page unavailable, retrying once: ${message}`);
+      await wait(FACET_RETRY_PAUSE_MS);
+      return queryFeedFromDb(f, offset, limit, { ...opts, attempt: 1 });
+    }
     console.error('feed_page unavailable:', err);
     return null;
   }
@@ -115,7 +139,10 @@ export async function queryFeedFromDb(
 
 const FACET_RETRY_PAUSE_MS = 150;
 
-/** `client` and `wait` are injected so the retry can be tested without a database. */
+/**
+ * `client` and `wait` are injected so the retry can be tested without a database.
+ * Shared by queryFeedFromDb and facetsFromDb.
+ */
 export interface FacetOptions {
   client?: { rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
   wait?: (ms: number) => Promise<void>;
