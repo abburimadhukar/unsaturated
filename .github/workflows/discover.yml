@@ -24,6 +24,15 @@ on:
         description: 'How many newly found boards to verify this run'
         type: string
         default: '3000'
+      # One vendor instead of all fourteen, for when a single provider has just
+      # been connected and should not wait for Sunday. A choice, not free text,
+      # so nothing typed here reaches a shell. The scheduled run has no inputs,
+      # which the matrix below reads as "all".
+      provider:
+        description: 'Only this provider (all = every provider)'
+        type: choice
+        default: all
+        options: [all, greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle, eightfold]
 
 jobs:
   discover:
@@ -74,7 +83,10 @@ jobs:
         # eightfold added 16 Sep 2026. 24 tenant/domain pairs sampled from the
         # index: 7 open with 2,096 postings between them (299 a board), 11 gated
         # with a 403, 6 not serving the API. Only the open ones are stored.
-        provider: [greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle, eightfold]
+        #
+        # A manual run may name one provider; otherwise this is the full list.
+        # Keep it in step with the `provider` choice above.
+        provider: ${{ fromJSON((inputs.provider && inputs.provider != 'all') && format('["{0}"]', inputs.provider) || '["greenhouse","workday","ashby","lever","smartrecruiters","workable","personio","bamboohr","ukg","recruitee","teamtailor","rippling","oracle","eightfold"]') }}
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run
