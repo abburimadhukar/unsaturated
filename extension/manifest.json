@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Unsaturated — application autofill",
+  "version": "0.1.0",
+  "description": "Fills your own details into an employer's application form. You always press submit.",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "action": { "default_title": "Fill this application" },
+  "options_page": "src/options.html",
+  "web_accessible_resources": [
+    { "resources": ["src/matcher.js", "src/fill.js"], "matches": ["https://*/*"] }
+  ]
+}

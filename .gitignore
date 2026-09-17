@@ -16,3 +16,6 @@ data/feed-snapshot.json
 # Point-in-time copies of the boards table, taken before anything that writes.
 # 13MB each and regenerable from the database; useful locally, pointless in git.
 backups/
+
+# Output of scripts/fill-live.mjs — screenshots of test fills
+tmp-fill/

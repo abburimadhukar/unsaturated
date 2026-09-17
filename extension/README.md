@@ -1,0 +1,68 @@
+# Unsaturated autofill — the extension
+
+Fills your own details into an employer's application form. **You always press
+the employer's submit button.** Nothing here submits an application, and there
+is no code path that clicks a submit, next or review button.
+
+## What it fills
+
+Facts only: first/last/preferred name, email, phone, address, city, region,
+postcode, country, location, LinkedIn, GitHub, website, current company, current
+title, and your résumé file.
+
+## What it refuses to fill, always
+
+| Kind | Examples | Why |
+|---|---|---|
+| Sensitive | gender, ethnicity, veteran status, disability, pronouns | Special-category data (GDPR Article 9). Yours to answer, on the day, or not at all. |
+| Attestation | work authorisation, sponsorship, right to work, criminal record | A wrong answer is a lie in your name. These come from answers you approve per application — a later phase. |
+| Money | salary expectation, desired pay | Always your call. |
+| Consent | "I agree…", privacy policy, GDPR notice | You tick your own boxes. |
+| Narrative | cover letter, "why do you want to work here?" | Needs your judgement. |
+| Traps | a box labelled "Please leave this field blank" | BambooHR ships one. Filling it marks you as a bot. |
+
+Anything it does not recognise is listed in the panel, never guessed at.
+
+## Try it
+
+1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** →
+   choose this `extension/` folder.
+2. Right-click the extension → **Options** → fill in your details, add a résumé,
+   **Save**.
+3. Open a job application page and press the extension's toolbar button. Chrome
+   asks permission for that site the first time.
+4. Read the panel, finish the questions it left for you, and submit yourself.
+
+It asks for no permissions until you press the button: there is no
+`content_scripts` block and no `<all_urls>` host permission, so an installed but
+unused extension can read nothing.
+
+## Checking it still works
+
+```
+npm test -- tests/extension-matcher.test.ts   # against saved copies of 7 real forms
+node scripts/fill-live.mjs                    # fills a live Greenhouse form, never submits
+node scripts/fill-live.mjs <url> tmp-fill     # any other application page
+node scripts/ats-survey.mjs <dir>             # re-capture how vendors name their fields
+```
+
+Measured on live forms, 17 September 2026:
+
+| Vendor | Fields filled | Résumé attached |
+|---|---|---|
+| Greenhouse | 9 of 9 fillable | yes |
+| Lever | 9 of 9 | yes (its own parser rejects the test PDF, which is expected) |
+| Workable | 6 of 7 (its own IP-guessed address left alone, flagged) | yes |
+
+## Where the pieces are
+
+- `src/matcher.js` — decides what each box is asking for. Pure, and tested
+  against saved copies of seven real forms.
+- `src/fill.js` — writes values so a React form believes them, handles the
+  dropdowns, attaches the file.
+- `src/content.js` — runs on the page, draws the panel.
+- `src/background.js` — the toolbar click, and the per-site permission request.
+- `src/options.html`, `src/options.js` — your details, kept in this browser only.
+
+Nothing is sent to any server. This build has no account: the profile lives in
+the browser's extension storage, and the résumé with it.

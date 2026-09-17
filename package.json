@@ -40,7 +40,9 @@
     "boards:dedupe": "tsx src/cli/boards-dedupe.ts",
     "boards:adopt": "tsx src/cli/boards-adopt.ts",
     "migrate": "tsx src/cli/migrate.ts",
-    "test:live": "node --import tsx tests/run-live.mjs"
+    "test:live": "node --import tsx tests/run-live.mjs",
+    "ats:survey": "node scripts/ats-survey.mjs",
+    "fill:live": "node scripts/fill-live.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",
@@ -54,10 +56,13 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22.9.0",
     "@types/pg": "^8.11.10",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "jsdom": "^25.0.1",
+    "puppeteer-core": "^23.11.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "wrangler": "^4.128.0"
