@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Allow this site</title>
+<style>
+  body { font: 14px/1.6 system-ui, sans-serif; max-width: 520px; margin: 48px auto; padding: 0 16px; color: #111; }
+  h1 { font-size: 18px; }
+  code { background: #f3f3f3; padding: 1px 5px; border-radius: 4px; }
+  button { margin-top: 16px; padding: 9px 16px; border: 0; border-radius: 6px; background: #e4572e; color: #fff; font: inherit; cursor: pointer; }
+  .note { background: #f6f6f6; border-radius: 6px; padding: 10px 12px; margin-top: 18px; color: #444; }
+  #state { margin-top: 14px; }
+</style>
+<h1>Allow autofill on this site?</h1>
+<p>Unsaturated has not been allowed to read <code id="origin">this site</code> yet.
+Allowing it lets the extension fill your details into the form on that page.</p>
+<button id="allow">Allow this site</button>
+<p id="state"></p>
+<p class="note">It only ever reads pages you allow, and it never presses an
+employer's submit button. You can remove a site later in Chrome's extension settings.</p>
+<script src="allow.js"></script>

@@ -29,13 +29,25 @@ Anything it does not recognise is listed in the panel, never guessed at.
    choose this `extension/` folder.
 2. Right-click the extension → **Options** → fill in your details, add a résumé,
    **Save**.
-3. Open a job application page and press the extension's toolbar button. Chrome
-   asks permission for that site the first time.
+3. Open a job application page and press the extension's toolbar button.
 4. Read the panel, finish the questions it left for you, and submit yourself.
 
-It asks for no permissions until you press the button: there is no
-`content_scripts` block and no `<all_urls>` host permission, so an installed but
-unused extension can read nothing.
+**If you loaded version 0.1.0, press Reload on `chrome://extensions` after
+pulling.** In that version the toolbar button did nothing at all: it asked
+Chrome for the site permission after an `await`, which spends the click's "user
+gesture", so Chrome refused with *"This function must be called during a user
+gesture"* and the failure was silent.
+
+### What it may read
+
+The manifest lists the job platforms it supports — Greenhouse, Lever, Ashby,
+Workable, Recruitee, Rippling, BambooHR, SmartRecruiters, Workday, Oracle,
+Teamtailor, Personio, Eightfold — and Chrome grants those at install. On any
+other site the button opens a page with an **Allow this site** button, and
+nothing is read until you press it.
+
+There is no `content_scripts` block: the extension runs only when you press the
+button, never in the background, and never on a page you have not opened.
 
 ## Checking it still works
 
@@ -57,8 +69,8 @@ npx @puppeteer/browsers install chrome@stable
 CHROME_PATH=<that chrome.exe> node scripts/extension-e2e.mjs
 ```
 
-**Two things only a person can check**, because no script may answer them:
-the site permission prompt Chrome shows on the first click, and any CAPTCHA
+**Two things only a person can check**, because no script may answer them: the
+permission prompt for a site the manifest does not cover, and any CAPTCHA
 (Greenhouse runs reCAPTCHA on its forms, Lever uses hCaptcha, Oracle can require
 hCaptcha). Both are fine in normal use — the extension runs in your browser,
 where you solve them as you always would.

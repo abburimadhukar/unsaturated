@@ -13,35 +13,26 @@
  */
 import puppeteer from 'puppeteer-core';
 import path from 'node:path';
-import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, cpSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(HERE, '..', 'extension');
 
 /**
- * THE ONE THING THIS TEST CANNOT DO, AND WHY.
+ * WHAT THIS TEST COVERS, AND THE ONE THING IT CANNOT.
  *
- * In use, the person presses the toolbar button and Chrome shows them a
- * permission prompt for that site; `chrome.permissions.request` needs that
- * gesture and no script may answer the dialog. So the test runs a COPY of the
- * extension whose manifest already holds the host permission for the one page it
- * fills. Everything else is the real thing: the real manifest, the real service
- * worker, the real `chrome.scripting.executeScript`, the real content script and
- * panel, and the profile read back out of `chrome.storage.local`.
+ * Covered: the real manifest, the real service worker, the real
+ * `chrome.scripting.executeScript`, the real content script and panel, and the
+ * profile read back out of `chrome.storage.local`.
  *
- * The permission prompt itself stays a manual check — see extension/README.md.
+ * Not covered: the permission prompt Chrome shows for a site the manifest does
+ * not already cover — no script may answer that dialog. Supported job sites are
+ * granted at install (manifest `host_permissions`), so the common path needs no
+ * prompt at all; anything else goes through src/allow.html, which is a manual
+ * check. See extension/README.md.
  */
-function extensionCopyWithHostPermission(url) {
-  const dir = path.join(os.tmpdir(), `unsat-ext-${Date.now()}`);
-  cpSync(SOURCE, dir, { recursive: true });
-  const manifestPath = path.join(dir, 'manifest.json');
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  manifest.host_permissions = [`${new URL(url).origin}/*`];
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
-  return dir;
-}
+const EXT = SOURCE;
 const CHROME = process.env.CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const URL_TO_FILL = process.argv[2] ?? 'https://job-boards.greenhouse.io/shifttechnology/jobs/7987030003';
 const OUT = path.join(HERE, '..', 'tmp-fill');
@@ -63,11 +54,17 @@ const PROFILE = {
   },
 };
 
-const EXT = extensionCopyWithHostPermission(URL_TO_FILL);
+// HEADFUL=1 opens a window you can watch; HOLD_MS keeps it open afterwards.
 const browser = await puppeteer.launch({
   executablePath: CHROME,
-  headless: 'new',
-  args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox'],
+  headless: process.env.HEADFUL ? false : 'new',
+  slowMo: process.env.HEADFUL ? 40 : 0,
+  args: [
+    `--disable-extensions-except=${EXT}`,
+    `--load-extension=${EXT}`,
+    '--no-sandbox',
+    '--window-size=1400,1000',
+  ],
 });
 
 // The service worker is the extension's own context: storage and scripting live there.
@@ -122,7 +119,13 @@ const filledValues = await page.evaluate(() => ({
 }));
 console.log('page values:', JSON.stringify(filledValues));
 console.log('still on the form (nothing submitted):', page.url() === before);
+
+const hold = Number(process.env.HOLD_MS ?? 0);
+if (hold > 0) {
+  console.log(`
+Leaving the window open for ${Math.round(hold / 1000)}s — scroll around; nothing will be submitted.`);
+  await new Promise((r) => setTimeout(r, hold));
+}
 await browser.close();
-rmSync(EXT, { recursive: true, force: true });
 if (page.url() !== before) process.exit(1);
 if (!panel) process.exit(1);

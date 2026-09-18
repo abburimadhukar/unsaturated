@@ -1,21 +1,51 @@
 /**
  * The click that starts everything.
  *
- * Nothing is injected until the person presses the toolbar button, and the
- * extension asks for permission for that one site at that moment. There is no
- * `content_scripts` block in the manifest and no `<all_urls>` permission, so an
- * installed-but-unused extension can read nothing at all.
+ * WHY THE PERMISSION IS NOT REQUESTED HERE — a bug found on 18 September 2026.
+ *
+ * The first version asked Chrome for the site permission inside this listener:
+ *
+ *   const granted = await chrome.permissions.contains(...)
+ *                || await chrome.permissions.request(...);
+ *
+ * A click is a "user gesture", and `chrome.permissions.request` may only be
+ * called while one is in hand. The `await` on the line before spends it, so
+ * Chrome refused the request with "This function must be called during a user
+ * gesture" — and pressing the toolbar button did nothing at all, silently.
+ *
+ * So the supported job sites are declared in the manifest and granted at
+ * install, and anything else goes through a real button on a real page
+ * (src/allow.html), where the gesture belongs to the click on that button.
  */
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id || !tab.url || !/^https?:/.test(tab.url)) return;
-  const origin = `${new URL(tab.url).origin}/*`;
 
-  const granted = await chrome.permissions.contains({ origins: [origin] })
-    || await chrome.permissions.request({ origins: [origin] });
-  if (!granted) return;
-
+/** Runs the filler in every frame of a tab. Throws if we may not read the page. */
+async function fill(tabId) {
   await chrome.scripting.executeScript({
-    target: { tabId: tab.id, allFrames: true },
+    target: { tabId, allFrames: true },
     files: ['src/content.js'],
   });
+}
+
+chrome.action.onClicked.addListener(async (tab) => {
+  if (!tab.id) return;
+
+  try {
+    // On a supported job site this simply works. Elsewhere, the click itself
+    // grants `activeTab` for this tab, which is also enough.
+    await fill(tab.id);
+  } catch (err) {
+    // No access to this page: offer to grant it, from a page with a button.
+    const url = tab.url ? `?origin=${encodeURIComponent(new URL(tab.url).origin)}&tab=${tab.id}` : '';
+    await chrome.tabs.create({ url: chrome.runtime.getURL(`src/allow.html${url}`) });
+  }
+});
+
+// The "Allow" button on that page reports back here once Chrome has agreed.
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== 'fill-tab' || !message.tabId) return;
+  fill(message.tabId).then(
+    () => sendResponse({ ok: true }),
+    (err) => sendResponse({ ok: false, error: String(err?.message ?? err) }),
+  );
+  return true; // an async reply is coming
 });
