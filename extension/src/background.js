@@ -35,8 +35,21 @@ chrome.action.onClicked.addListener(async (tab) => {
     await fill(tab.id);
   } catch (err) {
     // No access to this page: offer to grant it, from a page with a button.
-    const url = tab.url ? `?origin=${encodeURIComponent(new URL(tab.url).origin)}&tab=${tab.id}` : '';
-    await chrome.tabs.create({ url: chrome.runtime.getURL(`src/allow.html${url}`) });
+    try {
+      const url = tab.url ? `?origin=${encodeURIComponent(new URL(tab.url).origin)}&tab=${tab.id}` : '';
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`src/allow.html${url}`) });
+    } catch (second) {
+      // Nothing left to try. Say so in words: an unhandled rejection here shows
+      // up on chrome://extensions as a bare "background.js:21 (anonymous
+      // function)", which tells the person nothing at all — reported from a real
+      // browser on 18 September 2026.
+      console.error(
+        'Unsaturated could not fill this page.',
+        `\nFirst: ${err?.message ?? err}`,
+        `\nThen: ${second?.message ?? second}`,
+        `\nTab: ${tab.url ?? '(url not visible to the extension)'}`,
+      );
+    }
   }
 });
 
