@@ -43,7 +43,9 @@
     "test:live": "node --import tsx tests/run-live.mjs",
     "ats:survey": "node scripts/ats-survey.mjs",
     "fill:live": "node scripts/fill-live.mjs",
-    "ext:e2e": "node scripts/extension-e2e.mjs"
+    "ext:e2e": "node scripts/extension-e2e.mjs",
+    "fill:matrix": "node scripts/fill-matrix.mjs",
+    "fill:matrix:ext": "node scripts/fill-matrix-ext.mjs"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.5",

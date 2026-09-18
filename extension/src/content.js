@@ -93,8 +93,39 @@ function needsYou(skipped) {
   return skipped.filter((s) => s.field.required || interesting.includes(s.reason)).slice(0, 12);
 }
 
+/**
+ * Waits for the form to actually exist before reading it.
+ *
+ * Measured 18 September 2026: on Ashby the panel reported "0 filled · 0 left for
+ * you" while the form — Name, Email, Resume, six questions — was plainly on
+ * screen. The page draws itself after loading, and the scan ran first. Oracle
+ * and Workday behave the same way.
+ *
+ * So it polls until the number of visible fields stops growing, or gives up
+ * after eight seconds and works with whatever is there. Stopping on "stopped
+ * growing" rather than on a fixed sleep keeps a fast form fast.
+ */
+async function waitForFields(timeoutMs = 8000, settleMs = 600) {
+  const count = () => document.querySelectorAll('input:not([type=hidden]), textarea, select').length;
+  const deadline = Date.now() + timeoutMs;
+  let last = count();
+  let steadySince = Date.now();
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+    const now = count();
+    if (now !== last) {
+      last = now;
+      steadySince = Date.now();
+      continue;
+    }
+    if (last > 1 && Date.now() - steadySince >= settleMs) return last;
+  }
+  return count();
+}
+
 async function run() {
   const body = panel();
+  await waitForFields();
   const [{ describeField, planFill }, { applyPlan }] = await Promise.all([
     import(chrome.runtime.getURL('src/matcher.js')),
     import(chrome.runtime.getURL('src/fill.js')),
