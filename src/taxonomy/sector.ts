@@ -88,7 +88,14 @@ const STRONG: Record<Sector, RegExp> = {
     [
       String.raw`\b501\s*\(\s*c\s*\)\s*\(?\s*3`,
       String.raw`\b(non[- ]?profit|not[- ]for[- ]profit)\s+(organi[sz]ation|organisation|employer|status)\b`,
-      String.raw`\b(our donors|donor[- ]funded|philanthropic|fundrais(ing|er)|grant[- ]funded)\b`,
+      // "fundraising" and "philanthropic" on their own are corporate-benefits
+      // words. Version 1, an IT consultancy, was filed as a charity by a
+      // volunteering paragraph: "Community First initiatives allow you to get
+      // involved in local fundraising and development opportunities". A charity
+      // talks about ITS fundraising, not about letting staff join some.
+      String.raw`\b(our donors|donor[- ]funded|grant[- ]funded)\b`,
+      String.raw`\b(our|the) fundraising\b|\bfundrais(ing (team|department|campaign|target|strategy)|er)\b`,
+      String.raw`\bphilanthropic (support|income|gifts|giving|funding)\b`,
       String.raw`\b(registered charity|charity number|charitable (trust|foundation|organi[sz]ation))\b`,
       String.raw`\b(our mission[- ]driven|mission[- ]driven non)\b`,
     ].join('|'),
@@ -97,7 +104,13 @@ const STRONG: Record<Sector, RegExp> = {
   government: new RegExp(
     [
       String.raw`\b(city|county|state|federal|municipal|borough|parish)\s+of\s+[a-z]`,
-      String.raw`\b(public sector|civil service|government agency|local authority)\b`,
+      // "public sector" alone is what a bank's client list says. MUFG's Trade
+      // Finance advert names "sponsors, insurers, asset managers, broker
+      // dealers, public sector FIs" — the people it sells to. A public body
+      // says it about the job, so the job word has to be there.
+      String.raw`\b(civil service|government agency|local authority)\b`,
+      String.raw`\bpublic sector (employer|body|organi[sz]ation|role|post|position|pension|employee|worker)\b`,
+      String.raw`\b(work|working|career|employment|experience) (in|for|within) the public sector\b`,
       String.raw`\b(merit system|classified service|gs[- ]?\d{1,2}\s+(level|scale|grade))\b`,
       String.raw`\b(department of (transportation|health|education|human services))\b`,
     ].join('|'),
@@ -167,6 +180,36 @@ const VENDOR = new RegExp(
   'i',
 );
 
+/**
+ * Legal boilerplate, removed before a word of the advert is read.
+ *
+ * A US employer of any size must name the ordinances it complies with, and
+ * those ordinances are named after cities and counties. MUFG Bank — a Japanese
+ * commercial bank — was filed under "Government & public bodies" by this
+ * sentence, which appears verbatim in its Atlassian Platform Engineer advert:
+ *
+ *   "…in accordance with the requirements of applicable state and local laws
+ *    (including (i) the San Francisco Fair Chance Ordinance, (ii) the City of
+ *    Los Angeles' Fair Chance Initiative for Hiring Ordinance, (iii) the Los
+ *    Angeles County Fair Chance Ordinance, and (iv) the California Fair Chance
+ *    Act)…"
+ *
+ * "City of Los Angeles" is in there, and the government test looks for exactly
+ * that. But the sentence is about the law, not about the employer, and every
+ * large American company carries some version of it. Whole sentences go rather
+ * than the phrases inside them: what makes this text worthless as evidence is
+ * that it is boilerplate, and boilerplate is quoted in one breath.
+ *
+ * Genuine public bodies are untouched. They are recognised by what they say
+ * about the work — "classified service", "merit system", their own name in the
+ * job itself — none of which lives in a fair-chance disclaimer.
+ */
+const BOILERPLATE = new RegExp(
+  String.raw`[^.!?]*\b(fair chance (ordinance|initiative|act)|ban[- ]the[- ]box|` +
+    String.raw`arrest and conviction record|conviction record|criminal histor(y|ies))\b[^.!?]*[.!?]`,
+  'gi',
+);
+
 export interface SectorInput {
   title: string;
   descriptionText?: string | null;
@@ -188,13 +231,17 @@ export interface SectorResult {
  * hospital, however much clinical vocabulary its advert carries.
  */
 export function classifySector(job: SectorInput): SectorResult {
-  const text = job.descriptionText ?? '';
+  const raw = job.descriptionText ?? '';
   const name = `${job.company ?? ''} ${job.token ?? ''}`;
 
   // Nothing to read means nothing to conclude. Workday and UKG listings often
   // carry no description, and a name on its own is not evidence — claiming it
   // anyway is how a crypto foundation ends up filed under charities.
-  if (!text) return { sector: null, reason: null };
+  if (!raw) return { sector: null, reason: null };
+
+  // Before anything else, and before the vendor test too: a disclaimer is
+  // evidence about the law, never about the employer.
+  const text = raw.replace(BOILERPLATE, ' ');
 
   if (VENDOR.test(text)) return { sector: null, reason: null };
 

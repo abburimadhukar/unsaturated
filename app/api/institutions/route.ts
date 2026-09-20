@@ -19,6 +19,10 @@ import { SECTOR_ORDER, type Sector } from '../../../src/taxonomy/sector.js';
 export const dynamic = 'force-dynamic';
 
 const FAMILIES = FAMILY_ORDER.filter((f) => f !== 'unsorted');
+
+/** The same shortlist /api/quiet offers, for the same reason. */
+const COUNTRY_FACETS = ['US', 'GB', 'IN', 'CA', 'DE', 'AU', 'NL', 'IE', 'PL', 'SG', 'FR', 'ES'];
+
 const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
@@ -38,6 +42,8 @@ interface Row {
   posted_at: string | null;
   first_seen_at: string | null;
   apply_url: string | null;
+  country: string | null;
+  specialization: string | null;
   family: string | null;
   sector: string | null;
   quiet?: boolean | null;
@@ -70,6 +76,34 @@ export async function GET(request: Request) {
   const offset = num('offset', 0, 100_000, 0);
   const quietOnly = p.get('quietOnly') === '1';
 
+  /**
+   * Where the work is. '__unknown__' selects the rows we could not place.
+   *
+   * Its own option rather than being folded into every country, which is the
+   * shape the main feed arrived at the hard way: picking "United States" there
+   * once returned 3,204 postings whose country could not be read, so the count
+   * beside the option was wrong and the label was a lie. A dropdown that reads
+   * "United Kingdom (206)" has to return 206.
+   */
+  const country = (p.get('country') ?? '').trim();
+  const UNPLACED = '__unknown__';
+  if (country && country !== UNPLACED && !/^[A-Z]{2}$/.test(country.toUpperCase())) {
+    bad.push('country must be a two-letter code');
+  }
+
+  const search = (p.get('q') ?? '').trim().slice(0, 80).replace(/[(),*]/g, ' ').trim();
+
+  /**
+   * Offered here and not on Quiet Roles, because the data only supports it
+   * here. Measured 20 September 2026: 68% of institution roles carry a
+   * specialization against 17% of quiet ones. A dropdown that silently hides
+   * five sixths of the page is worse than no dropdown.
+   */
+  const specialization = (p.get('specialization') ?? '').trim();
+  if (specialization && !/^[a-z_]{2,40}$/.test(specialization)) {
+    bad.push('specialization is not a known value');
+  }
+
   if (bad.length > 0) {
     return NextResponse.json({ error: 'invalid query', details: bad }, { status: 400 });
   }
@@ -77,12 +111,14 @@ export async function GET(request: Request) {
   const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86_400_000).toISOString();
   const client = db();
 
-  const base = () => {
+  /** `withPlace: false` for the country facets — see the note in /api/quiet. */
+  const base = ({ withPlace = true }: { withPlace?: boolean } = {}) => {
     let q = client
       .from('jobs')
       .select(
-        'key,title,company,provider,location,remote_type,seniority,employment_type,' +
-          'salary_min,salary_max,salary_currency,posted_at,first_seen_at,apply_url,family,sector,quiet',
+        'key,title,company,provider,location,country,remote_type,seniority,employment_type,' +
+          'salary_min,salary_max,salary_currency,posted_at,first_seen_at,apply_url,family,sector,' +
+          'specialization,quiet',
         { count: 'exact' },
       )
       .is('closed_at', null)
@@ -94,6 +130,11 @@ export async function GET(request: Request) {
     // The two pages compose: an institution role that is also under a title
     // nobody searches for is the quietest thing on the site.
     if (quietOnly) q = q.eq('quiet', true);
+    if (specialization) q = q.eq('specialization', specialization);
+    if (search) q = q.or(`title.ilike.*${search}*,company.ilike.*${search}*`);
+    if (withPlace && country) {
+      q = country === UNPLACED ? q.is('country', null) : q.eq('country', country.toUpperCase());
+    }
     return q;
   };
 
@@ -124,12 +165,61 @@ export async function GET(request: Request) {
   const now = Date.now();
 
   const counts: Record<string, number> = {};
-  await Promise.all(
-    SECTOR_ORDER.map(async (s) => {
-      const { count: n } = await base().eq('sector', s).range(0, 0);
+  const countries: Record<string, number> = {};
+  const specializations: Record<string, number> = {};
+  let countryUnknown = 0;
+  await Promise.all([
+    ...SECTOR_ORDER.map(async (s) => {
+      const { count: n } = await base({ withPlace: false }).eq('sector', s).range(0, 0);
       counts[s] = n ?? 0;
     }),
-  );
+    ...COUNTRY_FACETS.map(async (c) => {
+      let q = base({ withPlace: false }).eq('country', c);
+      if (sectorRaw) q = q.eq('sector', sectorRaw);
+      const { count: n } = await q.range(0, 0);
+      if (n) countries[c] = n;
+    }),
+    (async () => {
+      let q = base({ withPlace: false }).is('country', null);
+      if (sectorRaw) q = q.eq('sector', sectorRaw);
+      const { count: n } = await q.range(0, 0);
+      countryUnknown = n ?? 0;
+    })(),
+  ]);
+
+  /**
+   * Which kinds of work this sector actually has.
+   *
+   * Counted over the WHOLE matching set, not the page: tallying the 50 rows on
+   * screen would have made the dropdown change every time you pressed "show 50
+   * more". The whole set is affordable here in a way it would not be on the
+   * main feed — institutions are 1,431 roles in total, and this reads one
+   * small column of them.
+   *
+   * The specialization filter itself is deliberately not applied, for the same
+   * reason the sector tabs ignore it: an option that reads 0 because of a
+   * filter you set is indistinguishable from a broken page.
+   */
+  {
+    let q = client
+      .from('jobs')
+      .select('specialization')
+      .is('closed_at', null)
+      .not('sector', 'is', null)
+      .not('family', 'is', null)
+      .not('specialization', 'is', null)
+      .eq('adjacent', false)
+      .or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen_at.gte.${cutoff})`);
+    if (sectorRaw) q = q.eq('sector', sectorRaw);
+    if (familyRaw) q = q.eq('family', familyRaw);
+    if (quietOnly) q = q.eq('quiet', true);
+    const { data: specRows } = await q.range(0, 4999);
+    for (const r of (specRows ?? []) as { specialization: string | null }[]) {
+      if (r.specialization) {
+        specializations[r.specialization] = (specializations[r.specialization] ?? 0) + 1;
+      }
+    }
+  }
 
   const res = NextResponse.json({
     sector: sectorRaw,
@@ -139,6 +229,9 @@ export async function GET(request: Request) {
     matched: count ?? rows.length,
     hasMore: offset + rows.length < (count ?? 0),
     counts,
+    countries,
+    countryUnknown,
+    specializations,
     maxAgeDays: MAX_AGE_DAYS,
     jobs: rows.map((r) => {
       const stamp = r.posted_at ?? r.first_seen_at;
@@ -154,6 +247,8 @@ export async function GET(request: Request) {
         salaryMin: r.salary_min,
         salaryMax: r.salary_max,
         salaryCurrency: r.salary_currency,
+        country: r.country,
+        specialization: r.specialization,
         family: r.family,
         sector: r.sector,
         quiet: r.quiet === true,

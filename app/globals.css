@@ -2029,3 +2029,80 @@ footer.twbot {
    — keeping it is what happens when none of the others is chosen. */
 .sugrow.flat { cursor: default; background: none; border-style: dashed; }
 .sugrow.flat:hover { border-color: var(--line); }
+
+/* ---------------------------------------------------------------------------
+   Active filters, on Quiet Roles and Institutions
+   ---------------------------------------------------------------------------
+   The sidebar collapses on a phone, and when it did the only sign that three
+   filters were on was the number in "Narrow · 3" — which does not say WHICH
+   three. An empty list then reads as a broken page rather than as a filter set
+   too tightly. These chips sit above the list, name each choice, and remove it
+   when pressed.
+
+   Every colour is a token: the chip takes whichever accent the page has set, so
+   it is teal on Quiet Roles and blue on Institutions with no rule of its own. */
+.activefilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.activechip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.activechip:hover { border-color: var(--accent); }
+.clearall,
+.linkish {
+  padding: 4px 2px;
+  font-size: 12px;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.clearall:hover,
+.linkish:hover { color: var(--text); }
+
+/* Full width so it reads as the end of the panel rather than as one more
+   option inside it. */
+.resetfilters {
+  width: 100%;
+  padding: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.resetfilters:hover { color: var(--text); border-color: var(--line-strong); }
+
+/* Why "quietest" is ranked over the newest 500 rather than over everything.
+   Stated on the page, because a ranking that quietly covers part of the list
+   is the kind of thing that is only ever discovered by being disbelieved. */
+.rankednote { margin: -4px 0 12px; }
+
+/* Announced to a screen reader, invisible to everyone else. The chips read as
+   "United Kingdom ×" without it, and × is not a word. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

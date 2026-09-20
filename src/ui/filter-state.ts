@@ -104,15 +104,68 @@ export function toggleFilter(filters: Filters, key: 'family' | 'remote', value: 
  * rather than passed on to the API.
  */
 export function parseFilters(search: string): Filters {
+  return sanitizeFilters(readFrom(FILTER_DEFAULTS, search));
+}
+
+/**
+ * The same two rules, for any page that keeps its choices in the address bar.
+ *
+ * Quiet Roles and Institutions forgot everything on refresh — filters reset,
+ * pages collapsed back to one, and a view could not be linked to or kept in a
+ * tab. The feed had solved that; these two had a copy of neither half. Written
+ * generically rather than copied a third time, because the pair has to agree:
+ * a value that serialises one way and parses another is a filter that silently
+ * turns itself off.
+ */
+export function readFrom<T extends Record<string, string | boolean>>(defaults: T, search: string): T {
   const p = new URLSearchParams(search);
-  const out = { ...FILTER_DEFAULTS } as Record<string, string | boolean>;
-  for (const [k, v] of Object.entries(FILTER_DEFAULTS)) {
+  const out = { ...defaults } as Record<string, string | boolean>;
+  for (const [k, v] of Object.entries(defaults)) {
     const raw = p.get(k);
     if (raw === null) continue;
     out[k] = typeof v === 'boolean' ? raw === '1' : raw;
   }
-  return sanitizeFilters(out as Filters);
+  return out as T;
 }
+
+export function writeTo<T extends Record<string, string | boolean>>(defaults: T, filters: T): string {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v === (defaults as Record<string, unknown>)[k]) continue;
+    p.set(k, v === true ? '1' : v === false ? '0' : String(v));
+  }
+  return p.toString();
+}
+
+/**
+ * Quiet Roles. `family` is navigation rather than a filter, but it belongs in
+ * the URL all the same — a link to the page should open on what was being
+ * looked at.
+ */
+export const QUIET_DEFAULTS = {
+  family: 'cloud',
+  q: '',
+  country: '',
+  seniority: '',
+  onSite: false,
+  noEntry: false,
+  midMarket: false,
+  paidOnly: false,
+  sort: 'newest',
+};
+
+/** Institutions. Sector is the top-level axis here, so it leads. */
+export const INST_DEFAULTS = {
+  sector: '',
+  family: '',
+  q: '',
+  country: '',
+  specialization: '',
+  quietOnly: false,
+};
+
+export type QuietFilters = typeof QUIET_DEFAULTS;
+export type InstFilters = typeof INST_DEFAULTS;
 
 /**
  * The query string for the address bar — only what differs from the defaults,
@@ -120,10 +173,5 @@ export function parseFilters(search: string): Filters {
  * choices that were made.
  */
 export function serializeFilters(filters: Filters): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(filters)) {
-    if (v === (FILTER_DEFAULTS as Record<string, unknown>)[k]) continue;
-    p.set(k, v === true ? '1' : v === false ? '0' : String(v));
-  }
-  return p.toString();
+  return writeTo(FILTER_DEFAULTS, filters);
 }

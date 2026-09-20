@@ -10,6 +10,10 @@ import {
   specializationAllowed,
   specializationsFor,
   toggleFilter,
+  readFrom,
+  writeTo,
+  QUIET_DEFAULTS,
+  INST_DEFAULTS,
 } from '../src/ui/filter-state.js';
 import { SPECIALIZATIONS_BY_FAMILY, UNKNOWN_SPECIALIZATION } from '../src/taxonomy/specializations.js';
 
@@ -141,4 +145,94 @@ test('every filter survives a full round trip', () => {
     sort: 'salary',
   };
   assert.deepEqual(parseFilters(`?${serializeFilters(chosen)}`), chosen);
+});
+
+// ---------------------------------------------------------------------------
+// Quiet Roles and Institutions keep their choices in the address bar
+// ---------------------------------------------------------------------------
+
+/**
+ * Both pages forgot everything on refresh until 20 September 2026: filters back
+ * to default, "show 50 more" back to one page, and no way to link anyone to a
+ * view. The feed had solved it; these two had neither half.
+ *
+ * The pair has to agree. A value that serialises one way and parses back
+ * another is a filter that silently turns itself off, which is worse than not
+ * having it — so these tests are all round trips.
+ */
+
+test('a quiet-roles view survives the round trip through a URL', () => {
+  const chosen = {
+    ...QUIET_DEFAULTS,
+    family: 'data',
+    q: 'analyst',
+    country: 'GB',
+    seniority: 'senior',
+    midMarket: true,
+    paidOnly: true,
+    sort: 'quietest',
+  };
+  assert.deepEqual(readFrom(QUIET_DEFAULTS, `?${writeTo(QUIET_DEFAULTS, chosen)}`), chosen);
+});
+
+test('an institutions view survives the round trip through a URL', () => {
+  const chosen = {
+    ...INST_DEFAULTS,
+    sector: 'health',
+    family: 'cloud',
+    q: 'kubernetes',
+    country: 'US',
+    specialization: 'devops_sre',
+    quietOnly: true,
+  };
+  assert.deepEqual(readFrom(INST_DEFAULTS, `?${writeTo(INST_DEFAULTS, chosen)}`), chosen);
+});
+
+test('a plain visit leaves the address bar clean', () => {
+  // Nothing is written for a value that is already the default, so arriving at
+  // /quiet does not rewrite the URL into a wall of parameters.
+  assert.equal(writeTo(QUIET_DEFAULTS, QUIET_DEFAULTS), '');
+  assert.equal(writeTo(INST_DEFAULTS, INST_DEFAULTS), '');
+});
+
+test('a link missing newer parameters still opens', () => {
+  // An old bookmark carries only what existed when it was made. Anything
+  // absent keeps its default rather than arriving as undefined.
+  assert.deepEqual(readFrom(QUIET_DEFAULTS, '?family=software'), {
+    ...QUIET_DEFAULTS,
+    family: 'software',
+  });
+});
+
+test('a checkbox that is on by default can be turned off by a link', () => {
+  // THE trap in this pattern, which is why the pair is shared rather than
+  // rewritten per page. Serialising only what differs from the default means a
+  // true-by-default switch has to be written as `=0` and read back as false —
+  // not dropped as falsy and silently restored to true on the next visit.
+  const off = { ...FILTER_DEFAULTS, hideGhosts: false };
+  const qs = writeTo(FILTER_DEFAULTS, off);
+  assert.match(qs, /hideGhosts=0/);
+  assert.equal(readFrom(FILTER_DEFAULTS, `?${qs}`).hideGhosts, false);
+});
+
+test('roles we could not place are their own choice, never folded into a country', () => {
+  // The main feed made this mistake and corrected it: picking "United States"
+  // returned 3,204 postings whose country could not be read, so the count
+  // beside the option was wrong and the label was a lie. Both new pages use
+  // the sentinel rather than an "include unknown" switch, so a dropdown
+  // reading "United Kingdom (206)" returns 206.
+  assert.ok(!('includeUnknown' in QUIET_DEFAULTS));
+  assert.ok(!('includeUnknown' in INST_DEFAULTS));
+  for (const defaults of [QUIET_DEFAULTS, INST_DEFAULTS]) {
+    const picked = { ...defaults, country: '__unknown__' };
+    assert.equal(readFrom(defaults, `?${writeTo(defaults, picked)}`).country, '__unknown__');
+  }
+});
+
+test('the feed still serialises exactly as it did', () => {
+  // parseFilters and serializeFilters were rewritten on top of the shared pair.
+  // The feed's behaviour must not have moved a millimetre.
+  const f = { ...FILTER_DEFAULTS, family: 'cloud', country: 'GB', hideGhosts: false };
+  assert.deepEqual(parseFilters(`?${serializeFilters(f)}`), f);
+  assert.equal(serializeFilters(FILTER_DEFAULTS), '');
 });

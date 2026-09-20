@@ -80,6 +80,63 @@ for (const [text, who] of [
   });
 }
 
+// ---------------------------------------------------------------------------
+// The employers that carry institutional words without being institutions
+// ---------------------------------------------------------------------------
+
+/**
+ * Verbatim from MUFG Bank's "Atlassian Platform Engineer, Vice President",
+ * fetched from its live Workday board on 20 September 2026. It put a Japanese
+ * commercial bank on a page about employers who struggle to hire, and it will
+ * do the same to every large American employer, because every one of them has
+ * to carry a sentence like it.
+ */
+const FAIR_CHANCE = `We will consider for employment all qualified applicants in a manner
+consistent with the requirements of applicable state and local laws (including (i) the
+San Francisco Fair Chance Ordinance, (ii) the City of Los Angeles' Fair Chance Initiative
+for Hiring Ordinance, (iii) the Los Angeles County Fair Chance Ordinance, and (iv) the
+California Fair Chance Act). The successful candidate will maintain our Atlassian tooling.`;
+
+test('a fair-chance disclaimer does not make a bank a city council', () => {
+  assert.equal(classifySector({ title: 'Platform Engineer', descriptionText: FAIR_CHANCE }).sector, null);
+});
+
+test('a bank listing public bodies among its clients is not one', () => {
+  // MUFG again, "Trade Finance for Financial Institutions". The phrase is its
+  // customer list, and a customer list is the opposite of the answer.
+  const text = `You will build relationships with key clients such as sponsors, insurers,
+    asset managers, broker dealers, public sector FIs, leasing firms, factoring companies
+    and development finance institutions.`;
+  assert.equal(classifySector({ title: 'Trade Finance Lead', descriptionText: text }).sector, null);
+});
+
+test('letting staff join a charity fundraiser does not make the employer one', () => {
+  // Version 1, an IT consultancy, filed under charities by its benefits page.
+  const text = `Environment, Social and Community First initiatives allow you to get involved
+    in local fundraising and development opportunities as part of fostering our diversity,
+    inclusion and belonging schemes. You will be a Senior OutSystems Developer.`;
+  assert.equal(classifySector({ title: 'Senior OutSystems Developer', descriptionText: text }).sector, null);
+});
+
+test('a real public body is still recognised through the same disclaimer', () => {
+  // The stripping must take the boilerplate and nothing else. This advert says
+  // what it is in its own words, which is what the test has always been.
+  const text = `${COUNCIL} We consider applicants consistent with the Los Angeles County
+    Fair Chance Ordinance.`;
+  assert.equal(classifySector({ title: 'Systems Analyst', descriptionText: text }).sector, 'government');
+});
+
+test('a withdrawn sector verdict can overwrite a stored one', () => {
+  // Only writing a non-null verdict made every mistake permanent. MUFG was
+  // filed as "government" on 6 September and was still filed as "government"
+  // on 20 September despite being re-crawled every few hours, because a
+  // corrected `null` had nothing to write with. The guard has to be the
+  // description — no advert, no opinion, and no wiping a good answer either.
+  const live = readFileSync(new URL('../src/corpus/live.ts', import.meta.url), 'utf8');
+  assert.match(live, /\.\.\.\(job\.descriptionText \? \{ sector \} : \{\}\)/);
+  assert.doesNotMatch(live, /\.\.\.\(sector \? \{ sector \} : \{\}\)/);
+});
+
 test('a name alone never establishes a sector', () => {
   // This is the whole reason the column exists. Matching slugs returned
   // alpacahealth, bayesianhealth and ambiencehealthcare — startups, not

@@ -264,3 +264,88 @@ for (const title of [
     assert.equal(family(title), 'cloud');
   });
 }
+
+// ---------------------------------------------------------------------------
+// The filters added on 20 September 2026
+// ---------------------------------------------------------------------------
+
+/**
+ * Source-level, deliberately. These are statements about how the two routes
+ * build their queries, and checking them for real would mean standing up a
+ * Postgres with a representative corpus in it — which would test the fixture
+ * rather than the rule.
+ */
+const quietRoute = readFileSync(new URL('../app/api/quiet/route.ts', import.meta.url), 'utf8');
+const instRoute = readFileSync(new URL('../app/api/institutions/route.ts', import.meta.url), 'utf8');
+
+test('a country facet is not narrowed by the country already chosen', () => {
+  // Counting each country WITH the chosen country applied would report the
+  // size of a country intersected with itself and every other country as zero,
+  // so the dropdown would empty itself the moment it was used.
+  for (const [name, src] of [['quiet', quietRoute], ['institutions', instRoute]] as const) {
+    assert.match(src, /withPlace = true/, `${name} has no facet escape hatch`);
+    assert.match(
+      src,
+      /COUNTRY_FACETS\.map\([\s\S]{0,200}?base\(\{ withPlace: false \}\)/,
+      `${name} counts its countries through the country filter`,
+    );
+  }
+});
+
+test('the navigation tabs ignore the filters set beneath them', () => {
+  // A family tab that reads 0 because of a country picked on another tab is
+  // how someone concludes the page is broken rather than filtered.
+  assert.match(quietRoute, /FAMILIES\.map\([\s\S]{0,160}?base\(\{ withPlace: false \}\)/);
+  assert.match(instRoute, /SECTOR_ORDER\.map\([\s\S]{0,160}?base\(\{ withPlace: false \}\)/);
+});
+
+test('roles we could not place are selectable, and never folded into a country', () => {
+  // A fifth of the corpus has no country. Adding those to whichever country was
+  // picked makes the count beside the option wrong and the label a lie — the
+  // mistake the main feed made, where "United States" returned 3,204 postings
+  // whose country could not be read. Dropping them silently would instead hide
+  // a fifth of the page, so they are their own option and their own count.
+  for (const src of [quietRoute, instRoute]) {
+    assert.match(src, /const UNPLACED = '__unknown__'/);
+    assert.match(src, /country === UNPLACED \? q\.is\('country', null\)/);
+    assert.match(src, /countryUnknown/, 'the unplaced option has no count to show');
+    assert.doesNotMatch(src, /includeUnknown/, 'the folded-in behaviour is back');
+  }
+});
+
+test('search text cannot break out of the filter grammar', () => {
+  // PostgREST's or() takes a comma-separated list in parentheses, so an
+  // unescaped comma or bracket in the search box would not be a failed search,
+  // it would be a different query.
+  for (const src of [quietRoute, instRoute]) {
+    assert.match(src, /replace\(\/\[\(\),\*\]\/g, ' '\)/);
+  }
+});
+
+test('employment type is not offered as a filter', () => {
+  // Measured on the live corpus: the stored values are raw vendor text —
+  // "Full-Time", "Full Time", "Full time", "permanent / full-time", "Homeoffice"
+  // and one literal "__". Filtering on that shows a fraction of what matches
+  // and looks broken. It stays out until the values are normalised.
+  for (const src of [quietRoute, instRoute]) {
+    assert.doesNotMatch(src, /eq\('employment_type'/);
+  }
+});
+
+test('specialization is offered on institutions and not on quiet roles', () => {
+  // 68% of institution roles carry one against 17% of quiet ones. The same
+  // control is honest on one page and misleading on the other.
+  assert.match(instRoute, /eq\('specialization', specialization\)/);
+  assert.doesNotMatch(quietRoute, /eq\('specialization'/);
+});
+
+test('quietest-first is ranked over a stated pool, not over the page', () => {
+  // quietScore reads the title with a regex and cannot be an ORDER BY — the
+  // same reason `quiet` is a stored column. So it ranks the newest POOL rows
+  // and the page says so rather than implying the rank covers everything.
+  assert.match(quietRoute, /const POOL = \d+/);
+  assert.match(quietRoute, /rankedCapped: \(count \?\? 0\) > POOL/);
+  assert.match(quietRoute, /reachable = ranked \? Math\.min/);
+  const page = readFileSync(new URL('../app/quiet/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /rankedCapped/, 'the page never tells anyone the rank is capped');
+});
