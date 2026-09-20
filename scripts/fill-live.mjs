@@ -41,6 +41,37 @@ const PROFILE = {
   currentCompany: 'Analytical Engines',
   currentTitle: 'Senior Data Engineer',
   resume: { name: 'ada-lovelace-cv.pdf' },
+  answers: {
+    workAuthorised: 'Yes',
+    needsSponsorship: 'No',
+    visaDetails: 'Canadian citizen; no sponsorship required now or in future.',
+    nationality: 'Canadian',
+    over18: 'Yes',
+    noticePeriod: '4 weeks',
+    earliestStart: '1 November 2026',
+    willingToRelocate: 'No',
+    workPreference: 'Remote',
+    commutable: 'Yes',
+    salaryExpectation: '140,000 CAD',
+    yearsExperience: '8',
+    education: 'BSc Computer Science, University of Toronto, 2018',
+    languages: 'English (native), French (basic)',
+    howDidYouHear: 'Unsaturated job feed',
+    referredBy: '',
+    currentSalary: '120,000 CAD',
+    workedHereBefore: 'No',
+    gender: 'Prefer not to say',
+    ethnicity: 'Prefer not to say',
+    veteranStatus: 'I am not a protected veteran',
+    disabilityStatus: 'I do not want to answer',
+    yearOfBirth: '1990',
+  },
+  customAnswers: [
+    { match: 'fixed term contract', answer: 'Yes, that is acceptable' },
+    { match: 'job board', answer: 'Unsaturated' },
+    { match: 'bonus', answer: 'None' },
+  ],
+  tickConsents: false,
 };
 
 /** A real, minimal PDF, so the vendor's own file validation is exercised. */
@@ -56,11 +87,17 @@ const DUMMY_PDF = Buffer.from(
 /** The extension's modules, turned into one script a page can run as-is. */
 function bundle() {
   const read = (f) => readFileSync(path.join(HERE, '..', 'extension', 'src', f), 'utf8');
-  const strip = (src) => src.replace(/^export\s+/gm, '');
+  // The modules import each other; concatenating them means removing both the
+  // `export` keyword and the `import` lines, or the page sees a syntax error and
+  // `window.__unsat` never exists. answers.js goes first, since matcher.js uses it.
+  const flatten = (src) => src
+    .replace(/^import[^;]+;\s*$/gm, '')
+    .replace(/^export\s+/gm, '');
   return `window.__unsat = (() => {
-    ${strip(read('matcher.js'))}
-    ${strip(read('fill.js'))}
-    return { describeField, planFill, applyPlan, matchField, isHoneypot };
+    ${flatten(read('answers.js'))}
+    ${flatten(read('matcher.js'))}
+    ${flatten(read('fill.js'))}
+    return { describeField, planFill, applyPlan, matchField, isHoneypot, matchAnswer };
   })();`;
 }
 

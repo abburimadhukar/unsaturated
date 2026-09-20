@@ -22,3 +22,10 @@ tmp-fill/
 
 # Chrome for Testing, downloaded for the extension end-to-end check
 chrome/
+
+# TypeScript's own scratch list of what it has already checked. Rebuilt by
+# every type-check, so committing it put a change in every diff.
+tsconfig.tsbuildinfo
+
+# Dated JSON written by the evidence scripts. Regenerable, and 320KB of it.
+docs/evidence/

@@ -17,26 +17,27 @@ Start here.
 ## The two-minute version
 
 Unsaturated reads jobs directly from employers' own hiring systems — Workday,
-Greenhouse, Ashby and nine others — rather than from any job board. It crawls
-25,161 company career boards hourly, classifies each role, and surfaces the ones
-nobody else is showing.
+Greenhouse, Ashby, Oracle Cloud and twelve others — rather than from any job
+board. It crawls 29,619 company career boards, classifies each role, and
+surfaces the ones nobody else is showing.
 
-As of 7 September 2026: **60,750 open postings**, 32,643 of them classified into
-a family and browsable. The site is live, the test suite is green, and the
-pipeline runs on free infrastructure.
+As of 17 September 2026: **84,637 open postings**, 45,455 of them classified
+into a family and browsable. The site is live, the test suite is green (1,331
+tests, 0 failing), and the pipeline runs on free infrastructure.
 
 The single most valuable next piece of work is
-[outstanding.md §1](outstanding.md) — 46 live companies are sitting retired,
-holding about 7,877 jobs, because Workday refuses with an HTML page instead of
-an HTTP status code and nothing recognises that as a refusal.
+[outstanding.md §1](outstanding.md) — 712 stale copies of postings are open,
+214 of them jobs the employer has already withdrawn, because a retired board's
+postings are never closed. [handoff.md Phase 2](handoff.md) is the prompt for it.
 
 ---
 
 ## About the evidence
 
-`docs/evidence/*.json` is a point-in-time measurement of the live system taken
-7 September 2026. **Every number quoted in the four documents above comes from
-those files**, so nothing has to be taken on trust.
+`docs/evidence/*.json` are point-in-time measurements of the live system, taken
+7 and 17 September 2026. **Numbers in the four documents above come from those
+files**, or are marked *(SQL, 17 Sep)* where they were measured directly, so
+nothing has to be taken on trust.
 
 Regenerate them with:
 
@@ -71,8 +72,7 @@ Several of the decisions in `parked.md` only make sense in light of these.
    counts. This is why crawling low-yield boards less often was proposed and
    rejected.
 3. **A refusal is not a death.** Written into the crawler after treating them
-   alike cost 2,185 live boards. It is currently costing another 46 — see
-   [outstanding.md §1](outstanding.md).
+   alike cost 2,185 live boards, and later 46 more before it was fixed.
 4. **Read the postings before changing a rule.** Every classifier fix in this
    project came from reading real adverts. The Institutions page is ~30% right
    precisely because its rules were validated against Cornell and startups and

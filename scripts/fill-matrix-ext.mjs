@@ -42,6 +42,56 @@ const PROFILE = {
   linkedin: 'https://www.linkedin.com/in/example', github: 'https://github.com/example',
   website: 'https://example.com', currentCompany: 'Analytical Engines',
   currentTitle: 'Senior Data Engineer',
+  answers: {
+    workAuthorised: 'Yes',
+    needsSponsorship: 'No',
+    visaDetails: 'Canadian citizen; no sponsorship required now or in future.',
+    nationality: 'Canadian',
+    over18: 'Yes',
+    noticePeriod: '4 weeks',
+    earliestStart: '1 November 2026',
+    willingToRelocate: 'No',
+    workPreference: 'Remote',
+    commutable: 'Yes',
+    salaryExpectation: '140,000 CAD',
+    yearsExperience: '8',
+    education: 'BSc Computer Science, University of Toronto, 2018',
+    languages: 'English (native), French (basic)',
+    englishLevel: 'C1',
+    howDidYouHear: 'Unsaturated job feed',
+    referredBy: '',
+    currentSalary: '120,000 CAD',
+    workedHereBefore: 'No',
+    wasReferred: 'No',
+    appliedBefore: 'No',
+    currentlyEmployed: 'Yes',
+    relativeAtCompany: 'No',
+    nonCompete: 'No',
+    backgroundCheck: 'Yes',
+    driversLicense: 'Yes',
+    willingToTravel: 'Yes',
+    securityClearance: 'None',
+    timezone: 'EST (UTC-5)',
+    gender: 'Prefer not to say',
+    ethnicity: 'Prefer not to say',
+    veteranStatus: 'I am not a protected veteran',
+    disabilityStatus: 'I do not want to answer',
+    yearOfBirth: '1990',
+  },
+  customAnswers: [
+    { match: 'fixed term contract', answer: 'Yes, that is acceptable' },
+    { match: 'job board', answer: 'Unsaturated' },
+    { match: 'bonus', answer: 'None' },
+  ],
+  tickConsents: false,
+  experience: [
+    { company: 'Analytical Engines', title: 'Senior Data Engineer', location: 'Toronto, ON', start: '2021-03', end: '', current: true },
+    { company: 'Difference Works', title: 'Data Engineer', location: 'Toronto, ON', start: '2018-06', end: '2021-02', current: false },
+  ],
+  education: [
+    { school: 'University of Toronto', degree: 'Bachelor of Science', discipline: 'Computer Science', start: '2014-09', end: '2018-05', gpa: '3.7' },
+  ],
+  skills: ['Python', 'SQL', 'Airflow', 'Spark'],
   resume: {
     name: 'ada-lovelace-cv.pdf',
     dataUrl: 'data:application/pdf;base64,' + Buffer.from(
@@ -57,8 +107,13 @@ const browser = await puppeteer.launch({
   headless: process.env.HEADFUL ? false : 'new',
   args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-sandbox'],
 });
-const swTarget = await browser.waitForTarget((t) => t.type() === 'service_worker', { timeout: 20_000 });
+const swTarget = await browser.waitForTarget((t) => t.type() === 'service_worker' && t.url().startsWith('chrome-extension://'), { timeout: 20_000 });
 const sw = await swTarget.worker();
+// The worker is attached before its script has run; until then `chrome` does
+// not exist in it, and the first evaluate fails at random.
+for (let i = 0; i < 50 && (await sw.evaluate(() => typeof chrome).catch(() => 'undefined')) !== 'object'; i++) {
+  await new Promise((r) => setTimeout(r, 200));
+}
 await sw.evaluate((p) => chrome.storage.local.set({ profile: p }), PROFILE);
 mkdirSync(OUT, { recursive: true });
 
@@ -92,18 +147,34 @@ for (const url of URLS) {
       }
     }, tabId);
 
-    await new Promise((r) => setTimeout(r, 6000));
-    const panel = await page.evaluate(() => {
+    // Wait for the panel to finish, not a fixed time: Greenhouse's dropdowns
+    // take ~12 s to work through, and a 6 s wait recorded "Reading the form…".
+    const readPanel = () => page.evaluate(() => {
       const el = document.getElementById('unsaturated-panel');
       return el ? el.shadowRoot.querySelector('.body').innerText : null;
     });
+    let panel = null;
+    for (let waited = 0; waited < 60_000; waited += 1000) {
+      await new Promise((r) => setTimeout(r, 1000));
+      panel = await readPanel();
+      if (panel && !/^Reading the form/.test(panel)) break;
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+    panel = await readPanel();
     await page.screenshot({ path: path.join(OUT, `${host}.png`) });
 
     const headline = panel ? panel.split('\n')[0] : (injected.error ?? 'no panel');
     console.log(`${host.padEnd(38)} permitted=${permitted ? 'yes' : 'NO '} ${headline}`);
-    if (panel && /left for you/.test(panel)) {
-      const needs = panel.split('NEEDS YOU')[1];
-      if (needs) console.log(`    left for the person: ${needs.trim().split('\n').slice(0, 4).join(' | ').slice(0, 160)}`);
+    if (panel) {
+      // Everything the person would still have to do, verbatim from the panel.
+      const lines = panel.split('\n');
+      let section = '';
+      for (const line of lines) {
+        if (/^(COULD NOT FILL|NEEDS YOU)$/.test(line.trim())) { section = line.trim(); continue; }
+        if (process.env.SHOW_ALL && /^YOUR /.test(line.trim())) { section = 'YOUR'; continue; }
+        if (/^(Remember what I typed|I submitted it|YOUR )/.test(line.trim())) { section = ''; continue; }
+        if (section && line.trim()) console.log(`    ${section === 'NEEDS YOU' ? 'left ' : section === 'YOUR' ? 'done ' : 'FAIL '} ${line.trim().slice(0, 150)}`);
+      }
     }
   } catch (err) {
     console.log(`${host.padEnd(38)} ERROR ${String(err?.message ?? err).slice(0, 90)}`);
