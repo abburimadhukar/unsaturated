@@ -277,17 +277,49 @@ async function cdx(url: string, userAgent: string, attempts = 3): Promise<string
   throw new Error(`CDX ${lastStatus || 'unreachable'} after ${attempts} attempts`);
 }
 
-/** The most recent crawl collection, e.g. "CC-MAIN-2026-34". */
-export async function latestCrawl(userAgent: string): Promise<string> {
-  const res = await fetch(`${INDEX_HOST}/collinfo.json`, {
-    headers: { 'user-agent': userAgent },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) throw new Error(`collinfo: HTTP ${res.status}`);
-  const all = (await res.json()) as { id: string }[];
-  const id = all[0]?.id;
-  if (!id) throw new Error('no crawl collections listed');
-  return id;
+/**
+ * The most recent crawl collection, e.g. "CC-MAIN-2026-34".
+ *
+ * WAITS THE SAME WAY cdx() DOES, and for the same reason. This is the first
+ * thing a harvest asks and the smallest — one small JSON file naming the
+ * collections — so it was written as a single bare fetch. That made it the
+ * one unprotected step in a run that is otherwise patient throughout, and it
+ * has now killed two scheduled runs before either did any work: a connect
+ * timeout on 7 Sep 2026 and a socket closed with nothing sent on 20 Sep, both
+ * the SmartRecruiters slice, both while the other twelve providers finished
+ * normally. Re-dispatched by hand seventeen minutes later, the same run was
+ * clean — so the failure was Common Crawl catching its breath, and a job that
+ * dies rather than pausing for two seconds turns that into a provider silently
+ * skipped for the week.
+ */
+export async function latestCrawl(userAgent: string, attempts = 3, pauseMs = 2_000): Promise<string> {
+  let last = '';
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await sleep(pauseMs * 2 ** (attempt - 1));
+    let res: Response;
+    try {
+      res = await fetch(`${INDEX_HOST}/collinfo.json`, {
+        headers: { 'user-agent': userAgent },
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (err) {
+      // Dropped, timed out, DNS — nothing was said, so ask again.
+      last = err instanceof Error ? err.message : 'unreachable';
+      continue;
+    }
+    if (res.ok) {
+      const all = (await res.json()) as { id: string }[];
+      const id = all[0]?.id;
+      if (id) return id;
+      // A 200 holding no collections is the index answering wrongly rather
+      // than refusing, and asking twice more will not improve it.
+      throw new Error('no crawl collections listed');
+    }
+    last = `HTTP ${res.status}`;
+    // 4xx other than 429 is a statement about the request, not the moment.
+    if (res.status < 500 && res.status !== 429) throw new Error(`collinfo: ${last}`);
+  }
+  throw new Error(`collinfo: ${last} after ${attempts} attempts`);
 }
 
 export function titleise(token: string): string {

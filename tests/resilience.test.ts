@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { getJson, retryAfterMs } from '../src/ats/http.js';
 import { AtsFetchError, failureKindFor, type FetchContext } from '../src/ats/types.js';
 import { KNOWN_BUDGETS, ProviderLimiter } from '../src/corpus/rate-limit.js';
-import { harvestCommonCrawl } from '../src/discovery/commoncrawl.js';
+import { harvestCommonCrawl, latestCrawl } from '../src/discovery/commoncrawl.js';
 
 /**
  * Never lose a live board to a bug again.
@@ -213,6 +213,105 @@ test('a refused index page is retried before it is given up on', () => {
   assert.match(src, /attempts = 3/);
   // A 404 means the index holds nothing, which retrying cannot change.
   assert.match(src, /if \(res\.status === 404\) return '';/);
+});
+
+// ---------------------------------------------------------------------------
+// The first question a harvest asks
+// ---------------------------------------------------------------------------
+
+/**
+ * latestCrawl() reads collinfo.json off the live index, so these tests hand it
+ * a stubbed global fetch and put it back afterwards. pauseMs is passed down so
+ * the backoff is proved without the suite actually waiting six seconds.
+ */
+async function withFetch<T>(impl: typeof fetch, run: () => Promise<T>): Promise<T> {
+  const real = globalThis.fetch;
+  globalThis.fetch = impl;
+  try {
+    return await run();
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+const collinfo = () =>
+  new Response(JSON.stringify([{ id: 'CC-MAIN-2026-39' }, { id: 'CC-MAIN-2026-34' }]), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+
+test('a dropped connection does not kill the harvest before it starts', async () => {
+  // THE regression, twice over: a connect timeout on 7 Sep 2026 and a socket
+  // closed with nothing sent on 20 Sep. Both killed the SmartRecruiters slice
+  // in under 30 seconds while the other twelve providers ran to completion,
+  // and both were gone when the same run was dispatched again by hand.
+  let calls = 0;
+  const crawl = await withFetch(
+    async () => {
+      calls++;
+      if (calls < 3) throw new TypeError('fetch failed');
+      return collinfo();
+    },
+    () => latestCrawl('test', 3, 1),
+  );
+  assert.equal(crawl, 'CC-MAIN-2026-39');
+  assert.equal(calls, 3, 'a dropped socket must be asked again, not given up on');
+});
+
+test('a shed request is waited out, an answered one is not', async () => {
+  let calls = 0;
+  const crawl = await withFetch(
+    async () => {
+      calls++;
+      return calls === 1 ? new Response('busy', { status: 503 }) : collinfo();
+    },
+    () => latestCrawl('test', 3, 1),
+  );
+  assert.equal(crawl, 'CC-MAIN-2026-39');
+  assert.equal(calls, 2);
+
+  // And a first-time answer costs exactly one request. Retrying a server that
+  // replied is the mistake that took Workable from 42% failing to 90%.
+  let once = 0;
+  await withFetch(
+    async () => {
+      once++;
+      return collinfo();
+    },
+    () => latestCrawl('test', 3, 1),
+  );
+  assert.equal(once, 1);
+});
+
+test('a refusal about the request itself is not retried', async () => {
+  let calls = 0;
+  await assert.rejects(
+    () =>
+      withFetch(
+        async () => {
+          calls++;
+          return new Response('no', { status: 403 });
+        },
+        () => latestCrawl('test', 3, 1),
+      ),
+    /collinfo: HTTP 403/,
+  );
+  // 403 is a statement about us, not about the moment; asking twice more only
+  // deepens whatever made the index say no.
+  assert.equal(calls, 1);
+});
+
+test('giving up says what went wrong, not just that it failed', async () => {
+  await assert.rejects(
+    () =>
+      withFetch(
+        async () => {
+          throw new TypeError('fetch failed');
+        },
+        () => latestCrawl('test', 3, 1),
+      ),
+    /fetch failed after 3 attempts/,
+  );
 });
 
 test('discovery no longer sends eleven clients at the index at once', () => {
