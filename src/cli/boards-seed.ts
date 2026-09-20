@@ -113,10 +113,20 @@ async function main(): Promise<void> {
     console.log(`\n  Projected across all ${fresh.length} new boards: ~${Math.round(fresh.length * rate).toLocaleString()} live`);
   }
 
+  // THE NAME THE VENDOR GAVE, where the check recovered one. Discovery names a
+  // board by title-casing its token, which is right for greenhouse/stripe and
+  // wrong for every provider whose tokens are codes: iCIMS stored 2,589 boards
+  // as "Fhcrc" and "Nacg" on 20 Sep 2026 while the pages themselves said Fred
+  // Hutchinson Cancer Center and North American Construction Group. Oracle had
+  // the same problem and needed a repair script; this is that repair, made
+  // unnecessary.
+  const named = (r: { board: { company: string }; company?: string }) =>
+    r.company?.trim() || r.board.company;
+
   const additions = live.map((r) => ({
     provider: r.board.provider,
     token: r.board.token,
-    company: r.board.company,
+    company: named(r),
     ...(r.board.extra ? { extra: r.board.extra } : {}),
   }));
 
@@ -135,7 +145,7 @@ async function main(): Promise<void> {
     live.map((r) => ({
       provider: r.board.provider,
       token: r.board.token,
-      company: r.board.company,
+      company: named(r),
       extra: r.board.extra ?? {},
       source: 'opendata',
       jobCount: r.jobs,

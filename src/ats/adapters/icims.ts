@@ -132,11 +132,19 @@ export function pageCount(html: string): number {
  */
 export function icimsCompanyFrom(body: unknown): string | undefined {
   if (typeof body !== 'string') return undefined;
-  const title = /<title[^>]*>([^<]{2,160})<\/title>/i.exec(body)?.[1];
+  const title = /<title[^>]*>([^<]{2,200})<\/title>/i.exec(body)?.[1];
   if (!title) return undefined;
-  const named = /^\s*job listings at\s+(.{2,120}?)\s*$/i.exec(decodeEntities(title));
-  const name = (named?.[1] ?? '').trim();
-  return name && !/^job listings$/i.test(name) ? name : undefined;
+  // The phrase is not always at the start. Boards prefix it with their own
+  // name or a menu crumb — "Fred Hutchinson Cancer Center Job Listings at Fred
+  // Hutchinson Cancer Center", "Careers – Job Listings at North American
+  // Construction Group" — so the name is whatever FOLLOWS the last occurrence.
+  // Anchoring at the start named almost nobody, which is how 2,589 boards were
+  // stored as "Fhcrc" and "Nacg" on 20 Sep 2026.
+  const clean = decodeEntities(title).replace(/\s+/g, ' ').trim();
+  const at = clean.toLowerCase().lastIndexOf('job listings at ');
+  if (at === -1) return undefined;
+  const name = clean.slice(at + 'job listings at '.length).trim();
+  return name.length >= 2 && name.length <= 120 ? name : undefined;
 }
 
 /** Boards this large are read to a limit; the crawl keeps 300 a board anyway. */

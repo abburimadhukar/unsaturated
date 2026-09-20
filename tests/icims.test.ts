@@ -55,9 +55,25 @@ test('the length of the listing is read from the paginator', () => {
 test('the employer is named from the page, not from the token', () => {
   assert.equal(icimsCompanyFrom('<title>Job Listings at Catholic Health</title>'), 'Catholic Health');
   assert.equal(icimsCompanyFrom('<title>Job Listings at 360care LLC</title>'), '360care LLC');
+  // The phrase is not always at the start: these two real titles named nobody
+  // while the rule was anchored, and 2,589 boards were stored as their token.
+  assert.equal(
+    icimsCompanyFrom('<title>Fred Hutchinson Cancer Center Job Listings at Fred Hutchinson Cancer Center</title>'),
+    'Fred Hutchinson Cancer Center',
+  );
+  assert.equal(
+    icimsCompanyFrom('<title>Careers &#8211; Job Listings at North American Construction Group</title>'),
+    'North American Construction Group',
+  );
   // Nothing to go on is better than a wrong name.
   assert.equal(icimsCompanyFrom('<title>Search Jobs</title>'), undefined);
   assert.equal(icimsCompanyFrom(null), undefined);
+});
+
+test('a seeded board keeps the name the check recovered, not its token', async () => {
+  const { readFileSync } = await import('node:fs');
+  const seed = readFileSync(new URL('../src/cli/boards-seed.ts', import.meta.url), 'utf8');
+  assert.match(seed, /company: named\(r\)/, 'the seeder is back to storing the title-cased token');
 });
 
 test('an iCIMS url resolves to a board the crawler can read', () => {
