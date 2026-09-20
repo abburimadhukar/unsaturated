@@ -29,6 +29,14 @@ on:
         description: 'Milliseconds between requests. Below ~700 Greenhouse starts refusing.'
         type: string
         default: '1000'
+      # Without this, seeding one new provider re-verified the other four for
+      # five hours to no purpose. The matrix below reads 'all' as every
+      # provider, exactly as discover.yml does.
+      provider:
+        description: 'Only this provider (all = every provider)'
+        type: choice
+        default: all
+        options: [all, greenhouse, workday, ashby, lever, icims]
 
 concurrency:
   group: seed
@@ -47,7 +55,7 @@ jobs:
         # 10,108 tokens; 80 sampled live that day were 23% alive at ~108
         # postings a board, so roughly 2,300 boards nobody was watching. The
         # dead 77% cost one request each here and are never stored.
-        provider: [greenhouse, workday, ashby, lever, icims]
+        provider: ${{ fromJSON((inputs.provider && inputs.provider != 'all') && format('["{0}"]', inputs.provider) || '["greenhouse","workday","ashby","lever","icims"]') }}
 
     env:
       HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
