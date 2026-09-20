@@ -276,13 +276,29 @@ To apply `src/db/migrations/2026-09-04-specialization.sql`:
 
 ## What it costs
 
-**Nothing, permanently.** Not a trial.
+The core job board runs on free tiers. The optional after-applying public-source
+scan uses Brave Search API and can incur charges; without a key, the page still
+offers direct public-search links and a review-before-sending outreach draft.
 
 | | |
 |---|---|
 | GitHub Actions | free and unlimited on a public repo |
 | Supabase | free tier — 500 MB, using a fraction of it |
 | Netlify | free tier |
+
+### After-applying workspace
+
+Each job card links to `/after-apply?job=<job-key>`. The page asks the user to
+confirm that they really submitted the application (opening a posting alone
+can set the older feed marker), offers public searches for possible team leads,
+recruiters and company context, and drafts a message only from facts the user
+enters. It does not identify a hiring manager with certainty, discover private
+emails, send messages, or store contact details/drafts.
+
+To enable the optional server-side source scan, set `BRAVE_SEARCH_API_KEY` in
+the server environment. Signed-in users can then run a three-query scan; the
+key is never sent to the browser. With no key, direct Brave search links remain
+available. The scan returns leads for the user to verify, not verified people.
 
 ---
 

@@ -1056,6 +1056,9 @@ export default function Page() {
                             Tailor my resume
                           </a>
                         )}
+                        <a href={`/after-apply?job=${encodeURIComponent(j.key)}`}>
+                          After applying
+                        </a>
                         <span className="src">{j.provider}</span>
                       </div>
                     </div>
