@@ -204,7 +204,7 @@ test('FIELD CODES AND TRACKED DELETIONS DO NOT REACH THE RESUME', () => {
   // .docx is text the document displays. A field's INSTRUCTIONS were being pasted
   // into the middle of the CV, and text the person had DELETED under tracked
   // changes was being put back into the document an employer receives.
-  const src = readFileSync(new URL('../src/ui/resume-file.ts', import.meta.url), 'utf8');
+  const src = readFileSync(new URL('../src/ui/resume-read-core.ts', import.meta.url), 'utf8');
   const fn = src.slice(src.indexOf('function xmlToText'), src.indexOf('// ---', src.indexOf('function xmlToText')));
 
   for (const tag of ['instrText', 'delText']) {

@@ -17,7 +17,10 @@ import { join } from 'node:path';
  */
 
 const ROOT = new URL('../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
-const SKIP = new Set(['node_modules', '.next', '.open-next', '.git', 'dist']);
+// `vendor` holds third-party files copied in whole (pdf.js in the extension):
+// minified code that is not ours to edit, and pdf.js's worker contains an ESC
+// byte on purpose. Our own files are all still checked.
+const SKIP = new Set(['node_modules', '.next', '.open-next', '.git', 'dist', 'vendor']);
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
