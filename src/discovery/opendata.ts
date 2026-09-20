@@ -34,15 +34,21 @@ const SUPPORTED: { file: string; provider: AtsProvider }[] = [
   { file: 'lever_companies.json', provider: 'lever' },
   { file: 'ashby_companies.json', provider: 'ashby' },
   { file: 'workday_companies.json', provider: 'workday' },
+  // iCIMS, added 20 Sep 2026 with the adapter that reads its server-rendered
+  // listing. 10,108 tokens; 80 sampled live that day gave 23% still answering
+  // at ~108 postings a board, so roughly 2,300 boards nobody was watching.
+  // The dead 77% cost one HEAD-sized request each in boards-verify and are
+  // never stored.
+  { file: 'icims_companies.json', provider: 'icims' },
 ];
 
 /**
  * Files for ATSs we cannot read yet. Listed so the gap is visible in code rather
- * than forgotten: iCIMS and Cornerstone need headless rendering, BambooHR and
- * Paylocity need a scraper, and none has an adapter.
+ * than forgotten: BambooHR and Paylocity need a scraper and neither has an
+ * adapter. iCIMS was on this list until 20 Sep 2026, on the belief that it
+ * needed headless rendering; it does not — see adapters/icims.ts.
  */
 export const UNSUPPORTED_FILES = [
-  'icims_companies.json',
   'bamboohr_companies.json',
   'paylocity_companies_clean.json',
 ];

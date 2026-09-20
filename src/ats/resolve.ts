@@ -97,6 +97,22 @@ const SUPPORTED_RULES: SupportedRule[] = [
     },
   },
   {
+    /**
+     * iCIMS, e.g. careers-chsli.icims.com/jobs/74805/kitchen-aide/job
+     *
+     * The token is the subdomain with its "careers-" prefix removed. A few
+     * boards are served as jobs-{token} or {token} alone, so the prefix is
+     * optional — the adapter addresses every one of them as careers-{token},
+     * which is the form all of them answer on (measured 20 Sep 2026).
+     */
+    provider: 'icims',
+    test: (url) => {
+      const label = subdomain(url, '.icims.com');
+      if (!label || label === 'www' || label === 'careers') return undefined;
+      return label.replace(/^(careers|jobs)-/, '') || undefined;
+    },
+  },
+  {
     provider: 'smartrecruiters',
     test: (url) => {
       if (/(^|\.)(jobs|careers)\.smartrecruiters\.com$/.test(url.hostname)) return segment(url, 0);
@@ -163,7 +179,6 @@ const KNOWN_UNSUPPORTED: { match: RegExp; platform: string; tier: IngestTier }[]
   { match: /(^|\.)ats\.rippling\.com$/, platform: 'rippling', tier: 'json_api_unbuilt' },
   { match: /\.bamboohr\.com$/, platform: 'bamboohr', tier: 'json_api_unbuilt' },
   { match: /(^|\.)comeet\.co$/, platform: 'comeet', tier: 'json_api_unbuilt' },
-  { match: /\.icims\.com$/, platform: 'icims', tier: 'browser' },
   { match: /\.taleo\.net$/, platform: 'taleo', tier: 'browser' },
   { match: /successfactors\.(com|eu)$/, platform: 'successfactors', tier: 'browser' },
   { match: /(^|\.)recruiting\.paylocity\.com$/, platform: 'paylocity', tier: 'browser' },

@@ -21,6 +21,7 @@ export type AtsProvider =
   | 'rippling'
   | 'oracle'
   | 'eightfold'
+  | 'icims'
   | 'usajobs'
   | 'socrata';
 

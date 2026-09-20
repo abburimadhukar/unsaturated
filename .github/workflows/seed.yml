@@ -43,7 +43,11 @@ jobs:
       # other three and waste hours of completed verification.
       fail-fast: false
       matrix:
-        provider: [greenhouse, workday, ashby, lever]
+        # icims added 20 Sep 2026 with its adapter. The open dataset holds
+        # 10,108 tokens; 80 sampled live that day were 23% alive at ~108
+        # postings a board, so roughly 2,300 boards nobody was watching. The
+        # dead 77% cost one request each here and are never stored.
+        provider: [greenhouse, workday, ashby, lever, icims]
 
     env:
       HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}

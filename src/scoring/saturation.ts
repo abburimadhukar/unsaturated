@@ -82,6 +82,10 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   // Eightfold sells to large enterprises whose postings are read mostly by
   // people already looking at that one employer.
   eightfold: 0.75,
+  // iCIMS is the mid-market and public-sector estate — hospitals, counties,
+  // dealerships, care groups. Nothing syndicates these boards, and the
+  // tech-job crowd never browses them.
+  icims: 0.85,
   // Government postings are rarely syndicated and almost never browsed by the
   // tech job-seeking crowd, so competition per opening is unusually low.
   usajobs: 0.85,
@@ -119,6 +123,9 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   // An account and a profile before applying, though Eightfold pre-fills it
   // from an uploaded resume, which Workday and Oracle do not.
   eightfold: 0.7,
+  // An iCIMS application is a per-employer account and a long form, a little
+  // below UKG: iCIMS at least offers a resume parse that fills part of it.
+  icims: 0.7,
   // Federal and municipal applications are long, form-heavy and demand
   // supporting documents - exactly the friction most applicants abandon.
   usajobs: 0.95,

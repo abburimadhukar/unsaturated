@@ -1,0 +1,74 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+import { parseListing, pageCount, icimsCompanyFrom } from '../src/ats/adapters/icims.js';
+import { resolveApplyUrl } from '../src/ats/resolve.js';
+import { ADAPTERS } from '../src/ats/adapters/index.js';
+
+/**
+ * iCIMS is read from the page iCIMS serves to its own career-site iframe. The
+ * fixture is a real listing (Model 1 Commercial Vehicles, 20 September 2026)
+ * cut to three postings, so a change in that markup fails here rather than
+ * quietly emptying a thousand boards.
+ */
+const listing = readFileSync(new URL('./fixtures/icims-listing.html', import.meta.url), 'utf8');
+
+test('a posting is read out of the listing markup', () => {
+  const jobs = parseListing(listing, 'model1');
+  assert.equal(jobs.length, 3);
+  const first = jobs[0]!;
+  assert.ok(first.title.length > 3, 'the title is the heading, not the markup around it');
+  assert.match(first.applyUrl ?? '', /^https:\/\/careers-model1\.icims\.com\/jobs\/\d+\//);
+  assert.ok(first.externalId, 'every posting carries an id');
+  assert.ok((first.descriptionText ?? '').length > 20, 'the snippet comes across as text');
+  assert.ok(!/[<>]/.test(first.title), 'no markup survives into a title');
+});
+
+test('the id is the employer’s own requisition number where the board gives one', () => {
+  const jobs = parseListing(listing, 'model1');
+  // Whatever shape it takes, it must be stable — never the row's position.
+  for (const j of jobs) assert.match(String(j.externalId), /^[\w-]+$/);
+  assert.equal(new Set(jobs.map((j) => j.externalId)).size, jobs.length, 'ids are distinct');
+});
+
+test('both wordings of the location label are read', () => {
+  const oneWay = `<li class="iCIMS_JobCardItem"><span class="sr-only field-label">Location</span><span> US-NY-Smithtown</span>
+    <a href="https://careers-x.icims.com/jobs/1/a/job"><h3>Kitchen Aide</h3></a></li>`;
+  const other = `<li class="iCIMS_JobCardItem"><span class="sr-only field-label">Job Locations</span><span> US-OH-Toledo</span>
+    <a href="https://careers-x.icims.com/jobs/2/b/job"><h3>Mobile Dental Assistant</h3></a></li>`;
+  assert.equal(parseListing(oneWay, 'x')[0]?.locationRaw, 'US-NY-Smithtown');
+  assert.equal(parseListing(other, 'x')[0]?.locationRaw, 'US-OH-Toledo');
+});
+
+test('a page with no job table yields nothing rather than throwing', () => {
+  assert.deepEqual(parseListing('<html><body><p>Nothing here</p></body></html>', 'x'), []);
+});
+
+test('the length of the listing is read from the paginator', () => {
+  assert.equal(pageCount(listing), 3);
+  assert.equal(pageCount('<div>Page 3 of 22</div>'), 22);
+  // No paginator at all is one page, not zero.
+  assert.equal(pageCount('<html></html>'), 1);
+});
+
+test('the employer is named from the page, not from the token', () => {
+  assert.equal(icimsCompanyFrom('<title>Job Listings at Catholic Health</title>'), 'Catholic Health');
+  assert.equal(icimsCompanyFrom('<title>Job Listings at 360care LLC</title>'), '360care LLC');
+  // Nothing to go on is better than a wrong name.
+  assert.equal(icimsCompanyFrom('<title>Search Jobs</title>'), undefined);
+  assert.equal(icimsCompanyFrom(null), undefined);
+});
+
+test('an iCIMS url resolves to a board the crawler can read', () => {
+  const r = resolveApplyUrl('https://careers-chsli.icims.com/jobs/74805/kitchen-aide/job?in_iframe=1');
+  assert.equal(r.status, 'supported', 'iCIMS is read directly now, not "unsupported"');
+  if (r.status !== 'supported') return;
+  assert.equal(r.board.provider, 'icims');
+  assert.equal(r.board.token, 'chsli');
+});
+
+test('the provider is registered, so a stored board actually gets crawled', () => {
+  assert.ok(ADAPTERS.icims, 'no adapter registered for icims');
+  assert.equal(ADAPTERS.icims.provider, 'icims');
+});

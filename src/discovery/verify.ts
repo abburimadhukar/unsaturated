@@ -6,6 +6,7 @@ import {
 } from '../ats/adapters/oracle.js';
 import { WORKDAY_SHARDS, discoverWorkdaySite } from '../ats/adapters/workday.js';
 import { eightfoldCompanyFrom, eightfoldListUrl } from '../ats/adapters/eightfold.js';
+import { icimsCompanyFrom } from '../ats/adapters/icims.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { OpenBoard } from './opendata.js';
 
@@ -166,6 +167,11 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
         },
       };
     }
+    // The same server-rendered listing the adapter reads. A dead token's host
+    // is simply gone and answers 404, which is what makes an HTML provider
+    // verifiable at all: there is no "empty board" that looks like a live one.
+    case 'icims':
+      return { url: `https://careers-${b.token}.icims.com/jobs/search?ss=1&in_iframe=1` };
     default:
       return null;
   }
@@ -176,6 +182,11 @@ function countJobs(provider: AtsProvider, body: unknown): number {
   // position elements is enough to tell a live board from an empty one, which
   // is all this needs to decide.
   if (typeof body === 'string') {
+    // iCIMS answers in HTML, and one posting is one /jobs/{id}/ link. Distinct
+    // ids, because each card links to the same posting more than once.
+    if (provider === 'icims') {
+      return new Set([...body.matchAll(/\/jobs\/(\d+)\//g)].map((m) => m[1])).size;
+    }
     return (body.match(/<position[\s>]/gi) ?? []).length;
   }
   if (!body || typeof body !== 'object') return 0;
@@ -426,8 +437,11 @@ export async function verifyBoards(
         // Personio serves XML. Reading it as text and letting countJobs decide
         // keeps one code path for every provider; JSON parsing a feed that is
         // not JSON would otherwise report a perfectly live board as unclear.
+        // iCIMS serves HTML, like Personio's XML: read it as text and let
+        // countJobs decide, rather than JSON-parsing a page that is not JSON
+        // and reporting a live board as unclear.
         const body: unknown =
-          board.provider === 'personio'
+          board.provider === 'personio' || board.provider === 'icims'
             ? await res.text().catch(() => null)
             : await res.json().catch(() => null);
         const domain = board.provider === 'greenhouse' ? domainFrom(body) : undefined;
@@ -442,7 +456,9 @@ export async function verifyBoards(
             ? (await oracleTitle(board, opts.userAgent, timeoutMs)) ?? oracleCompanyFrom(body)
             : board.provider === 'eightfold'
               ? eightfoldCompanyFrom(body)
-              : undefined;
+              : board.provider === 'icims'
+                ? icimsCompanyFrom(body)
+                : undefined;
         result = {
           board,
           verdict: 'live',

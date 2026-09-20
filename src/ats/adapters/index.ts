@@ -13,6 +13,7 @@ import { teamtailorAdapter } from './teamtailor.js';
 import { ripplingAdapter } from './rippling.js';
 import { oracleAdapter } from './oracle.js';
 import { eightfoldAdapter } from './eightfold.js';
+import { icimsAdapter } from './icims.js';
 import { usajobsAdapter } from './usajobs.js';
 import { socrataAdapter } from './socrata.js';
 import type { AtsAdapter, AtsProvider } from '../types.js';
@@ -40,6 +41,7 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   rippling: ripplingAdapter,
   oracle: oracleAdapter,
   eightfold: eightfoldAdapter,
+  icims: icimsAdapter,
   usajobs: usajobsAdapter,
   socrata: socrataAdapter,
 };

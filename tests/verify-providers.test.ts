@@ -68,11 +68,14 @@ test('every Common Crawl pattern maps to a verifiable provider', () => {
     `harvested from the index but unverifiable, so silently discarded: ${unverifiable.join(', ')}`);
 });
 
-test('personio is read as XML, not JSON', () => {
-  // Its feed is XML. Parsing it as JSON returns null, which makes a live board
-  // look empty — a quieter failure than an error, and harder to notice.
-  assert.match(verify, /provider === 'personio'\s*\?\s*await res\.text\(\)/);
+test('the providers that do not answer in JSON are read as text', () => {
+  // Personio's feed is XML and iCIMS's is HTML. Parsing either as JSON returns
+  // null, which makes a live board look empty — a quieter failure than an
+  // error, and harder to notice.
+  assert.match(verify, /provider === 'personio' \|\| board\.provider === 'icims'/);
+  assert.match(verify, /\?\s*await res\.text\(\)/, 'the text branch is gone');
   assert.match(verify, /<position\[\\s>\]/, 'the XML job counter is missing or malformed');
+  assert.match(verify, /provider === 'icims'\)\s*\{/, 'the HTML job counter is missing');
 });
 
 test('a provider with no adapter is not in the discovery matrix', () => {
