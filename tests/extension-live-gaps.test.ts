@@ -53,8 +53,8 @@ test('RIPPLING: round buttons whose question is a <p> beside the group are answe
   const fields = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
   const plan = planFill(fields, { ...PROFILE, answers: { relocationAssistance: 'No', willingToRelocate: 'Yes' } });
   assert.equal(plan.fills.length, 1);
-  assert.equal(plan.fills[0].key, 'relocationAssistance');
-  assert.equal(plan.fills[0].field.el.value, 'No');
+  assert.equal(plan.fills[0]?.key, 'relocationAssistance');
+  assert.equal(plan.fills[0]?.field.el.value, 'No');
 });
 
 test('ASHBY: yes/no asked as two buttons is answered by pressing the right one', () => {
