@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Unsaturated — application autofill",
-  "version": "0.1.1",
-  "description": "Fills your own details into an employer's application form. You always press submit.",
-  "permissions": ["storage", "scripting", "activeTab"],
+  "version": "0.5.0",
+  "description": "Reads your résumé, then fills your details and saved answers into employer application forms. You always press submit.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
   "host_permissions": [
     "https://*.greenhouse.io/*",
     "https://*.lever.co/*",
@@ -19,13 +23,55 @@
     "https://*.teamtailor.com/*",
     "https://*.personio.de/*",
     "https://*.personio.com/*",
-    "https://*.eightfold.ai/*"
+    "https://*.eightfold.ai/*",
+    "https://*.breezy.hr/*",
+    "https://*.icims.com/*",
+    "https://*.jobvite.com/*",
+    "https://*.taleo.net/*",
+    "https://*.successfactors.com/*",
+    "https://*.successfactors.eu/*",
+    "https://*.ultipro.com/*",
+    "https://*.ukg.com/*",
+    "https://*.dayforcehcm.com/*",
+    "https://*.jazzhr.com/*",
+    "https://*.applytojob.com/*",
+    "https://*.pinpointhq.com/*",
+    "https://*.comeet.com/*",
+    "https://*.homerun.co/*",
+    "https://*.join.com/*",
+    "https://*.workforcenow.adp.com/*",
+    "https://*.paylocity.com/*",
+    "https://*.paycomonline.net/*"
   ],
-  "optional_host_permissions": ["https://*/*"],
-  "background": { "service_worker": "src/background.js", "type": "module" },
-  "action": { "default_title": "Fill this application" },
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Fill this application"
+  },
   "options_page": "src/options.html",
   "web_accessible_resources": [
-    { "resources": ["src/matcher.js", "src/fill.js"], "matches": ["https://*/*"] }
-  ]
+    {
+      "resources": [
+        "src/matcher.js",
+        "src/fill.js",
+        "src/answers.js"
+      ],
+      "matches": [
+        "https://*/*"
+      ]
+    }
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+F"
+      },
+      "description": "Fill this application"
+    }
+  }
 }

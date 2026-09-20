@@ -53,8 +53,13 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-// The "Allow" button on that page reports back here once Chrome has agreed.
+// The "Allow" button on that page reports back here once Chrome has agreed; the
+// panel's "My applications" button asks for the tracker.
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'open-tracker') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('src/tracker.html') });
+    return;
+  }
   if (message?.type !== 'fill-tab' || !message.tabId) return;
   fill(message.tabId).then(
     () => sendResponse({ ok: true }),

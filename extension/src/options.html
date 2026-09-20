@@ -2,58 +2,194 @@
 <meta charset="utf-8">
 <title>Unsaturated — your details</title>
 <style>
-  body { font: 14px/1.5 system-ui, sans-serif; max-width: 620px; margin: 32px auto; padding: 0 16px; color: #111; }
-  h1 { font-size: 18px; }
-  fieldset { border: 1px solid #ddd; border-radius: 8px; margin: 16px 0; padding: 12px 14px; }
+  body { font: 14px/1.55 system-ui, sans-serif; max-width: 720px; margin: 32px auto 90px; padding: 0 16px; color: #111; }
+  h1 { font-size: 19px; margin-bottom: 4px; }
+  fieldset { border: 1px solid #ddd; border-radius: 8px; margin: 18px 0; padding: 12px 14px; }
   legend { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #666; }
-  label { display: block; margin: 8px 0 2px; font-size: 12px; color: #555; }
-  input { width: 100%; padding: 7px 8px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
-  .row { display: flex; gap: 10px; } .row > div { flex: 1; }
-  button { margin-top: 14px; padding: 8px 14px; border: 0; border-radius: 6px; background: #e4572e; color: #fff; font: inherit; cursor: pointer; }
-  .note { background: #f6f6f6; border-radius: 6px; padding: 10px; color: #444; font-size: 13px; }
-  #saved { color: #1a7f37; margin-left: 10px; }
+  label { display: block; margin: 10px 0 2px; font-size: 12px; color: #555; }
+  input, select, textarea { width: 100%; box-sizing: border-box; padding: 7px 8px; border: 1px solid #ccc; border-radius: 6px; font: inherit; background: #fff; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 10px; } .row > div { flex: 1; min-width: 0; }
+  .help { margin: 3px 0 0; font-size: 11.5px; color: #777; }
+  .answer { margin-bottom: 12px; }
+  .note { background: #f6f6f6; border-radius: 6px; padding: 10px 12px; color: #444; font-size: 13px; }
+  .warn { background: #fff8ec; border: 1px solid #f0dcb8; }
+  .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
+  .check input { width: auto; margin-top: 3px; }
+  .bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e3e3e3; padding: 10px 16px; text-align: center; }
+  button { padding: 9px 18px; border: 0; border-radius: 6px; background: #e4572e; color: #fff; font: inherit; cursor: pointer; }
+  button.quiet { background: #fff; color: #333; border: 1px solid #ccc; padding: 6px 12px; }
+  button.remove { background: none; color: #a33; border: 0; padding: 4px 6px; font-size: 12px; }
+  #saved { color: #1a7f37; margin-left: 12px; }
+  .start { border: 2px dashed #e4572e; background: #fff7f4; }
+  .start input[type=file] { background: #fff; }
+  #readStatus { margin-top: 8px; }
+  #readStatus ul { margin: 6px 0 0; padding-left: 18px; }
+  .from-resume { background: #fffbe0 !important; border-color: #e0c65a !important; }
+  .item { border: 1px solid #e6e6e6; border-radius: 8px; padding: 6px 10px 10px; margin: 10px 0; }
+  .item .head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #666; }
+  .links a { margin-right: 14px; }
 </style>
+
 <h1>Your details</h1>
-<p class="note">Stored in this browser only, in the extension's own storage. Nothing here is sent
-anywhere except into an application form you open, when you press the toolbar button.
-Diversity, disability and veteran questions are never filled by this extension.</p>
+<p class="note">Stored in this browser only, in the extension's own storage. Nothing is sent
+anywhere except into an application form you open, when you press the toolbar button
+(or <strong>Alt+Shift+F</strong>). The extension never presses an employer's submit button.</p>
+<p class="links"><a href="tracker.html">My applications</a> <a href="#" id="export">Download a backup</a> <a href="#" id="import">Load a backup</a><input type="file" id="importFile" accept=".json" hidden></p>
+
+<fieldset class="start"><legend>Start from your résumé</legend>
+  <label for="resume">Choose your résumé — PDF or Word (.docx)</label>
+  <input id="resume" type="file" accept=".pdf,.docx,.doc,.txt">
+  <p class="help">It is read here, in your browser, and every empty box below is filled from it and
+  saved. What came from the résumé is highlighted <span class="from-resume" style="padding:0 4px;border:1px solid">yellow</span>
+  until you have looked at it. Boxes you have already filled are never overwritten.
+  The same file is attached to applications for you.</p>
+  <p id="resumeName" class="help"></p>
+  <div id="readStatus"></div>
+</fieldset>
 
 <fieldset><legend>Name</legend>
   <div class="row">
-    <div><label>First name</label><input id="firstName"></div>
-    <div><label>Last name</label><input id="lastName"></div>
+    <div><label for="firstName">First name</label><input id="firstName"></div>
+    <div><label for="middleName">Middle name</label><input id="middleName"></div>
+    <div><label for="lastName">Last name</label><input id="lastName"></div>
   </div>
-  <label>Preferred first name</label><input id="preferredName">
+  <label for="preferredName">Preferred first name</label><input id="preferredName">
 </fieldset>
 
 <fieldset><legend>Contact</legend>
-  <label>Email</label><input id="email">
-  <label>Phone</label><input id="phone">
   <div class="row">
-    <div><label>City</label><input id="city"></div>
-    <div><label>State / region</label><input id="region"></div>
+    <div><label for="email">Email</label><input id="email"></div>
+    <div><label for="phone">Phone</label><input id="phone"></div>
   </div>
   <div class="row">
-    <div><label>Country</label><input id="country"></div>
-    <div><label>Postcode</label><input id="postcode"></div>
+    <div><label for="city">City</label><input id="city"></div>
+    <div><label for="region">State / region</label><input id="region"></div>
   </div>
-  <label>Street address</label><input id="address">
-</fieldset>
-
-<fieldset><legend>Links and work</legend>
-  <label>LinkedIn</label><input id="linkedin">
-  <label>GitHub</label><input id="github">
-  <label>Website or portfolio</label><input id="website">
   <div class="row">
-    <div><label>Current company</label><input id="currentCompany"></div>
-    <div><label>Current title</label><input id="currentTitle"></div>
+    <div><label for="country">Country</label><input id="country"></div>
+    <div><label for="postcode">Postcode</label><input id="postcode"></div>
+  </div>
+  <label for="address">Street address</label><input id="address">
+  <div class="row">
+    <div><label for="address2">Address line 2 (flat, suite, unit)</label><input id="address2"></div>
+    <div><label for="county">County</label><input id="county"></div>
   </div>
 </fieldset>
 
-<fieldset><legend>Résumé</legend>
-  <label>PDF or Word file</label><input id="resume" type="file" accept=".pdf,.doc,.docx,.txt">
-  <p id="resumeName" class="note" style="margin-top:8px"></p>
+<fieldset><legend>Full details</legend>
+  <p class="help">The longer forms — Oracle, Workday, SuccessFactors, Taleo — ask for these. Each is
+  filled only where a form asks for exactly that, and a blank one is left for you. A year of
+  birth saved below (under diversity) is never turned into a full date of birth.</p>
+  <div class="row">
+    <div><label for="salutation">Title</label>
+      <select id="salutation">
+        <option value="">— leave for me —</option>
+        <option>Mr</option><option>Ms</option><option>Mrs</option><option>Miss</option><option>Mx</option><option>Dr</option><option>Prof</option>
+      </select></div>
+    <div><label for="nameSuffix">Name suffix (Jr, Sr, III)</label><input id="nameSuffix"></div>
+  </div>
+  <div class="row">
+    <div><label for="dateOfBirth">Date of birth</label><input id="dateOfBirth" type="date"></div>
+    <div><label for="previousName">Previous last name (if any)</label><input id="previousName"></div>
+  </div>
+  <div class="row">
+    <div><label for="placeOfBirth">Place of birth (town, country)</label><input id="placeOfBirth"></div>
+    <div><label for="maritalStatus">Marital status</label>
+      <select id="maritalStatus">
+        <option value="">— leave for me —</option>
+        <option>Single</option><option>Married</option><option>Civil partnership</option><option>Divorced</option><option>Separated</option><option>Widowed</option><option>Prefer not to say</option>
+      </select></div>
+  </div>
 </fieldset>
 
-<button id="save">Save</button><span id="saved"></span>
-<script src="options.js"></script>
+<fieldset><legend>Links and current job</legend>
+  <label for="linkedin">LinkedIn</label><input id="linkedin">
+  <div class="row">
+    <div><label for="github">GitHub</label><input id="github"></div>
+    <div><label for="website">Website or portfolio</label><input id="website"></div>
+  </div>
+  <div class="row">
+    <div><label for="currentCompany">Current company</label><input id="currentCompany"></div>
+    <div><label for="currentTitle">Current title</label><input id="currentTitle"></div>
+  </div>
+</fieldset>
+
+<fieldset><legend>Work experience</legend>
+  <p class="help">Most recent first. The first job answers "current company" and "current title"
+  when those boxes above are empty.</p>
+  <div id="jobs"></div>
+  <button type="button" class="quiet" id="add-job">Add a job</button>
+</fieldset>
+
+<fieldset><legend>Education</legend>
+  <p class="help">The first school answers the School / Degree / Discipline / GPA boxes on a form.</p>
+  <div id="schools"></div>
+  <button type="button" class="quiet" id="add-school">Add a school</button>
+</fieldset>
+
+<fieldset><legend>Skills</legend>
+  <label for="skills">Comma-separated</label>
+  <textarea id="skills"></textarea>
+</fieldset>
+
+<fieldset><legend>Cover letter (optional)</legend>
+  <label for="coverLetterFile">A cover-letter file to attach where a form asks for one</label>
+  <input id="coverLetterFile" type="file" accept=".pdf,.doc,.docx,.txt">
+  <p id="coverLetterName" class="help"></p>
+  <label for="coverLetterText">Or a cover letter you wrote, for forms with a cover-letter text box</label>
+  <textarea id="coverLetterText" placeholder="Your own words. The extension never writes one for you."></textarea>
+</fieldset>
+
+<fieldset><legend>Answers employers ask for</legend>
+  <p class="note">Answer these once and the extension fills them on every form that asks.
+  It never guesses: anything left blank here is left blank on the form and listed for you.
+  Check them before you submit — these are answers given in your name.</p>
+  <div id="answers"></div>
+</fieldset>
+
+<fieldset><legend>Your own questions</legend>
+  <p class="note">For questions no list can predict — "Do you have experience with MT4?",
+  "Is a fixed-term contract acceptable?". Put a few words from the question on the left and
+  your answer on the right. The longest match wins, so a specific pair beats a vague one.
+  Answers you save with <strong>Remember what I typed</strong> on a form appear here too.</p>
+  <div id="custom"></div>
+  <p><button type="button" class="quiet" id="add-custom">Add another</button></p>
+</fieldset>
+
+<fieldset><legend>Diversity questions</legend>
+  <p class="note warn">These are voluntary on every employer's form, and they stay blank
+  here unless you fill them in. What you type is stored in this browser only and is never
+  sent anywhere. Leaving them blank means the extension leaves every such question for you.</p>
+  <div id="answers-sensitive"></div>
+</fieldset>
+
+<fieldset><legend>Job-site accounts</legend>
+  <p class="note">Workday, UKG and Oracle make you create an account before you can apply. The
+  extension fills the <strong>email</strong> and this <strong>password</strong> into their
+  "Create account" and "Sign in" pages, including the "verify password" box. You press
+  <em>Create Account</em> or <em>Sign In</em> yourself.</p>
+  <label for="accountPassword">Password for job-site accounts</label>
+  <div class="row">
+    <div><input id="accountPassword" type="password" autocomplete="new-password"></div>
+    <div style="flex:0 0 auto"><button type="button" class="quiet" id="showPassword">Show</button></div>
+  </div>
+  <p class="help">Most of these sites require at least 8 characters with an upper-case letter, a
+  lower-case letter, a number and a symbol. Use one you do not use for email or banking: the
+  same password goes to every company's account. Stored in this browser only, and included
+  in "Download a backup" — keep that file private.</p>
+</fieldset>
+
+<fieldset><legend>Consent boxes</legend>
+  <div class="check">
+    <input type="checkbox" id="tickConsents">
+    <label for="tickConsents" style="margin:0">
+      Tick "I have read and agree…" boxes for me.
+      <span class="help">Off by default. These are statements made in your name, so the
+      extension leaves them alone unless you say otherwise.</span>
+    </label>
+  </div>
+</fieldset>
+
+<div class="bar"><button id="save">Save</button><span id="saved"></span></div>
+<script type="module" src="options.js"></script>
