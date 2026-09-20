@@ -88,3 +88,73 @@ test('the provider is registered, so a stored board actually gets crawled', () =
   assert.ok(ADAPTERS.icims, 'no adapter registered for icims');
   assert.equal(ADAPTERS.icims.provider, 'icims');
 });
+
+// ---------------------------------------------------------------------------
+// Repairing the names already stored
+// ---------------------------------------------------------------------------
+
+/**
+ * 2,589 boards were seeded under their token on 20 September 2026, because the
+ * rule below matched "Job Listings at {employer}" only at the start of the page
+ * title and most boards prefix it. boards-seed skips anything already in the
+ * registry, so the corrected rule cannot reach them — hence icims-names.ts.
+ */
+test('the employer is read from wherever the phrase appears in the title', () => {
+  // All three are real page titles, fetched from live boards that day.
+  const cases: [string, string][] = [
+    [
+      '<title>Fred Hutchinson Cancer Center Job Listings at Fred Hutchinson Cancer Center</title>',
+      'Fred Hutchinson Cancer Center',
+    ],
+    [
+      '<title>Careers &#8211; Job Listings at North American Construction Group</title>',
+      'North American Construction Group',
+    ],
+    ['<title>Job Listings at TIC Solutions</title>', 'TIC Solutions'],
+    ['<title>Job Listings at Foley &amp; Lardner LLP</title>', 'Foley & Lardner LLP'],
+  ];
+  for (const [html, expected] of cases) {
+    assert.equal(icimsCompanyFrom(html), expected, html);
+  }
+});
+
+test('a page that names nobody names nobody', () => {
+  assert.equal(icimsCompanyFrom('<title>Careers</title>'), undefined);
+  assert.equal(icimsCompanyFrom('<title>Job Listings at </title>'), undefined);
+  assert.equal(icimsCompanyFrom(''), undefined);
+  assert.equal(icimsCompanyFrom(null), undefined);
+});
+
+test('the rename only ever touches a board still named after its token', () => {
+  // oracle-names.ts learned this the hard way: its first dry run was about to
+  // overwrite two boards carrying real names, read from the vendor on the first
+  // discovery run, with an error page's title. A repair that can overwrite a
+  // good value is not a repair, so the only row either script will touch is one
+  // still carrying its own token, plain or title-cased.
+  const src = readFileSync(new URL('../src/cli/icims-names.ts', import.meta.url), 'utf8');
+  assert.match(src, /function isPlaceholder/);
+  assert.match(src, /titleise\(token\)\.toLowerCase\(\)/);
+  assert.match(src, /candidates = rows\.filter\(\(r\) => isPlaceholder/);
+  // And it can only write the one column, on the one provider.
+  assert.match(src, /\.eq\('provider', 'icims'\)/);
+  assert.match(src, /\.update\(\{ company: w\.company \}\)/);
+  assert.doesNotMatch(src, /\.delete\(|active:|closed_at/);
+});
+
+test('the rename can run where the write key actually is', () => {
+  // Run from a laptop, dbWrite() falls back to the publishable key, RLS refuses
+  // every update, and the script reports success having changed nothing.
+  const wf = readFileSync(new URL('../.github/workflows/board-names.yml', import.meta.url), 'utf8');
+  assert.match(wf, /options: \[icims, oracle\]/);
+  assert.match(wf, /npm run \$\{\{ inputs\.provider \}\}:names/);
+  assert.match(wf, /Fail if the write key is missing/);
+  // Dry run is the default: a repair that writes by accident is the thing to
+  // avoid, and the dry run is the same work minus the UPDATE.
+  assert.match(wf, /dryRun:[\s\S]{0,140}?default: true/);
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  for (const p of ['icims', 'oracle']) {
+    assert.ok(pkg.scripts[`${p}:names`], `the workflow calls ${p}:names and package.json has no such script`);
+  }
+});

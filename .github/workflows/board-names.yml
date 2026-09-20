@@ -1,0 +1,91 @@
+# Repairs employer names on boards stored under their ATS token.
+#
+# Two providers have needed this, for the same reason both times: the naming
+# rule was corrected after the boards were already in the registry, and seeding
+# cannot go back for them — boards-seed skips anything already stored, which is
+# deliberate, since re-verifying 36,000 boards to correct a few thousand names
+# would take hours and hammer the vendors.
+#
+# Oracle stored 764 boards as title-cased tenant codes: Tata Capital as "Eofh",
+# WSP as "Emit". iCIMS stored 2,589 the same way on 20 September 2026: Fred
+# Hutchinson Cancer Center as "Fhcrc", North American Construction Group as
+# "Nacg".
+#
+# Manual only, and it exists because the write key is an Actions secret. It
+# cannot be read back, so running either script from a laptop means falling back
+# to the publishable key and having row-level security refuse every update while
+# the run reports success. This is the place these can actually write.
+#
+# Only `company` is ever written, only on rows still carrying their own token,
+# and only when a real name was read from the vendor's own page. A board that
+# cannot be reached or cannot be named is left exactly as it is.
+name: board-names
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'Which registry to repair'
+        type: choice
+        default: icims
+        options: [icims, oracle]
+      dryRun:
+        description: 'Report the renames without writing them'
+        type: boolean
+        default: true
+      limit:
+        description: 'Look at no more than N boards'
+        type: string
+        default: '5000'
+      delay:
+        description: 'Milliseconds between requests'
+        type: string
+        default: '700'
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    # Two at once would read the same rows and race each other's updates.
+    concurrency:
+      group: board-names
+      cancel-in-progress: false
+    # 2,589 boards at ~0.7s each is about half an hour. The ceiling is here to
+    # catch a hang, not to bound normal work.
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Without the write key the client falls back to the publishable one, RLS
+      # refuses every UPDATE, and the run reports success having changed
+      # nothing. Fail here instead. Skipped for a dry run, which writes nothing
+      # by definition and is worth being able to run without secrets.
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no' && !inputs.dryRun
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set."
+          echo "Every rename would be refused by RLS and the run would look fine."
+          exit 1
+
+      - name: Repair ${{ inputs.provider }} names
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: |
+          npm run ${{ inputs.provider }}:names -- \
+            --limit ${{ inputs.limit || '5000' }} \
+            --delay ${{ inputs.delay || '700' }} \
+            ${{ inputs.dryRun && '--dry-run' || '' }}
