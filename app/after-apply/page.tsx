@@ -1,7 +1,6 @@
 import Link from 'next/link';
 
 import { AfterApplyWorkspace } from '../_components/AfterApplyWorkspace.js';
-import { researchLanes } from '../../src/after-apply/research.js';
 import { loadJobForTailoring } from '../../src/tailor/job-lookup.js';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +33,6 @@ export default async function AfterApplyPage({
       applyUrl: found.job.apply_url,
       closed: Boolean(found.job.closed_at),
     }}
-    lanes={researchLanes(found.job.company, found.job.title)}
-    scanConfigured={Boolean(process.env.BRAVE_SEARCH_API_KEY?.trim())}
+    scanConfigured={Boolean(process.env.OPENAI_API_KEY?.trim())}
   />;
 }

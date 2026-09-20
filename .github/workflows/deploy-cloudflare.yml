@@ -32,6 +32,13 @@ jobs:
 
       - run: npm ci
 
+      # Validate the existing OpenAI secret and live web-search contract before
+      # publishing a page that promises direct public-source findings.
+      - name: Check live after-applying research
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node --import tsx scripts/after-apply-smoke.ts
+
       # `opennextjs-cloudflare build` runs `next build` first, then repackages
       # the output for Workers. The build no longer crawls, so this is fast.
       - name: Build and deploy

@@ -1,4 +1,4 @@
-export type ContactType = 'manager' | 'recruiter';
+export type ContactType = 'manager' | 'recruiter' | 'employee';
 
 export interface DraftInput {
   contactName: string;
@@ -33,6 +33,9 @@ export function outreachDraft(input: DraftInput): string {
 
   if (input.contactType === 'recruiter') {
     return `Hi ${firstName}, I applied for the ${role} role at ${company}. ${context}. In my own work, ${proof}. If you're working on this search, is there a particular problem or skill the team is prioritizing? Happy to send a concise example. Thanks for your time.`;
+  }
+  if (input.contactType === 'employee') {
+    return `Hi ${firstName}, I recently applied for the ${role} role at ${company}. ${context}. In my own work, ${proof}. I'd value your perspective on the team's work if you have a moment. No pressure to reply, and thank you for reading.`;
   }
   return `Hi ${firstName}, I recently applied for the ${role} role at ${company}. ${context}. In my own work, ${proof}. That overlap made me want to reach out directly. If this role is on your team, I'd welcome a short conversation; if not, no need to reply. Thanks for reading.`;
 }

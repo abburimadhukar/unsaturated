@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 
 import { isPublicSourceUrl, outreachDraft, type ContactType } from '../../src/after-apply/draft.js';
-import type { ResearchGroup, ResearchLane } from '../../src/after-apply/research.js';
+import type { ContactLead, ResearchReport } from '../../src/after-apply/research.js';
 
 interface JobContext {
   key: string;
@@ -14,13 +14,12 @@ interface JobContext {
   closed: boolean;
 }
 
-export function AfterApplyWorkspace({ job, lanes, scanConfigured }: {
+export function AfterApplyWorkspace({ job, scanConfigured }: {
   job: JobContext;
-  lanes: ResearchLane[];
   scanConfigured: boolean;
 }) {
   const [confirmed, setConfirmed] = useState(false);
-  const [groups, setGroups] = useState<ResearchGroup[]>([]);
+  const [report, setReport] = useState<ResearchReport | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
   const [contactName, setContactName] = useState('');
@@ -40,17 +39,26 @@ export function AfterApplyWorkspace({ job, lanes, scanConfigured }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobKey: job.key }),
       });
-      const data = await response.json() as { error?: string; groups?: ResearchGroup[] };
-      if (!response.ok || !Array.isArray(data.groups)) {
-        setScanError(data.error ?? 'Could not scan public sources right now.');
+      const data = await response.json() as { error?: string; report?: ResearchReport };
+      if (!response.ok || !data.report || !Array.isArray(data.report.contacts) || !Array.isArray(data.report.signals)) {
+        setScanError(data.error ?? 'Could not research this job right now.');
         return;
       }
-      setGroups(data.groups);
+      setReport(data.report);
     } catch {
-      setScanError('Could not scan public sources right now. Use the search links below.');
+      setScanError('Could not research this job right now. Please try later.');
     } finally {
       setScanning(false);
     }
+  }
+
+  function chooseContact(lead: ContactLead) {
+    setContactName(lead.name);
+    setContactType(lead.category === 'Recruiting' ? 'recruiter' : lead.category === 'Employee' ? 'employee' : 'manager');
+    setContactUrl(lead.sourceUrl);
+    setSourceDetail(`I noticed ${lead.connection.replace(/[.!?\s]+$/, '')}`);
+    setDraft('');
+    document.getElementById('aa-outreach')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function copyDraft() {
@@ -70,7 +78,7 @@ export function AfterApplyWorkspace({ job, lanes, scanConfigured }: {
       <p className="aameta">{job.company} · {job.closed ? 'Posting may be closed' : 'Posting in feed'}
         {job.applyUrl && <> · <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">Employer posting ↗</a></>}
       </p>
-      <p className="aaintro">Find the right person, verify the connection, and write one relevant note. This does not contact anyone or change your application.</p>
+      <p className="aaintro">See relevant people and company context directly, with links to the public evidence. Nothing is sent to anyone and your application is unchanged.</p>
 
       <section className="aacard">
         <div className="aastep">01 / Confirm</div>
@@ -83,40 +91,49 @@ export function AfterApplyWorkspace({ job, lanes, scanConfigured }: {
       </section>
 
       <section className="aacard">
-        <div className="aastep">02 / Research</div>
-        <h2>Find and verify a person</h2>
-        <p>These are search leads, not verified hiring managers. Open a profile and check their current company, team, and connection to this role before reaching out.</p>
+        <div className="aastep">02 / Find people</div>
+        <h2>People and useful signals for this job</h2>
+        <p>We look for current recruiting or team contacts and show the evidence behind each suggestion. A public connection does not prove someone manages this exact opening.</p>
         {scanConfigured ? (
           <div className="aascanrow">
-            <button type="button" className="primary" disabled={scanning} onClick={() => void scan()}>{scanning ? 'Searching…' : 'Scan public sources'}</button>
-            <span>Sign-in required · uses a server-side search key</span>
+            <button type="button" className="primary" disabled={scanning} onClick={() => void scan()}>{scanning ? 'Researching this job…' : report ? 'Refresh findings' : 'Find people and insights'}</button>
+            <span>Sign-in required · public web research may take a minute</span>
           </div>
-        ) : <p className="aaquiet">Automatic source scan is not configured yet. The public searches below work without an account or API key.</p>}
+        ) : <p className="aaquiet">Live research is not configured on this site yet.</p>}
         {scanError && <p className="aaerror" role="alert">{scanError} {scanError.includes('Sign in') && <Link href="/account">Go to account</Link>}</p>}
-        <div className="aalanes">
-          {lanes.map((lane) => {
-            const group = groups.find((item) => item.id === lane.id);
-            return <div className="aalane" key={lane.id}>
-              <div className="aalanehead"><h3>{lane.label}</h3><a href={lane.searchUrl} target="_blank" rel="noopener noreferrer">Search yourself ↗</a></div>
-              {group?.unavailable && <p>Search unavailable for this category; try the direct link.</p>}
-              {group && !group.unavailable && group.leads.length === 0 && <p>No leads returned. Try the direct search.</p>}
-              {group?.leads.map((lead) => <div className="aalead" key={lead.url}>
-                <a href={lead.url} target="_blank" rel="noopener noreferrer">{lead.title} ↗</a>
-                {lead.description && <p>{lead.description}</p>}
-                <small>{new URL(lead.url).hostname}</small>
-              </div>)}
-            </div>;
-          })}
-        </div>
+        {report && <div className="aaresults" aria-live="polite">
+          <p className="aaresultmeta">Public sources checked {new Date(report.searchedAt).toLocaleString()} · Open each source before reaching out.</p>
+          <h3>People to consider</h3>
+          {report.contacts.length === 0
+            ? <div className="aaempty">No credible named contact found for this job. We will not invent a hiring manager.</div>
+            : <div className="aacontacts">{report.contacts.map((lead) => <article className="aacontact" key={lead.sourceUrl + lead.name}>
+              <span className="aacategory">{lead.category} · Potential contact</span>
+              <h4>{lead.name}</h4>
+              <p className="aarole">{lead.role}</p>
+              <p><strong>Public connection:</strong> {lead.connection}</p>
+              <p><strong>Why this person:</strong> {lead.whyRelevant}</p>
+              <div className="aacontactactions">
+                <a href={lead.sourceUrl} target="_blank" rel="noopener noreferrer">View evidence: {lead.sourceTitle} ↗</a>
+                <button type="button" onClick={() => chooseContact(lead)}>Use this contact ↓</button>
+              </div>
+            </article>)}</div>}
+          <h3>Company and team context</h3>
+          {report.signals.length === 0
+            ? <p className="aaquiet">No sufficiently sourced company signal found this time.</p>
+            : <div className="aasignals">{report.signals.map((signal) => <article className="aasignal" key={signal.sourceUrl}>
+              <h4>{signal.title}</h4><p>{signal.detail}</p>
+              <a href={signal.sourceUrl} target="_blank" rel="noopener noreferrer">View source: {signal.sourceTitle} ↗</a>
+            </article>)}</div>}
+        </div>}
       </section>
 
-      <section className="aacard">
+      <section className="aacard" id="aa-outreach">
         <div className="aastep">03 / Outreach</div>
         <h2>Write a note worth receiving</h2>
         <p>Use a verified profile and one specific public detail. Add only achievements you can substantiate. Nothing is sent automatically.</p>
         <div className="aaform">
           <label>Person’s name<input value={contactName} maxLength={80} onChange={(event) => setContactName(event.target.value)} placeholder="e.g. Jordan Lee" /></label>
-          <label>Who are they?<select value={contactType} onChange={(event) => setContactType(event.target.value as ContactType)}><option value="manager">Potential team leader</option><option value="recruiter">Recruiter</option></select></label>
+          <label>Who are they?<select value={contactType} onChange={(event) => setContactType(event.target.value as ContactType)}><option value="manager">Potential team leader</option><option value="recruiter">Recruiter</option><option value="employee">Employee</option></select></label>
           <label className="aawide">Verified public profile URL<input type="url" value={contactUrl} onChange={(event) => setContactUrl(event.target.value)} placeholder="https://…" />{isPublicSourceUrl(contactUrl) && <a href={contactUrl} target="_blank" rel="noopener noreferrer">Open this profile ↗</a>}</label>
           <label className="aawide">Specific detail you found in a public source<textarea value={sourceDetail} maxLength={500} onChange={(event) => setSourceDetail(event.target.value)} placeholder="Write a complete sentence, e.g. I saw your team launched a new data platform" /></label>
           <label className="aawide">Your relevant proof<textarea value={proof} maxLength={500} onChange={(event) => setProof(event.target.value)} placeholder="Write a complete sentence about your own work; numbers only if accurate" /></label>
@@ -134,7 +151,7 @@ export function AfterApplyWorkspace({ job, lanes, scanConfigured }: {
           <textarea id="aa-message" value={draft} onChange={(event) => { setDraft(event.target.value); setCopied(false); }} />
           <button type="button" disabled={!draft.trim()} onClick={() => void copyDraft()}>{copied ? 'Copied' : 'Copy message'}</button>
         </div>}
-        <p className="aaquiet">Your name, evidence, and draft stay in this page’s browser state; they are not sent to our server. No scraping, email discovery, or automatic messages.</p>
+        <p className="aaquiet">The message fields and draft stay in this page’s browser state. Research uses the job details only. No email discovery or automatic messages.</p>
       </section>
     </main>
   );

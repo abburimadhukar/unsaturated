@@ -3,13 +3,13 @@ import { NextResponse } from 'next/server';
 import { attachSession } from '../../../../src/state/auth.js';
 import { attachVisitor, subjectFor } from '../../../../src/state/identity.js';
 import { createLimiter } from '../../../../src/tailor/rate-limit.js';
-import { searchPublicSources } from '../../../../src/after-apply/research.js';
+import { researchJob } from '../../../../src/after-apply/research.js';
 import { loadJobForTailoring } from '../../../../src/tailor/job-lookup.js';
 
 export const dynamic = 'force-dynamic';
 
-// This is a paid search API. A per-isolate guard limits accidental repeats;
-// it is not a global billing guarantee across Cloudflare workers.
+// Web research uses the existing billable OpenAI key. This per-isolate guard
+// limits accidental repeats; it is not a global billing guarantee.
 const LIMITER_KEY = Symbol.for('unsaturated.after-apply.limiter');
 function limiter() {
   const global = globalThis as unknown as Record<symbol, ReturnType<typeof createLimiter> | undefined>;
@@ -23,8 +23,8 @@ export async function POST(request: Request) {
     attachSession(attachVisitor(NextResponse.json(body, { status }), visitor), session);
 
   if (!session) return answer({ error: 'Sign in on your account page to run a public-source scan.' }, 401);
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY?.trim();
-  if (!apiKey) return answer({ error: 'Public-source scan is not configured yet. Use the search links below.' }, 503);
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return answer({ error: 'Research is not configured on this server yet.' }, 503);
 
   let body: { jobKey?: unknown };
   try { body = await request.json() as typeof body; }
@@ -38,11 +38,13 @@ export async function POST(request: Request) {
   if (!found.ok) return answer({ error: found.found ? 'Could not load this job right now.' : found.reason }, found.found ? 503 : 404);
   if (!limiter().allow(visitor.id)) return answer({ error: 'Please wait a minute before scanning again.' }, 429);
 
-  const groups = await searchPublicSources(found.job.company, found.job.title, apiKey);
-  if (groups.every((group) => group.unavailable)) {
-    return answer({ error: 'The search provider is unavailable right now. The public search links still work.' }, 502);
+  try {
+    const report = await researchJob({
+      company: found.job.company, title: found.job.title, applyUrl: found.job.apply_url,
+    }, apiKey);
+    if (!report) return answer({ error: 'Could not complete source-backed research right now. Please try later.' }, 502);
+    return answer({ report });
+  } catch {
+    return answer({ error: 'Research timed out or the provider is unavailable. Please try later.' }, 502);
   }
-  // Search titles and snippets are only leads. The page asks the user to open
-  // the source and verify identity/relevance before writing to anybody.
-  return answer({ groups });
 }

@@ -1174,16 +1174,20 @@ a.stat:hover b { color: var(--accent); }
 .aascanrow span, .aadraftactions span { color: var(--text-faint); font-size: 12px; }
 .aacard .aaquiet { color: var(--text-faint); font-size: 12px; }
 .aacard .aaerror { color: var(--danger); }
-.aalanes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
-.aalane { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; min-width: 0; }
-.aalanehead { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 10px; }
-.aalane h3 { font-size: 13px; margin: 0; }
-.aalanehead a { font-size: 12px; }
-.aalane > p, .aalead p { color: var(--text-dim); font-size: 12px; line-height: 1.45; }
-.aalead { padding: 10px 0; border-top: 1px solid var(--line-soft); overflow-wrap: anywhere; }
-.aalead a { font-size: 12px; font-weight: 600; }
-.aalead p { margin: 5px 0; }
-.aalead small { color: var(--text-faint); }
+.aaresults { border-top: 1px solid var(--line); margin-top: 22px; padding-top: 6px; }
+.aaresults h3 { font-size: 16px; margin: 22px 0 12px; }
+.aaresults .aaresultmeta { color: var(--text-faint); font-size: 12px; }
+.aacontacts, .aasignals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.aacontact, .aasignal, .aaempty { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px; background: var(--bg); min-width: 0; }
+.aacategory { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.aacontact h4, .aasignal h4 { font-size: 17px; margin: 9px 0 4px; overflow-wrap: anywhere; }
+.aacontact p, .aasignal p, .aaempty { color: var(--text-dim); font-size: 13px; line-height: 1.55; }
+.aacontact .aarole { margin: 0 0 14px; }
+.aacontact p strong { color: var(--text); }
+.aacontactactions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; }
+.aacontactactions a, .aasignal a { font-size: 12px; overflow-wrap: anywhere; }
+.aacontactactions button { font-size: 12px; padding: 8px 11px; }
+#aa-outreach { scroll-margin-top: 18px; }
 .aaform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 20px 0 0; }
 .aaform label, .aadraft label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 600; }
 .aaform .aawide { grid-column: 1 / -1; }
@@ -1192,7 +1196,7 @@ a.stat:hover b { color: var(--accent); }
 .aadraft textarea { min-height: 160px; margin: 8px 0 10px; }
 @media (max-width: 720px) {
   .actions { flex-wrap: wrap; }
-  .aalanes, .aaform { grid-template-columns: 1fr; }
+  .aacontacts, .aasignals, .aaform { grid-template-columns: 1fr; }
   .aacard { padding: 17px; }
 }
 

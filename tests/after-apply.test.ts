@@ -2,46 +2,53 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { isPublicSourceUrl, outreachDraft } from '../src/after-apply/draft.js';
-import { parseBraveResults, researchLanes, searchPublicSources } from '../src/after-apply/research.js';
+import { parseResearchResponse, researchJob, RESEARCH_MODEL } from '../src/after-apply/research.js';
 
-test('research links include company and role without making up a person', () => {
-  const lanes = researchLanes('Example Cloud', 'Data Engineer');
-  assert.equal(lanes.length, 3);
-  assert.ok(lanes[0]!.query.includes('"Example Cloud"'));
-  assert.ok(lanes[0]!.query.includes('"Data Engineer"'));
-  assert.ok(lanes[0]!.query.includes('site:linkedin.com/in'));
-  for (const lane of lanes) {
-    const url = new URL(lane.searchUrl);
-    assert.equal(url.hostname, 'search.brave.com');
-    assert.equal(url.searchParams.get('q'), lane.query);
-  }
+const source = 'https://example.org/team/jordan-lee';
+const contact = {
+  name: 'Jordan Lee', role: 'Engineering Director', category: 'Team leadership',
+  connection: 'Jordan leads the employer data platform team',
+  whyRelevant: 'The job concerns data platforms',
+  sourceUrl: source, sourceTitle: 'Example Cloud team',
+};
+const payload = (json: object, urls = [source]) => ({
+  status: 'completed',
+  output: [
+    { type: 'web_search_call', status: 'completed', action: { type: 'search', sources: urls.map((url) => ({ url })) } },
+    { type: 'message', content: [{ type: 'output_text', text: JSON.stringify(json), annotations: [] }] },
+  ],
 });
 
-test('Brave parser rejects non-web URLs and de-duplicates results', () => {
-  const leads = parseBraveResults({ web: { results: [
-    { title: 'No', url: 'javascript:alert(1)' },
-    { title: 'Profile', url: 'https://example.org/person', description: 'Potential lead' },
-    { title: 'Duplicate', url: 'https://example.org/person' },
-    { title: 'Malformed', url: 'not a url' },
-  ] } });
-  assert.deepEqual(leads, [{ title: 'Profile', url: 'https://example.org/person', description: 'Potential lead' }]);
+test('shows direct named contacts only when the search actually consulted their public source', () => {
+  const report = parseResearchResponse(payload({
+    contacts: [contact, { ...contact, name: 'Wrong Company', sourceUrl: 'https://unrelated.test/person' }],
+    signals: [{ title: 'Data platform', detail: 'The team built a data platform', sourceUrl: source, sourceTitle: 'Team page' }],
+  }), new Date('2026-09-20T00:00:00Z'));
+  assert.equal(report?.contacts.length, 1);
+  assert.equal(report?.contacts[0]?.name, 'Jordan Lee');
+  assert.equal(report?.signals.length, 1);
+  assert.equal(report?.searchedAt, '2026-09-20T00:00:00.000Z');
+  assert.equal(parseResearchResponse(payload({ contacts: [contact], signals: [] }, [])), null);
+  assert.equal(parseResearchResponse({ status: 'completed', output: [{ type: 'message', content: [] }] }), null);
 });
 
-test('public scan makes three bounded server-side requests and tolerates one failure', async () => {
-  const calls: URL[] = [];
+test('research sends one bounded server-side web search using the existing OpenAI key', async () => {
+  let calls = 0;
   const mockFetch: typeof fetch = async (input, init) => {
-    const url = new URL(input.toString());
-    calls.push(url);
-    assert.equal(new Headers(init?.headers).get('X-Subscription-Token'), 'secret');
-    if (url.searchParams.get('q')?.includes('recruiter')) return new Response('', { status: 429 });
-    return Response.json({ web: { results: [{ title: 'Lead', url: 'https://example.org/person' }] } });
+    calls++;
+    assert.equal(input, 'https://api.openai.com/v1/responses');
+    assert.equal(new Headers(init?.headers).get('Authorization'), 'Bearer secret');
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    assert.equal(body.model, RESEARCH_MODEL);
+    assert.equal(body.tool_choice, 'required');
+    assert.equal(body.max_tool_calls, 4);
+    assert.equal(body.store, false);
+    assert.match(String(body.input), /Example Cloud/);
+    return Response.json(payload({ contacts: [contact], signals: [] }));
   };
-  const groups = await searchPublicSources('Example Cloud', 'Data Engineer', 'secret', mockFetch);
-  assert.equal(calls.length, 3);
-  assert.ok(calls.every((url) => url.hostname === 'api.search.brave.com' && url.searchParams.get('count') === '5'));
-  assert.equal(groups[0]!.leads.length, 1);
-  assert.equal(groups[1]!.unavailable, true);
-  assert.equal(groups[2]!.leads.length, 1);
+  const report = await researchJob({ company: 'Example Cloud', title: 'Data Engineer', applyUrl: 'https://jobs.example.org/123' }, 'secret', mockFetch);
+  assert.equal(calls, 1);
+  assert.equal(report?.contacts[0]?.name, 'Jordan Lee');
 });
 
 test('draft uses only supplied experience and no invented referral', () => {
