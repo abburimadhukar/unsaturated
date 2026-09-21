@@ -369,18 +369,19 @@ async function loadBoard(board: CorpusBoard, now: number) {
         // health-tech startups rather than hospitals. Computed here because
         // this is the only place the description exists: it is never stored.
         //
-        // WRITTEN WHENEVER THERE IS AN ADVERT TO JUDGE, including when the
-        // verdict is null. Only writing a non-null verdict made every mistake
-        // permanent: MUFG Bank was filed as "government" on 6 September and was
-        // still filed as "government" on 20 September, re-crawled every few
-        // hours throughout, because a corrected `null` had no way to overwrite
-        // it. Judgements have to be able to be withdrawn.
+        // WRITTEN EVERY CRAWL, including when the verdict is null, so that a
+        // judgement can be withdrawn. This read `...(sector ? { sector } : {})`
+        // until 20 September, which looked like it was protecting a stored
+        // value and was not: db-feed maps `sector: j.sector ?? null`, so
+        // leaving the key off the object writes null regardless. A conditional
+        // spread here cannot preserve anything — the column is in the upsert
+        // either way, and every row in a batch carries the same columns.
         //
-        // The guard is the DESCRIPTION, not the verdict. A backfill that fails
-        // leaves no text to read, and a silent "no" from a dropped request must
-        // not wipe a sector that was correctly decided when the advert was
-        // there to be read.
-        ...(job.descriptionText ? { sector } : {}),
+        // So it is stated plainly instead of guarded decoratively. The cost is
+        // that a board whose description backfill fails has its sectors cleared
+        // until the next crawl restores them, which is exactly how `family` and
+        // `specialization` already behave a line above and below.
+        sector,
         // Carried out of the classifier so the crawl can count what it threw
         // away. `no family matched` is its own reason: a posting no rule
         // excluded and no family claimed is the interesting case, and it was

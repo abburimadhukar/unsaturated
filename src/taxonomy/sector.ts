@@ -103,7 +103,8 @@ const STRONG: Record<Sector, RegExp> = {
   ),
   government: new RegExp(
     [
-      String.raw`\b(city|county|state|federal|municipal|borough|parish)\s+of\s+[a-z]`,
+      // The "City of Los Angeles" test lives in CASED below, because it needs
+      // capital letters to mean anything. See the note there.
       // "public sector" alone is what a bank's client list says. MUFG's Trade
       // Finance advert names "sponsors, insurers, asset managers, broker
       // dealers, public sector FIs" — the people it sells to. A public body
@@ -124,6 +125,29 @@ const STRONG: Record<Sector, RegExp> = {
     ].join('|'),
     'i',
   ),
+};
+
+/**
+ * Tests that only mean anything with their capital letters intact.
+ *
+ * "City of Los Angeles" names a government. "state of their funds" does not,
+ * and BJAK — a Malaysian insurance startup — was filed under "Government &
+ * public bodies" by this line in its AI Neobank advert: "Money is correct and
+ * users are never misled about the state of their funds." Case-insensitively,
+ * `state\s+of\s+[a-z]` cannot tell those apart, and "state of the art", "state
+ * of play" and "state of mind" all read as county government too.
+ *
+ * A place name is capitalised and the phrase it sits in is not, so the capital
+ * is the whole signal. Matched case-sensitively and kept out of STRONG, which
+ * is compiled with 'i' for everything else.
+ *
+ * An advert that writes "city of austin" in lower case is missed. That is the
+ * trade this file has always made: a missed institution is a smaller loss than
+ * a fake one.
+ */
+const CASED: Partial<Record<Sector, RegExp>> = {
+  government:
+    /\b(City|County|State|Commonwealth|Municipality|Borough|Parish|Town|Village|District)\s+of\s+[A-Z][a-z]/,
 };
 
 /**
@@ -245,7 +269,7 @@ export function classifySector(job: SectorInput): SectorResult {
 
   if (VENDOR.test(text)) return { sector: null, reason: null };
 
-  const matched = SECTOR_ORDER.filter((s) => STRONG[s].test(text));
+  const matched = SECTOR_ORDER.filter((s) => STRONG[s].test(text) || CASED[s]?.test(text) === true);
   if (matched.length === 0) return { sector: null, reason: null };
 
   // A university hospital reads as both, and it is both. The employer's own

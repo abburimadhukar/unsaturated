@@ -127,14 +127,20 @@ test('a real public body is still recognised through the same disclaimer', () =>
 });
 
 test('a withdrawn sector verdict can overwrite a stored one', () => {
-  // Only writing a non-null verdict made every mistake permanent. MUFG was
-  // filed as "government" on 6 September and was still filed as "government"
-  // on 20 September despite being re-crawled every few hours, because a
-  // corrected `null` had nothing to write with. The guard has to be the
-  // description — no advert, no opinion, and no wiping a good answer either.
+  // Only writing a non-null verdict made every mistake permanent: MUFG was
+  // filed as "government" on 6 September and still was on 20 September, having
+  // been re-crawled every few hours throughout, because a corrected `null` had
+  // no way to land.
+  //
+  // The write is unconditional and has to be. db-feed maps
+  // `sector: j.sector ?? null`, so leaving the key off the object writes null
+  // anyway — a conditional spread here preserves nothing and only looks like it
+  // does. Asserted on the statement itself, since a regression to the
+  // conditional form removes this line.
   const live = readFileSync(new URL('../src/corpus/live.ts', import.meta.url), 'utf8');
-  assert.match(live, /\.\.\.\(job\.descriptionText \? \{ sector \} : \{\}\)/);
-  assert.doesNotMatch(live, /\.\.\.\(sector \? \{ sector \} : \{\}\)/);
+  const feed = readFileSync(new URL('../src/corpus/db-feed.ts', import.meta.url), 'utf8');
+  assert.match(live, /^\s*sector,$/m);
+  assert.match(feed, /sector: j\.sector \?\? null/);
 });
 
 test('a name alone never establishes a sector', () => {
@@ -289,4 +295,49 @@ test('UKG keeps the description its listing already carries', () => {
   // which no second request can recover for this provider.
   assert.match(src, /BriefDescription/);
   assert.match(src, /descriptionText \? \{ descriptionText \}/);
+});
+
+// ---------------------------------------------------------------------------
+// "state of" is not a place unless it is capitalised
+// ---------------------------------------------------------------------------
+
+test('a fintech explaining account balances is not a state government', () => {
+  // Verbatim from BJAK's "Technical Product Lead - AI Neobank App", a Malaysian
+  // insurance startup. 194 of its postings were filed under "Government &
+  // public bodies" by five words in a bullet list.
+  const text = `Money is correct and users are never misled about the state of their funds.
+    AI features are valuable, predictable and trusted. Trade-offs made deliberately under
+    uncertainty and hold up when challenged.`;
+  assert.equal(classifySector({ title: 'Technical Product Lead', descriptionText: text }).sector, null);
+});
+
+test('the other lower-case "of" phrases are refused too', () => {
+  for (const phrase of [
+    'our platform is the state of the art in document processing',
+    'candidates should have a clear state of mind under pressure',
+    'we will brief you on the state of play each Monday',
+    'this is the county of origin field in our schema',
+  ]) {
+    assert.equal(
+      classifySector({ title: 'Engineer', descriptionText: phrase }).sector,
+      null,
+      phrase,
+    );
+  }
+});
+
+test('a capitalised place name still names a government', () => {
+  // The capital is the whole signal, so these must keep working.
+  for (const [text, who] of [
+    ['The City of Los Angeles is hiring a Systems Analyst.', 'a city'],
+    ['County of Alameda seeks a Database Administrator.', 'a county'],
+    ['The State of Vermont is recruiting for its data team.', 'a state'],
+    ['Town of Brookline, Information Technology Department.', 'a town'],
+  ] as [string, string][]) {
+    assert.equal(
+      classifySector({ title: 'Systems Analyst', descriptionText: text }).sector,
+      'government',
+      who,
+    );
+  }
 });
