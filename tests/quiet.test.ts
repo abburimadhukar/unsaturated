@@ -349,3 +349,39 @@ test('quietest-first is ranked over a stated pool, not over the page', () => {
   const page = readFileSync(new URL('../app/quiet/page.tsx', import.meta.url), 'utf8');
   assert.match(page, /rankedCapped/, 'the page never tells anyone the rank is capped');
 });
+
+// ---------------------------------------------------------------------------
+// PostgREST's silent row cap
+// ---------------------------------------------------------------------------
+
+/**
+ * Every PostgREST response is capped at 1,000 rows, and nothing says so: asking
+ * for 5,000 returns 1,000 with no error, no flag and no truncation notice.
+ * `limit` and `Range` are both capped — measured against the live database on
+ * 20 September 2026, where `?limit=5000` and `Range: 0-4999` each returned
+ * exactly 1,000 of 2,589 boards.
+ *
+ * It has already cost one run: the iCIMS rename read 1,000 boards, reported
+ * "1000 icims boards" as though that were all of them, renamed 744 and left
+ * 1,589 untouched, exiting 0.
+ */
+test('a whole-table read is paged, never a single oversized request', () => {
+  const helper = readFileSync(new URL('../src/db/supabase.ts', import.meta.url), 'utf8');
+  assert.match(helper, /export async function readAllRows/);
+  assert.match(helper, /if \(page\.length < pageSize\) break;/);
+
+  for (const [name, path] of [
+    ['the iCIMS rename', '../src/cli/icims-names.ts'],
+    ['the institutions facet', '../app/api/institutions/route.ts'],
+  ] as const) {
+    const src = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.match(src, /readAllRows/, `${name} reads the table in one request`);
+    // The specific shape of the original mistake: a range or limit asking for
+    // more than the cap, which is silently answered with the cap.
+    assert.doesNotMatch(
+      src,
+      /\.range\(0, [1-9]\d{3,}\)|\.limit\(\s*[1-9]\d{3,}\s*\)/,
+      `${name} asks for more rows than PostgREST will ever return`,
+    );
+  }
+});

@@ -38,7 +38,7 @@ import { writeFileSync } from 'node:fs';
 import { icimsCompanyFrom } from '../ats/adapters/icims.js';
 import { config } from '../config.js';
 import { titleise } from '../discovery/commoncrawl.js';
-import { db, dbWrite } from '../db/supabase.js';
+import { db, dbWrite, readAllRows } from '../db/supabase.js';
 
 const has = (name: string) => process.argv.includes(`--${name}`);
 function arg(name: string): string | undefined {
@@ -110,16 +110,26 @@ async function main(): Promise<void> {
   const limit = Number.parseInt(arg('limit') ?? '5000', 10);
   const delay = Number.parseInt(arg('delay') ?? '700', 10);
 
-  const { data, error } = await db()
-    .from('boards')
-    .select('id,token,company')
-    .eq('provider', 'icims')
-    .order('id', { ascending: true })
-    .limit(limit);
-
-  if (error) throw new Error(`could not read the registry: ${error.message}`);
-  const rows = (data ?? []) as Row[];
-  console.log(`${rows.length} icims boards\n`);
+  /**
+   * A page at a time, because PostgREST caps a response at 1,000 rows and says
+   * nothing about it.
+   *
+   * The first run of this asked for 5,000 boards, was handed 1,000, announced
+   * "1000 icims boards" as though that were the lot, renamed 744 and left 1,589
+   * untouched — exiting 0 with nothing in the log to suggest otherwise.
+   */
+  const all = await readAllRows<Row>((from, to) =>
+    db()
+      .from('boards')
+      .select('id,token,company')
+      .eq('provider', 'icims')
+      .order('id', { ascending: true })
+      .range(from, to),
+  );
+  const rows = all.slice(0, limit);
+  console.log(
+    `${rows.length} icims boards${all.length > rows.length ? ` (of ${all.length}, --limit applied)` : ''}\n`,
+  );
 
   // Rows already carrying a real name cost nothing: they are never fetched.
   const candidates = rows.filter((r) => isPlaceholder(r.company, r.token));

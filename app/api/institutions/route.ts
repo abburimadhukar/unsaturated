@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { db } from '../../../src/db/supabase.js';
+import { db, readAllRows } from '../../../src/db/supabase.js';
 import { MAX_AGE_DAYS } from '../../../src/corpus/types.js';
 import { FAMILY_ORDER } from '../../../src/taxonomy/families.js';
 import { SECTOR_ORDER, type Sector } from '../../../src/taxonomy/sector.js';
@@ -201,20 +201,29 @@ export async function GET(request: Request) {
    * filter you set is indistinguishable from a broken page.
    */
   {
-    let q = client
-      .from('jobs')
-      .select('specialization')
-      .is('closed_at', null)
-      .not('sector', 'is', null)
-      .not('family', 'is', null)
-      .not('specialization', 'is', null)
-      .eq('adjacent', false)
-      .or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen_at.gte.${cutoff})`);
-    if (sectorRaw) q = q.eq('sector', sectorRaw);
-    if (familyRaw) q = q.eq('family', familyRaw);
-    if (quietOnly) q = q.eq('quiet', true);
-    const { data: specRows } = await q.range(0, 4999);
-    for (const r of (specRows ?? []) as { specialization: string | null }[]) {
+    // Paged, because PostgREST caps a response at 1,000 rows silently — asking
+    // for 5,000 returns 1,000 with no error and no sign anything is missing.
+    // Institutions are 1,431 roles today and 799 of them carry a
+    // specialization, so a single request happens to be complete right now and
+    // would quietly start under-counting the day it is not. That is the worst
+    // kind of bug to leave lying: correct until it isn't, and silent when it
+    // turns.
+    const specRows = await readAllRows<{ specialization: string | null }>((from, to) => {
+      let q = client
+        .from('jobs')
+        .select('specialization')
+        .is('closed_at', null)
+        .not('sector', 'is', null)
+        .not('family', 'is', null)
+        .not('specialization', 'is', null)
+        .eq('adjacent', false)
+        .or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen_at.gte.${cutoff})`);
+      if (sectorRaw) q = q.eq('sector', sectorRaw);
+      if (familyRaw) q = q.eq('family', familyRaw);
+      if (quietOnly) q = q.eq('quiet', true);
+      return q.range(from, to);
+    });
+    for (const r of specRows) {
       if (r.specialization) {
         specializations[r.specialization] = (specializations[r.specialization] ?? 0) + 1;
       }

@@ -76,3 +76,38 @@ export function canWrite(): boolean {
 }
 
 export const SUPABASE_URL = URL;
+
+/**
+ * Reads every row of a query, a page at a time.
+ *
+ * POSTGREST CAPS EVERY RESPONSE AT 1,000 ROWS, and it does so silently: asking
+ * for 5,000 returns 1,000 with no error, no truncation flag and no sign that
+ * anything is missing. `limit` and `Range` are both capped. A caller that asks
+ * once and believes the answer is reading the first page and calling it the
+ * whole table.
+ *
+ * That is not hypothetical. The iCIMS rename asked for 5,000 boards, was handed
+ * 1,000, reported "1000 icims boards" as though that were all of them, renamed
+ * 744 and left 1,589 untouched — while exiting successfully. Nothing about the
+ * run looked wrong.
+ *
+ * `make` is called once per page with the offset and size to fetch, because a
+ * PostgREST query builder cannot be re-ranged after it has been awaited.
+ */
+export async function readAllRows<T>(
+  make: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  { pageSize = 1000, max = 100_000 }: { pageSize?: number; max?: number } = {},
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; from < max; from += pageSize) {
+    const { data, error } = await make(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    out.push(...page);
+    // A short page is the last page. Equally, a full one is not proof there is
+    // another — the next request simply comes back empty, which costs one round
+    // trip and is the only honest way to know.
+    if (page.length < pageSize) break;
+  }
+  return out;
+}
