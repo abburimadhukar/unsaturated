@@ -529,6 +529,24 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
     /** Lanes that ran out of time rather than out of boards. */
     const unfinished: { provider: string; done: number; total: number }[] = [];
 
+    /**
+     * When reading stops, whether or not every board has been read.
+     *
+     * A shard killed by the workflow timeout writes NOTHING — the upsert
+     * happens after this block, so forty minutes of reading is discarded whole.
+     * That is what happened to the 04:46 run on 22 September, and the shard
+     * was not stuck: Workable and iCIMS are refused by Cloudflare from Actions
+     * runners, the limiter reads a 429 as "slow down", and a lane pacing itself
+     * at four seconds a board cannot finish 909 of them inside the ceiling.
+     *
+     * Stopping early is worse than finishing and better than being killed. The
+     * boards already read are stored, the lane that ran out prints how far it
+     * got, and close-detection was already scoped to boards that came back in
+     * this run — so the ones never reached keep their postings rather than
+     * having them closed as withdrawn.
+     */
+    const deadline = now + config.deadlineMs;
+
     await Promise.all(
       [...lanes].map(async ([provider, list]) => {
         let cursor = 0;
@@ -538,6 +556,9 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
         await Promise.all(
           Array.from({ length: width }, async () => {
             while (cursor < list.length) {
+              // Checked before the board is claimed, so `cursor` still reports
+              // how many were actually read rather than how many were taken.
+              if (Date.now() > deadline) break;
               const board = list[cursor++];
               if (!board) break;
               await limiter.acquire(provider);
@@ -588,6 +609,12 @@ export async function refreshFeed(shard?: Shard): Promise<Feed> {
     for (const u of unfinished) {
       console.log(
         `  WARNING: ${u.provider} read ${u.done} of ${u.total} boards before the run ended`,
+      );
+    }
+    if (unfinished.length > 0) {
+      console.log(
+        `  the reading budget is ${Math.round(config.deadlineMs / 60_000)} minutes ` +
+          `(CRAWLER_DEADLINE_MS); everything read is still being written`,
       );
     }
 

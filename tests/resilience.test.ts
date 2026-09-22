@@ -597,3 +597,31 @@ test('the scheduled crawl cannot inherit a hand-started shard count', () => {
   // boards or crawl them twice.
   assert.doesNotMatch(wf, /--of 4\b/, 'the shard count is hard-coded again');
 });
+
+test('a run out of time writes what it read instead of being killed', () => {
+  // The upsert happens AFTER the reading block, so a shard killed by the
+  // workflow timeout stores nothing at all — 40 minutes of work discarded,
+  // which is what happened to the 04:46 shard on 22 September 2026.
+  //
+  // The lane stops taking new boards at the deadline and the run continues to
+  // the write. Close-detection is already scoped to boards that came back this
+  // run, so the boards never reached keep their postings rather than having
+  // them closed as withdrawn.
+  const live = readFileSync(new URL('../src/corpus/live.ts', import.meta.url), 'utf8');
+  assert.match(live, /const deadline = now \+ config\.deadlineMs/);
+  assert.match(live, /if \(Date\.now\(\) > deadline\) break;/);
+  // And the run must say so rather than looking complete.
+  assert.match(live, /WARNING: \$\{u\.provider\} read \$\{u\.done\} of \$\{u\.total\}/);
+
+  const cfg = readFileSync(new URL('../src/config.ts', import.meta.url), 'utf8');
+  assert.match(cfg, /deadlineMs: int\('CRAWLER_DEADLINE_MS', 30 \* 60_000\)/);
+
+  // The budget has to leave room for the writing the timeout also covers.
+  const wf = readFileSync(new URL('../.github/workflows/crawl.yml', import.meta.url), 'utf8');
+  const ceiling = /timeout-minutes: (\d+)/.exec(wf);
+  assert.ok(ceiling, 'the crawl has no timeout');
+  assert.ok(
+    Number(ceiling[1]) > 30,
+    `the reading budget is 30 minutes and the job is killed at ${ceiling[1]} — no room to write`,
+  );
+});

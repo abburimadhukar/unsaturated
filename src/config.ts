@@ -31,4 +31,21 @@ export const config = {
   timeoutMs: int('CRAWLER_TIMEOUT_MS', 20_000),
   /** A board failing this many runs in a row is deactivated rather than retried forever. */
   maxConsecutiveFailures: int('CRAWLER_MAX_FAILURES', 5),
+  /**
+   * How long the crawl may spend reading boards before it stops and writes.
+   *
+   * THE POINT IS THAT A RUN OUT OF TIME STILL WRITES SOMETHING. The crawl
+   * workflow is killed at 40 minutes and a killed process writes nothing at
+   * all, so on 22 September one shard spent 40 minutes reading boards and
+   * stored none of them. It was not stuck: Workable and iCIMS are refused by
+   * Cloudflare from Actions runners, the limiter reads a 429 as "slow down" and
+   * widens its gap to 4 seconds, and a quarter of Workable at that pace is 61
+   * minutes.
+   *
+   * 30 minutes leaves ten for the writing, the closing pass and the embeddings,
+   * which the timeout has to cover too. A lane that runs out stops taking new
+   * boards and says how far it got — the WARNING that already prints for an
+   * unfinished lane — rather than the whole run being lost silently.
+   */
+  deadlineMs: int('CRAWLER_DEADLINE_MS', 30 * 60_000),
 };
