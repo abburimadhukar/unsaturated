@@ -29,6 +29,24 @@ on:
         description: 'Crawl even if the corpus was refreshed in the last 45 minutes'
         type: boolean
         default: false
+      # A MEASUREMENT, not a setting to leave turned up.
+      #
+      # Workable and iCIMS are refused by Cloudflare from Actions runners — 796
+      # and 82 refusals in one run on 22 September — and the crawler reads a 429
+      # as "slow down" and widens its gap to 4 seconds. At that pace a quarter
+      # of Workable is 58 minutes against a 40-minute ceiling, which is what
+      # cancelled the 04:46 run that day and threw away its whole shard.
+      #
+      # Eight shards halves each lane. Whether that helps depends on something
+      # only a run can answer: if the block follows the IP, each runner gets its
+      # own budget and the refusals per runner halve; if it follows the Azure
+      # range every runner shares, eight shards is eight times the pressure and
+      # makes it worse. Run it once, compare the refusal counts, then decide.
+      shards:
+        description: 'How many shards to split the crawl across'
+        type: choice
+        default: '4'
+        options: ['4', '8']
 
 jobs:
   crawl:
@@ -47,15 +65,17 @@ jobs:
     # three and leave three quarters of the corpus unrefreshed.
     strategy:
       fail-fast: false
-      # Four shards, because seeding pushed the registry from 1,481 boards to
-      # 11,991 and a single process stopped finishing: three consecutive runs
-      # were killed at the timeout having done the work and written nothing.
-      # Each shard now takes ~3,000 boards, a few minutes each.
-      #
-      # One shard was right at 1,481 — four would have been 32 simultaneous
+      # Four by default, because seeding pushed the registry from 1,481 boards
+      # to 11,991 and a single process stopped finishing: three consecutive runs
+      # were killed at the timeout having done the work and written nothing. One
+      # shard was right at 1,481 — four would have been 32 simultaneous
       # connections to the same vendors for no gain.
+      #
+      # The scheduled run always takes the default, because `inputs` is empty on
+      # a schedule. So the eight-shard measurement described above can be run by
+      # hand without becoming the cadence by accident.
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: ${{ fromJSON(inputs.shards == '8' && '[0,1,2,3,4,5,6,7]' || '[0,1,2,3]') }}
     # Per shard, so the four run alongside each other but a slow shard is never
     # overlapped by the next run's copy of itself. `matrix` is only in scope at
     # job level — a workflow-level group referencing it silently resolves to
@@ -106,7 +126,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of 4 ${{ inputs.force && '--force' || '' }}
+        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of ${{ inputs.shards || '4' }} ${{ inputs.force && '--force' || '' }}
 
       # No Supabase key means the crawl cannot store anything, and there is no
       # deploy fallback: this workflow must never publish the site. Fail loudly

@@ -6,6 +6,7 @@ import { getJson, retryAfterMs } from '../src/ats/http.js';
 import { AtsFetchError, failureKindFor, type FetchContext } from '../src/ats/types.js';
 import { KNOWN_BUDGETS, ProviderLimiter } from '../src/corpus/rate-limit.js';
 import { harvestCommonCrawl, latestCrawl } from '../src/discovery/commoncrawl.js';
+import { sliceForShard } from '../src/corpus/live.js';
 
 /**
  * Never lose a live board to a bug again.
@@ -529,4 +530,70 @@ test('the weekly re-check can still retire a board that is genuinely gone', () =
   // Classified by status, not assumed — a 403 is user-agent filtering and must
   // not retire a live board here either.
   assert.match(src, /import \{ failureKindFor \}/);
+});
+
+// ---------------------------------------------------------------------------
+// The shard count
+// ---------------------------------------------------------------------------
+
+test('every board is crawled exactly once, at four shards and at eight', () => {
+  // The split is round-robin over TENANTS, not boards, so a Workday customer
+  // with several career sites keeps them together — close-detection can only
+  // judge the boards in its own shard, and splitting a tenant made each shard
+  // see one healthy site and close the others' postings as withdrawn.
+  //
+  // Changing the shard count must not disturb that. A board in no shard is
+  // never refreshed; a board in two is crawled twice and can be closed by
+  // whichever shard finishes second.
+  const boards = Array.from({ length: 500 }, (_, i) => ({
+    provider: i % 3 === 0 ? 'workday' : 'greenhouse',
+    // Every fifth Workday tenant carries a second site, as the real ones do.
+    token: `t${Math.floor(i / (i % 5 === 0 ? 2 : 1))}`,
+  }));
+  for (const of_ of [2, 4, 8]) {
+    const seen = new Map<string, number>();
+    for (let index = 0; index < of_; index++) {
+      for (const b of sliceForShard(boards, { index, of: of_ })) {
+        const key = `${b.provider}:${b.token}:${seen.size}`;
+        seen.set(key, (seen.get(key) ?? 0) + 1);
+      }
+    }
+    const total = [...seen.values()].reduce((a, b) => a + b, 0);
+    assert.equal(total, boards.length, `of=${of_} covered ${total} of ${boards.length}`);
+  }
+});
+
+test('a tenant never straddles two shards, whatever the count', () => {
+  const boards = [
+    { provider: 'workday', token: 'acme' },
+    { provider: 'workday', token: 'ACME' }, // same tenant, different case
+    { provider: 'workday', token: 'acme' }, // a third site
+    { provider: 'greenhouse', token: 'other' },
+  ];
+  for (const of_ of [2, 4, 8]) {
+    const where = new Map<string, number>();
+    for (let index = 0; index < of_; index++) {
+      for (const b of sliceForShard(boards, { index, of: of_ })) {
+        const tenant = `${b.provider}:${b.token.toLowerCase()}`;
+        const already = where.get(tenant);
+        assert.ok(
+          already === undefined || already === index,
+          `of=${of_}: ${tenant} is in shards ${already} and ${index}`,
+        );
+        where.set(tenant, index);
+      }
+    }
+  }
+});
+
+test('the scheduled crawl cannot inherit a hand-started shard count', () => {
+  // `inputs` is empty on a schedule, so the expression has to fall back to four
+  // on its own. A measurement run at eight must never become the cadence.
+  const wf = readFileSync(new URL('../.github/workflows/crawl.yml', import.meta.url), 'utf8');
+  assert.match(wf, /shard: \$\{\{ fromJSON\(inputs\.shards == '8' && '\[0,1,2,3,4,5,6,7\]' \|\| '\[0,1,2,3\]'\) \}\}/);
+  assert.match(wf, /--of \$\{\{ inputs\.shards \|\| '4' \}\}/);
+  assert.match(wf, /default: '4'/);
+  // The matrix and the --of argument have to agree, or a run would either skip
+  // boards or crawl them twice.
+  assert.doesNotMatch(wf, /--of 4\b/, 'the shard count is hard-coded again');
 });
