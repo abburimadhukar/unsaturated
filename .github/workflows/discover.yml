@@ -32,7 +32,7 @@ on:
         description: 'Only this provider (all = every provider)'
         type: choice
         default: all
-        options: [all, greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle, eightfold]
+        options: [all, greenhouse, workday, ashby, lever, smartrecruiters, workable, personio, bamboohr, ukg, recruitee, teamtailor, rippling, oracle, eightfold, icims]
 
 jobs:
   discover:
@@ -86,7 +86,7 @@ jobs:
         #
         # A manual run may name one provider; otherwise this is the full list.
         # Keep it in step with the `provider` choice above.
-        provider: ${{ fromJSON((inputs.provider && inputs.provider != 'all') && format('["{0}"]', inputs.provider) || '["greenhouse","workday","ashby","lever","smartrecruiters","workable","personio","bamboohr","ukg","recruitee","teamtailor","rippling","oracle","eightfold"]') }}
+        provider: ${{ fromJSON((inputs.provider && inputs.provider != 'all') && format('["{0}"]', inputs.provider) || '["greenhouse","workday","ashby","lever","smartrecruiters","workable","personio","bamboohr","ukg","recruitee","teamtailor","rippling","oracle","eightfold","icims"]') }}
     # Per vendor, and at JOB level: `matrix` is not in scope for workflow-level
     # concurrency — GitHub refuses to parse the file at all. The same mistake was
     # already made and fixed in crawl.yml. Per-vendor grouping lets the shards run

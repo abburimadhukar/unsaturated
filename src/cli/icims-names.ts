@@ -35,7 +35,7 @@
  */
 import { writeFileSync } from 'node:fs';
 
-import { icimsCompanyFrom } from '../ats/adapters/icims.js';
+import { icimsCompanyFrom, icimsListingUrl } from '../ats/adapters/icims.js';
 import { config } from '../config.js';
 import { titleise } from '../discovery/commoncrawl.js';
 import { db, dbWrite, readAllRows } from '../db/supabase.js';
@@ -55,6 +55,7 @@ interface Row {
   id: string;
   token: string;
   company: string | null;
+  extra: Record<string, string> | null;
 }
 
 /**
@@ -64,15 +65,12 @@ interface Row {
  * answered there. Only the head of the document is read: the title is in the
  * first few hundred bytes and the rest can be a megabyte of job cards.
  */
-async function nameFor(token: string): Promise<string | undefined> {
+async function nameFor(board: { token: string; extra?: Record<string, string> }): Promise<string | undefined> {
   try {
-    const res = await fetch(
-      `https://careers-${encodeURIComponent(token)}.icims.com/jobs/search?ss=1&in_iframe=1`,
-      {
-        headers: { 'user-agent': config.userAgent, accept: 'text/html' },
-        signal: AbortSignal.timeout(25_000),
-      },
-    );
+    const res = await fetch(icimsListingUrl(board), {
+      headers: { 'user-agent': config.userAgent, accept: 'text/html' },
+      signal: AbortSignal.timeout(25_000),
+    });
     if (!res.ok) return undefined;
     return icimsCompanyFrom((await res.text()).slice(0, 20_000));
   } catch {
@@ -121,7 +119,7 @@ async function main(): Promise<void> {
   const all = await readAllRows<Row>((from, to) =>
     db()
       .from('boards')
-      .select('id,token,company')
+      .select('id,token,company,extra')
       .eq('provider', 'icims')
       .order('id', { ascending: true })
       .range(from, to),
@@ -141,7 +139,7 @@ async function main(): Promise<void> {
   const writes: { id: string; company: string }[] = [];
 
   for (const row of candidates) {
-    const found = await nameFor(row.token);
+    const found = await nameFor({ token: row.token, ...(row.extra ? { extra: row.extra } : {}) });
     if (!found) {
       unreachable++;
     } else if (isBetter(found, row.company, row.token)) {

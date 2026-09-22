@@ -150,13 +150,37 @@ export function icimsCompanyFrom(body: unknown): string | undefined {
 /** Boards this large are read to a limit; the crawl keeps 300 a board anyway. */
 const MAX_PAGES = 6;
 
+/**
+ * The board's own hostname.
+ *
+ * MOST iCIMS BOARDS ARE careers-{token}.icims.com AND NOT ALL OF THEM ARE.
+ * Measured against the Common Crawl index on 22 September 2026, 995 distinct
+ * iCIMS hosts: 620 in the careers- form and 374 in some other shape their
+ * employer chose — abudhabi-nyu.icims.com is NYU Abu Dhabi, with ten jobs on
+ * it, and academiccareers-udst.icims.com is the University of Doha with eleven.
+ * Addressing those as careers-{token} reaches nothing.
+ *
+ * So the real host is stored when discovery saw one, and the careers- form is
+ * the fallback for the 2,589 boards seeded from the open dataset, which carry a
+ * token and no host. Both are live and both must keep working.
+ */
+export function icimsHost(board: { token: string; extra?: Record<string, string> }): string {
+  const host = board.extra?.host;
+  if (host && /^[a-z0-9][a-z0-9.-]*\.icims\.com$/i.test(host)) return host.toLowerCase();
+  return `careers-${encodeURIComponent(board.token)}.icims.com`;
+}
+
+/** The listing URL for a board, used by the adapter and by verification alike. */
+export function icimsListingUrl(board: { token: string; extra?: Record<string, string> }): string {
+  return `https://${icimsHost(board)}/jobs/search?ss=1&in_iframe=1`;
+}
+
 export const icimsAdapter: AtsAdapter = {
   provider: 'icims',
-  endpointPattern: 'https://careers-{token}.icims.com/jobs/search?ss=1&in_iframe=1',
+  endpointPattern: 'https://{host}/jobs/search?ss=1&in_iframe=1',
 
   async fetchJobs(board, ctx): Promise<NormalizedJob[]> {
-    const token = encodeURIComponent(board.token);
-    const base = `https://careers-${token}.icims.com/jobs/search?ss=1&in_iframe=1`;
+    const base = icimsListingUrl(board);
     const first = await getText(base, 'icims', board.token, ctx);
     // A token whose host has gone answers 404 and never reaches here; one that
     // answers with a page holding no job table is a live careers site with

@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { parseListing, pageCount, icimsCompanyFrom } from '../src/ats/adapters/icims.js';
+import { parseListing, pageCount, icimsCompanyFrom, icimsHost, icimsListingUrl } from '../src/ats/adapters/icims.js';
+import { toBoard } from '../src/discovery/commoncrawl.js';
 import { resolveApplyUrl } from '../src/ats/resolve.js';
 import { ADAPTERS } from '../src/ats/adapters/index.js';
 
@@ -157,4 +158,87 @@ test('the rename can run where the write key actually is', () => {
   for (const p of ['icims', 'oracle']) {
     assert.ok(pkg.scripts[`${p}:names`], `the workflow calls ${p}:names and package.json has no such script`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Not every iCIMS board is careers-{token}
+// ---------------------------------------------------------------------------
+
+/**
+ * Measured against the Common Crawl index on 22 September 2026: 19,926 iCIMS
+ * URLs, 995 distinct hosts. 620 were careers-{token}.icims.com and 374 were
+ * something else the employer chose. Two of those, checked live that day:
+ *
+ *   abudhabi-nyu.icims.com          NYU Abu Dhabi           25 jobs
+ *   academiccareers-udst.icims.com  University of Doha      11 jobs
+ *
+ * Both were unreachable, because the address was built from the token. Both are
+ * universities, which is exactly what the Institutions page is short of.
+ */
+test('a board is addressed by its own host when discovery saw one', () => {
+  assert.equal(
+    icimsListingUrl({ token: 'abudhabi-nyu', extra: { host: 'abudhabi-nyu.icims.com' } }),
+    'https://abudhabi-nyu.icims.com/jobs/search?ss=1&in_iframe=1',
+  );
+});
+
+test('a board seeded without a host still resolves to the careers- form', () => {
+  // 2,589 boards came from the open dataset carrying a token and nothing else.
+  // They were live before this change and have to stay live through it.
+  assert.equal(
+    icimsListingUrl({ token: 'chsli' }),
+    'https://careers-chsli.icims.com/jobs/search?ss=1&in_iframe=1',
+  );
+});
+
+test('a host that is not iCIMS is refused rather than trusted', () => {
+  // extra.host is stored data, and stored data is the thing that goes wrong.
+  // Anything that is not an icims.com name falls back instead of being fetched.
+  for (const host of ['evil.example.com', 'icims.com.attacker.net', '', 'javascript:alert(1)']) {
+    assert.equal(icimsHost({ token: 'acme', extra: { host } }), 'careers-acme.icims.com', host);
+  }
+});
+
+test('the discovery pattern keeps the host and the employer separately', () => {
+  const pattern = {
+    provider: 'icims' as const,
+    match: '*.icims.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.icims\.com)\//i,
+  };
+  const cases: [string, string | null, string | null][] = [
+    ['https://careers-chsli.icims.com/jobs/search?ss=1', 'chsli', 'careers-chsli.icims.com'],
+    ['https://abudhabi-nyu.icims.com/jobs/12/job', 'abudhabi-nyu', 'abudhabi-nyu.icims.com'],
+    ['https://jobs-acme.icims.com/jobs/1/x/job', 'acme', 'jobs-acme.icims.com'],
+    // iCIMS's own hosts, all present in the index sample and none an employer.
+    ['https://www.icims.com/products/', null, null],
+    ['https://www3.icims.com/anything', null, null],
+    ['https://careers.icims.com/x', null, null],
+  ];
+  for (const [url, token, host] of cases) {
+    const board = toBoard(pattern as never, url);
+    assert.equal(board?.token ?? null, token, url);
+    assert.equal((board?.extra as Record<string, string> | undefined)?.host ?? null, host, url);
+  }
+});
+
+test('careers-chsli and chsli are one board, not two', () => {
+  // The seeded rows carry the bare token. If discovery stored the prefixed
+  // label instead, every seeded board would be found again as a second copy.
+  const pattern = {
+    provider: 'icims' as const,
+    match: '*.icims.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.icims\.com)\//i,
+  };
+  assert.equal(toBoard(pattern as never, 'https://careers-chsli.icims.com/jobs/1/')?.token, 'chsli');
+});
+
+test('iCIMS is in the weekly sweep, not only in the seeding list', () => {
+  // It was the one supported provider discovery was never wired to, so its
+  // coverage was frozen at whatever a single open dataset happened to hold: an
+  // employer adopting iCIMS afterwards could never be found.
+  const wf = readFileSync(new URL('../.github/workflows/discover.yml', import.meta.url), 'utf8');
+  const matrix = /provider: \$\{\{ fromJSON\(.*'(\["[a-z]+"(?:,"[a-z]+")*\])'\) \}\}/.exec(wf);
+  assert.ok(matrix, 'the discovery matrix is gone');
+  assert.ok((JSON.parse(matrix[1]!) as string[]).includes('icims'));
+  assert.match(wf, /options: \[all,[^\]]*\bicims\b/);
 });

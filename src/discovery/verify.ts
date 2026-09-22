@@ -6,7 +6,7 @@ import {
 } from '../ats/adapters/oracle.js';
 import { WORKDAY_SHARDS, discoverWorkdaySite } from '../ats/adapters/workday.js';
 import { eightfoldCompanyFrom, eightfoldListUrl } from '../ats/adapters/eightfold.js';
-import { icimsCompanyFrom } from '../ats/adapters/icims.js';
+import { icimsCompanyFrom, icimsListingUrl } from '../ats/adapters/icims.js';
 import type { AtsProvider } from '../ats/types.js';
 import type { OpenBoard } from './opendata.js';
 
@@ -170,8 +170,10 @@ function endpoint(b: OpenBoard): { url: string; init?: RequestInit } | null {
     // The same server-rendered listing the adapter reads. A dead token's host
     // is simply gone and answers 404, which is what makes an HTML provider
     // verifiable at all: there is no "empty board" that looks like a live one.
+    // Addressed by the board's own host when discovery saw one, because 374 of
+    // the 995 live iCIMS hosts are not careers-{token} — see icimsHost.
     case 'icims':
-      return { url: `https://careers-${b.token}.icims.com/jobs/search?ss=1&in_iframe=1` };
+      return { url: icimsListingUrl(b) };
     default:
       return null;
   }

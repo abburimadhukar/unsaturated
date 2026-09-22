@@ -136,6 +136,29 @@ export const PATTERNS: Pattern[] = [
     match: 'ats.rippling.com/*',
     extract: /ats\.rippling\.com\/([A-Za-z0-9][A-Za-z0-9_-]*)/,
   },
+  /**
+   * iCIMS, added 22 September 2026 — the only supported provider that discovery
+   * was never wired to.
+   *
+   * Its 2,589 boards came from a single open dataset, so the coverage was
+   * frozen: nothing could ever find an employer that adopted iCIMS afterwards,
+   * while every other vendor was swept weekly. That was an oversight, not a
+   * limitation — the index holds three pages of iCIMS URLs against Rippling's
+   * one. Measured that day: 19,926 URLs, 995 distinct hosts, of which 108 in
+   * the careers- form were boards we did not have.
+   *
+   * THE HOST IS CAPTURED, NOT JUST THE TOKEN, and that is the point of the
+   * pattern. 374 of those 995 hosts are not careers-{token}:
+   * abudhabi-nyu.icims.com is NYU Abu Dhabi and academiccareers-udst.icims.com
+   * is the University of Doha, both live, both with jobs, and both unreachable
+   * by a URL built from a token. The token still carries the employer for
+   * naming and dedup; the host is how the board is actually addressed.
+   */
+  {
+    provider: 'icims',
+    match: '*.icims.com/*',
+    extract: /https?:\/\/([a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.icims\.com)\//i,
+  },
   // UKG needs BOTH halves of the URL: a company code and a board id. A match
   // that finds only the code is unusable, so the pattern demands both.
   // Both hosts, and the host is captured. UKG serves boards from
@@ -351,6 +374,32 @@ export function toBoard(p: Pattern, url: string): OpenBoard | null {
       // otherwise put "Hccz" in the feed.
       company: titleise(tenant),
       extra: { host, site },
+    };
+  }
+
+  if (p.provider === 'icims') {
+    const [, host] = m;
+    if (!host) return null;
+    const lower = host.toLowerCase();
+    const label = lower.split('.')[0];
+    if (!label) return null;
+    // iCIMS's own hosts, swept in with everyone else's. www.icims.com is the
+    // marketing site and www3/www4 are its application shells — none is an
+    // employer, and all three appeared in the index sample.
+    if (/^(www\d*|careers|jobs|app|api|configure|login|uploads|media)$/.test(label)) return null;
+    // The employer, for naming and for dedup against the seeded rows, which
+    // carry a token and no host. The prefix is stripped the same way resolve.ts
+    // strips it, so careers-chsli and chsli are one board rather than two.
+    const token = label.replace(/^(careers|jobs)-/, '');
+    if (!token || NOT_A_TOKEN.test(token)) return null;
+    return {
+      provider: 'icims',
+      token,
+      // Replaced at verification by the employer's own spelling from the page
+      // title — see icimsCompanyFrom. Title-casing "fhcrc" would otherwise put
+      // "Fhcrc" in the feed, which is exactly what it did once already.
+      company: titleise(token),
+      extra: { host: lower },
     };
   }
 
