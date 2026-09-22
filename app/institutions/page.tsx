@@ -367,6 +367,7 @@ export default function Institutions() {
                 <JobCard
                   key={j.key}
                   job={j}
+                  backTo="/institutions"
                   chips={
                     <>
                       {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}

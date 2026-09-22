@@ -16,6 +16,8 @@ export interface CardJob {
   key: string;
   title: string;
   company: string;
+  /** Which ATS the posting came from, shown at the end of the actions row. */
+  provider?: string | null;
   location?: string | null;
   remoteType?: string | null;
   seniority?: string | null;
@@ -58,6 +60,7 @@ export function JobCard({
   chips,
   reasons,
   score,
+  backTo,
 }: {
   job: CardJob;
   /** Family, sector, specialization — whatever the page wants to say. */
@@ -65,6 +68,15 @@ export function JobCard({
   /** Why this posting is on this page. Every line derived, never estimated. */
   reasons?: string[];
   score?: number;
+  /**
+   * Where "After applying" should send you back to.
+   *
+   * Without it that page's back link is always the main feed, so researching an
+   * employer from Quiet Roles quietly moved you to a different page and lost
+   * the filters you had set. The value is checked against a fixed list on the
+   * way out — see BACK_TO — rather than trusted as a URL.
+   */
+  backTo?: string;
 }) {
   const pay = salaryLabel(job);
   const fresh = job.ageDays !== null && job.dated && job.ageDays <= 2;
@@ -117,6 +129,40 @@ export function JobCard({
             ))}
           </ul>
         )}
+
+        {/*
+          The same actions row the main feed has, and it exists here because
+          Quiet Roles and Institutions had no way through to After applying at
+          all — the feature was reachable only from the feed, so the two pages
+          that surface the LEAST contested roles were the two you could not
+          research an employer from.
+
+          Written in the same order and the same class names as the feed's,
+          which is what makes them one product rather than three: `.actions`
+          styles links with var(--accent), so the row comes out teal on Quiet
+          Roles and blue on Institutions without a rule of its own.
+
+          "Tailor my resume" is deliberately absent. The feed gates it on the
+          six vendors that publish a description anywhere readable, and putting
+          an ungated copy here would offer a button that can only explain why it
+          cannot work — the exact thing that gate exists to prevent.
+        */}
+        <div className="actions">
+          {job.applyUrl && (
+            <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">
+              Open posting ↗
+            </a>
+          )}
+          <a
+            href={
+              `/after-apply?job=${encodeURIComponent(job.key)}` +
+              (backTo ? `&from=${encodeURIComponent(backTo)}` : '')
+            }
+          >
+            After applying
+          </a>
+          {job.provider && <span className="src">{job.provider}</span>}
+        </div>
       </div>
     </article>
   );

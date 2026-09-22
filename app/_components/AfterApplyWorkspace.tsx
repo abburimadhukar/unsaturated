@@ -14,9 +14,11 @@ interface JobContext {
   closed: boolean;
 }
 
-export function AfterApplyWorkspace({ job, scanConfigured }: {
+export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
   job: JobContext;
   scanConfigured: boolean;
+  /** Already checked against BACK_TO by the page; never a raw query value. */
+  backTo?: { href: string; label: string };
 }) {
   const [confirmed, setConfirmed] = useState(false);
   const [report, setReport] = useState<ResearchReport | null>(null);
@@ -72,7 +74,10 @@ export function AfterApplyWorkspace({ job, scanConfigured }: {
 
   return (
     <main className="aapage">
-      <nav className="aanav"><Link href="/">← Back to jobs</Link><Link href="/account">Account</Link></nav>
+      <nav className="aanav">
+        <Link href={backTo?.href ?? '/'}>← Back to {backTo?.label ?? 'jobs'}</Link>
+        <Link href="/account">Account</Link>
+      </nav>
       <div className="aaeyebrow">AFTER APPLYING</div>
       <h1>{job.title}</h1>
       <p className="aameta">{job.company} · {job.closed ? 'Posting may be closed' : 'Posting in feed'}

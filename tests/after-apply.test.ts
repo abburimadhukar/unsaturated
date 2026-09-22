@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { isPublicSourceUrl, outreachDraft } from '../src/after-apply/draft.js';
 import { parseResearchResponse, researchJob, RESEARCH_MODEL } from '../src/after-apply/research.js';
@@ -72,4 +73,64 @@ test('a contact must have a normal HTTPS source before drafting', () => {
   assert.equal(isPublicSourceUrl('javascript:alert(1)'), false);
   assert.equal(isPublicSourceUrl('http://example.org/person'), false);
   assert.equal(isPublicSourceUrl('https://user:password@example.org/person'), false);
+});
+
+// ---------------------------------------------------------------------------
+// Reaching it from Quiet Roles and Institutions
+// ---------------------------------------------------------------------------
+
+/**
+ * After applying was reachable only from the main feed, so the two pages that
+ * surface the LEAST contested roles were the two you could not research an
+ * employer from. The shared card carries the same actions row now.
+ */
+const card = readFileSync(new URL('../app/_components/JobCard.tsx', import.meta.url), 'utf8');
+const aaPage = readFileSync(new URL('../app/after-apply/page.tsx', import.meta.url), 'utf8');
+
+test('the shared card links every posting to After applying', () => {
+  assert.match(card, /\/after-apply\?job=\$\{encodeURIComponent\(job\.key\)\}/);
+  // The key goes in a URL, and some of them carry a Workday path with slashes
+  // in it — workday:mbda:/job/Bristol/Software-Engineer_R37445.
+  assert.match(card, /encodeURIComponent\(job\.key\)/);
+  assert.match(card, /encodeURIComponent\(backTo\)/);
+});
+
+test('both pages say where the back link should return to', () => {
+  for (const [path, page] of [
+    ['/quiet', '../app/quiet/page.tsx'],
+    ['/institutions', '../app/institutions/page.tsx'],
+  ] as const) {
+    const src = readFileSync(new URL(page, import.meta.url), 'utf8');
+    assert.match(src, new RegExp(`backTo="${path}"`), `${path} does not pass backTo`);
+  }
+});
+
+test('the back link can only point at pages on this site', () => {
+  // `from` arrives in the query string and ends up in an anchor's href, so it
+  // is matched against a fixed list rather than checked as a string. Anything
+  // else falls back to the feed, and a crafted link cannot turn this page's own
+  // navigation into a way off the site.
+  assert.match(aaPage, /const BACK_TO: Record<string, \{ href: string; label: string \}>/);
+  assert.match(aaPage, /const back = \(from && BACK_TO\[from\]\) \|\| BACK_TO\['\/'\]!/);
+  // Every allowed target is a root-relative path.
+  const entries = [...aaPage.matchAll(/'(\/[a-z-]*)': \{ href: '(\/[a-z-]*)'/g)];
+  assert.ok(entries.length >= 3, `expected the three list pages, found ${entries.length}`);
+  for (const [, key, href] of entries) {
+    assert.equal(key, href, 'the key and its href must agree');
+    assert.match(href!, /^\/[a-z-]*$/, `${href} is not a path on this site`);
+  }
+});
+
+test('the card does not offer tailoring it cannot deliver', () => {
+  // The feed gates tailoring on the vendors that publish a readable description
+  // — 5,727 open postings have none. An ungated copy here would be a button
+  // that can only ever explain why it does not work.
+  //
+  // Asserted on the LINK rather than the label, because the label is named in
+  // the comment beside the actions row explaining why it is absent.
+  assert.doesNotMatch(card, /href=\{?`?\/tailor\?job=/);
+  // And the feed's own gate is still there, so this stays a deliberate
+  // difference rather than a feature quietly removed from both.
+  const feed = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
+  assert.match(feed, /CAN_TAILOR\.has\(j\.provider\)/);
 });

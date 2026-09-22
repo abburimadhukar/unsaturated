@@ -428,6 +428,7 @@ export default function QuietRoles() {
                 <JobCard
                   key={j.key}
                   job={j}
+                  backTo="/quiet"
                   score={j.quietScore}
                   reasons={j.reasons}
                   chips={
