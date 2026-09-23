@@ -71,8 +71,25 @@ const PAGE = 1000;
  */
 const FILTER_CHUNK = 150;
 
-/** Closed jobs older than this are deleted outright. */
-const PURGE_AFTER_DAYS = 45;
+/**
+ * Closed jobs older than this are deleted outright.
+ *
+ * Was 45, which meant the purge had never deleted a single row: the database
+ * was created on 29 August and nothing in it was 45 days old, so the first
+ * delete would have landed around 14 October. It filled up on 22 September at
+ * 489 MB of a 500 MB ceiling, with 92,948 closed jobs — 47% of the table —
+ * that no code path reads. `n_tup_del` on `jobs` was 0, lifetime.
+ *
+ * 7 is chosen against MAX_AGE_DAYS, not against the disk. The site never serves
+ * a posting older than 21 days and every page filters `closed_at is null`, so a
+ * row that has been closed for a week is already invisible twice over. The
+ * margin is deliberate: a closed posting stays recoverable for several days in
+ * case a crawl closes something it should not have, which is the failure this
+ * window exists to survive.
+ *
+ * Keep this comfortably below MAX_AGE_DAYS — purge-window.test.ts enforces it.
+ */
+const PURGE_AFTER_DAYS = 7;
 
 export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
   const postedMs = r.posted_at ? Date.parse(r.posted_at) : NaN;
