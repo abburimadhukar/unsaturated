@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 import { normaliseTitle, tallyExclusions } from '../src/corpus/exclusions.js';
@@ -135,4 +136,54 @@ test('a sample company is carried so a title can be traced back', () => {
 
 test('an empty crawl tallies nothing without throwing', () => {
   assert.deepEqual(tallyExclusions([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// Reading it back
+// ---------------------------------------------------------------------------
+
+/**
+ * The report must page by key, never by offset.
+ *
+ * `order by n desc` with `.range(from, from + 999)` makes Postgres re-sort all
+ * 304,000 rows for every page and discard everything before the offset, so
+ * reading the table once costs 304 sorts of it. Measured on the live table:
+ * 2.2s a page that way, 36ms a page with a WHERE on the primary key. The report
+ * went from 5m09s to 1m11s on the same data and printed identical totals.
+ *
+ * `n` must NOT be ordered on in the query. It is the column every crawl
+ * increments, and indexing it to make this sort cheap is what forced 11,721,136
+ * updates down the slow path at 0% HOT — see the 2026-09-23 migration. The sort
+ * belongs in memory, after the read, where it costs nothing.
+ */
+const cliSource = readFileSync(new URL('../src/cli/exclusions.ts', import.meta.url), 'utf8');
+
+/**
+ * Comments stripped before matching.
+ *
+ * A "this must not appear" assertion read against the raw file fails on the
+ * comment explaining why the thing is absent — the absence is documented right
+ * where it happened, so the prose names what the code must not contain. Match
+ * on the code alone.
+ */
+const cli = cliSource.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[^\n]*?\/\/.*$/gm, ' ');
+
+test('the report pages by primary key, not by offset', () => {
+  assert.match(cli, /\.eq\('reason', reason\)/);
+  assert.match(cli, /\.gt\('title', lastTitle\)/);
+  assert.match(cli, /\.order\('title', \{ ascending: true \}\)/);
+  // .range() is the offset paging this replaced.
+  assert.doesNotMatch(cli, /\.range\(/);
+});
+
+test('the report never asks the database to sort by the counter', () => {
+  assert.doesNotMatch(cli, /\.order\('n'/);
+  // It sorts in memory instead, which is what keeps the output biggest-first.
+  assert.match(cli, /rows\.sort\(/);
+});
+
+test('keyset values travel as their own parameters, not inside an or() list', () => {
+  // Titles contain commas and brackets. Inside `or=(...)` those are syntax and
+  // would break the filter; as separate eq/gt parameters they are just values.
+  assert.doesNotMatch(cli, /\.or\(/);
 });

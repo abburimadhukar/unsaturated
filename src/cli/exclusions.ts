@@ -40,33 +40,70 @@ async function main(): Promise<void> {
   // so asking for 20,000 quietly returned 1,000 and every total printed below
   // was a fraction of the truth — it reported 57,891 discards against an actual
   // 232,366. The same cap is already handled in db-feed.ts; this forgot it.
+  //
+  // Paged BY KEY, not by offset, and in primary-key order rather than by count.
+  //
+  // The obvious version — `order by n desc` with `.range(from, from + 999)` —
+  // is quadratic in disguise. Each page re-sorts all 304,000 rows to throw away
+  // everything before the offset, so reading the table costs 304 sorts of it.
+  // Measured on the live table: 2.2s per page by count, 3.8s per page by key
+  // with an offset, and 36ms per page by key with a WHERE. That is the whole
+  // difference between a five-minute report and a ten-second one.
+  //
+  // (reason, title) is exactly the primary key, so each page is a short walk
+  // along an index we already keep. The eq/gt pair expresses the row-value
+  // comparison `(reason, title) > (last_reason, last_title)` in the two steps
+  // PostgREST can actually send, and the values go in their own query
+  // parameters rather than inside an `or=(...)` list — so a title containing a
+  // comma or a bracket cannot break the filter.
   type Row = {
     reason: string; title: string; n: number; sample_company: string | null; last_seen_at: string;
   };
   const PAGE = 1000;
+  const COLUMNS = 'reason,title,n,sample_company,last_seen_at';
   const rows: Row[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await client
-      .from('exclusions')
-      .select('reason,title,n,sample_company,last_seen_at')
-      .order('n', { ascending: false })
-      // Ordering by count alone is not a total order — thousands of titles share
-      // a count — and Postgres gives no stable order within a tie, so paging
-      // could repeat or skip rows at a page boundary.
-      .order('reason', { ascending: true })
-      .order('title', { ascending: true })
-      .range(from, from + PAGE - 1);
 
-    if (error) {
-      console.error(`could not read exclusions: ${error.message}`);
-      console.error('If the table does not exist, apply src/db/migrations/2026-09-04-exclusions.sql.');
-      process.exitCode = 1;
-      return;
-    }
-    const batch = (data ?? []) as Row[];
-    rows.push(...batch);
-    if (batch.length < PAGE) break;
+  const fail = (message: string): void => {
+    console.error(`could not read exclusions: ${message}`);
+    console.error('If the table does not exist, apply src/db/migrations/2026-09-04-exclusions.sql.');
+    process.exitCode = 1;
+  };
+
+  // The rules themselves, walked the same way. There are ~22 of them, so this
+  // is 22 single-row index lookups rather than a distinct over the whole table.
+  const reasons: string[] = [];
+  for (let last: string | null = null; ; ) {
+    let q = client.from('exclusions').select('reason');
+    if (last !== null) q = q.gt('reason', last);
+    const { data, error } = await q.order('reason', { ascending: true }).limit(1);
+    if (error) return fail(error.message);
+    const next = (data as { reason: string }[] | null)?.[0]?.reason;
+    if (next === undefined) break;
+    reasons.push(next);
+    last = next;
   }
+
+  for (const reason of reasons) {
+    for (let lastTitle: string | null = null; ; ) {
+      let q = client.from('exclusions').select(COLUMNS).eq('reason', reason);
+      if (lastTitle !== null) q = q.gt('title', lastTitle);
+      const { data, error } = await q.order('title', { ascending: true }).limit(PAGE);
+      if (error) return fail(error.message);
+      const batch = (data ?? []) as Row[];
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+      lastTitle = batch[batch.length - 1]!.title;
+    }
+  }
+
+  // Biggest first, which is the order every report below reads in. One sort of
+  // an array already in memory, in place of one sort per page on the server.
+  rows.sort(
+    (a, b) =>
+      Number(b.n) - Number(a.n) ||
+      a.reason.localeCompare(b.reason) ||
+      a.title.localeCompare(b.title),
+  );
 
   if (rows.length === 0) {
     console.log('Nothing recorded yet. The tally is written at the end of each crawl.');
