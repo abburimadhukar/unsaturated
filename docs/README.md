@@ -10,6 +10,7 @@ Start here.
 | What was deliberately set aside, and how to pick it up | **[parked.md](parked.md)** |
 | How to start a fresh session on any of it | **[handoff.md](handoff.md)** |
 | Where more job boards can come from | **[corpus-growth.md](corpus-growth.md)** |
+| Where the database should live once it outgrows the free plan | **[database-hosting.md](database-hosting.md)** |
 | The raw numbers behind all of the above | **[evidence/](evidence/)** |
 
 ---
