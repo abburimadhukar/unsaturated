@@ -91,6 +91,22 @@ const FILTER_CHUNK = 150;
  */
 const PURGE_AFTER_DAYS = 7;
 
+/**
+ * Most rows one run will delete.
+ *
+ * The purge is housekeeping attached to the end of a crawl, so it gets a budget
+ * rather than the whole backlog. At several crawls a day this clears 61,614
+ * waiting rows in two or three runs and then has almost nothing to do, which is
+ * the state it should live in.
+ */
+const PURGE_BUDGET = 5_000;
+
+/** And it stops here regardless, so a slow database cannot stretch a crawl. */
+const PURGE_DEADLINE_MS = 60_000;
+
+/** Keys to read per select. PostgREST caps a single select at 1000 whatever we ask. */
+const PURGE_READ = 1_000;
+
 export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
   const postedMs = r.posted_at ? Date.parse(r.posted_at) : NaN;
   const ageDays = Number.isFinite(postedMs)
@@ -573,7 +589,78 @@ export function closeScanTargets(
   return out;
 }
 
-export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed: number }> {
+/**
+ * Delete closed postings, a chunk at a time, inside a budget.
+ *
+ * The first version was one statement: `delete ... where closed_at < cutoff`.
+ * It never deleted a single row. The crawler inherits `statement_timeout=8s`
+ * from the `authenticator` role, 61,614 rows with a cascade into job_embedding
+ * does not finish in eight seconds, and all four shards were running that same
+ * delete at once, on the same rows, fighting each other for the locks. Every
+ * run, every shard, logged `canceling statement due to statement timeout` — and
+ * because a failed purge must never fail a crawl, the runs stayed green while
+ * nothing was reclaimed and the database went over its ceiling.
+ *
+ * So: small statements, and only one shard calls this.
+ *
+ * Deleted BY KEY rather than by predicate, which is what makes each statement
+ * small and predictable. The chunk is FILTER_CHUNK for the reason given there —
+ * these keys travel in the URL, not the body, and a Workday key carries colons
+ * that percent-encode to three bytes apiece.
+ */
+async function purgeClosed(client: ReturnType<typeof dbWrite>): Promise<number> {
+  const purgeBefore = new Date(Date.now() - PURGE_AFTER_DAYS * 86_400_000).toISOString();
+  const stopBy = Date.now() + PURGE_DEADLINE_MS;
+  let purged = 0;
+
+  while (purged < PURGE_BUDGET && Date.now() < stopBy) {
+    const want = Math.min(PURGE_READ, PURGE_BUDGET - purged);
+    const { data, error } = await client
+      .from('jobs')
+      .select('key')
+      .not('closed_at', 'is', null)
+      .lt('closed_at', purgeBefore)
+      .limit(want);
+    if (error) {
+      console.error('purge failed reading keys:', error.message);
+      break;
+    }
+    const keys = (data ?? []).map((r) => (r as { key: string }).key);
+    if (keys.length === 0) break;
+
+    let deleted = 0;
+    for (let i = 0; i < keys.length && Date.now() < stopBy; i += FILTER_CHUNK) {
+      const chunk = keys.slice(i, i + FILTER_CHUNK);
+      const { error: delError } = await client.from('jobs').delete().in('key', chunk);
+      if (delError) {
+        // Named, not swallowed. The one-statement version failed silently for a
+        // day; a purge that cannot keep up has to be visible in the log.
+        console.error(`purge failed for ${chunk.length} jobs: ${delError.message}`);
+        break;
+      }
+      deleted += chunk.length;
+    }
+    purged += deleted;
+    // Nothing landed, so the next pass would read the same keys and fail again.
+    if (deleted === 0) break;
+    if (keys.length < want) break;
+  }
+
+  // Always a line, including zero: "nothing left to purge" and "the purge is
+  // broken again" must not look the same from the outside.
+  const left = purged >= PURGE_BUDGET ? ' (budget reached; more next run)' : '';
+  console.log(`purged ${purged} jobs closed before ${purgeBefore.slice(0, 10)}${left}`);
+  return purged;
+}
+
+export async function writeFeed(
+  feed: Feed,
+  /**
+   * Only one shard should purge. Four shards deleting the same rows at once is
+   * how the single-statement version spent its whole timeout on lock contention.
+   */
+  { purge = true }: { purge?: boolean } = {},
+): Promise<{ upserted: number; closed: number }> {
   const client = dbWrite();
   // crawl_runs.started_at defaulted to now() at INSERT time, which is stamped
   // milliseconds AFTER the client-supplied finished_at — so every row recorded a
@@ -719,18 +806,7 @@ export async function writeFeed(feed: Feed): Promise<{ upserted: number; closed:
   // board list tripled in a day and there was no purge, no TTL and no pg_cron.
   // Deleting only what is both closed and well past the retention window keeps
   // this safe: a job still inside MAX_AGE_DAYS is never touched.
-  const purgeBefore = new Date(Date.now() - PURGE_AFTER_DAYS * 86_400_000).toISOString();
-  const { error: purgeError, count: purged } = await client
-    .from('jobs')
-    .delete({ count: 'exact' })
-    .not('closed_at', 'is', null)
-    .lt('closed_at', purgeBefore);
-  if (purgeError) {
-    // Never fatal: reclaiming space must not fail a crawl that already wrote.
-    console.error('purge failed:', purgeError.message);
-  } else if (purged) {
-    console.log(`purged ${purged} jobs closed before ${purgeBefore.slice(0, 10)}`);
-  }
+  if (purge) await purgeClosed(client);
 
   // A crawl that persisted nothing must never stamp the corpus fresh. readFeed's
   // staleness guard only looks at the newest run's finished_at, so a total

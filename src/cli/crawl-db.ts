@@ -85,11 +85,17 @@ async function main(): Promise<void> {
 
   // Only classified roles are stored. The rest are scanned to produce the
   // "N scanned" figure but never rendered, so persisting them would be waste.
-  const { upserted, closed } = await writeFeed({
-    ...feed,
-    jobs: feed.jobs.filter((j) => j.inScope),
-    scanned: feed.jobs.length,
-  });
+  const { upserted, closed } = await writeFeed(
+    {
+      ...feed,
+      jobs: feed.jobs.filter((j) => j.inScope),
+      scanned: feed.jobs.length,
+    },
+    // One shard deletes. Every shard running the same purge meant four copies
+    // of one statement competing for the same row locks, which is how it spent
+    // its whole 8-second timeout and reclaimed nothing. Unsharded runs purge.
+    { purge: !shard || shard.index === 0 },
+  );
 
   // The map, for resume matching. Runs here because live.ts has already composed
   // each in-scope job's digest — the only moment the description exists — and
