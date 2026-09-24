@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { initialsOf } from '../../src/ui/initials.js';
+import { SEAT_LIMIT } from '../../src/state/seats.js';
 import { ACCEPTED, extractResumeText, isAcceptedFile } from '../../src/ui/resume-file.js';
 
 /**
@@ -284,7 +285,7 @@ export default function AccountPage() {
       {isAdmin && (
         <section className="panel">
           <h2>Team</h2>
-          <p className="muted">See everyone&rsquo;s activity across the four seats.</p>
+          <p className="muted">See everyone&rsquo;s activity across the {SEAT_LIMIT} seats.</p>
           <a className="primary linkbtn" href="/admin">Open team view</a>
         </section>
       )}

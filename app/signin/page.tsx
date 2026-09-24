@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { applyPendingName, rememberName } from '../../src/ui/pending-name.js';
+import { SEAT_LIMIT } from '../../src/state/seats.js';
 
 /**
  * The sign-in page.
@@ -218,7 +219,7 @@ export default function SignIn() {
       </div>
 
       <p className="authfoot">
-        Four accounts, claimed first come. Nothing is reserved until you click the link.
+        {SEAT_LIMIT} accounts, claimed first come. Nothing is reserved until you click the link.
       </p>
     </div>
   );

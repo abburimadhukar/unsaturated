@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { initialsOf } from '../../src/ui/initials.js';
+import { SEAT_LIMIT } from '../../src/state/seats.js';
 
 /**
  * Who is using the site, and how much.
@@ -87,7 +88,7 @@ export default function Admin() {
         <div>
           <h1>Team</h1>
           <p className="muted">
-            {data?.seatsUsed ?? 0} of 4 seats used
+            {data?.seatsUsed ?? 0} of {SEAT_LIMIT} seats used
             {data?.anonymousProfiles ? ` · ${data.anonymousProfiles} anonymous visitors` : ''}
           </p>
         </div>

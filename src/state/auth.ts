@@ -1,15 +1,15 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
- * Sign-in for four people, with nothing to configure.
+ * Sign-in for SEAT_LIMIT people (six), with nothing to configure.
  *
  * Anonymous cookies fixed the shared-identity leak but tied a person's resume
  * and applied-to list to one browser: clearing cookies or moving to a laptop
  * lost it. This is a magic link — type an email, click the link — so there are
  * no passwords to store, reset or leak.
  *
- * Who is allowed is not a list anyone maintains. There are four seats, and the
- * first four people to complete a sign-in take them; the fifth is refused. A
+ * Who is allowed is not a list anyone maintains. There are SEAT_LIMIT seats, and
+ * the first people to complete a sign-in take them; the next one is refused. A
  * seat is keyed to the Supabase auth user id, so it can only be claimed by
  * someone who has proved they own the address — a typo cannot burn a seat,
  * because nothing is claimed until the emailed link is clicked.
@@ -26,7 +26,10 @@ const URL = process.env.SUPABASE_URL ?? 'https://vupjabahniolbnbmeidk.supabase.c
 const PUBLISHABLE =
   process.env.SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_BUdygNHc_QserbZ0tSJBWg_pGBwmfYq';
 
-export const SEAT_LIMIT = 4;
+// The number lives in seats.ts so browser pages can read it without importing
+// this file. Re-exported so existing server imports keep working.
+import { SEAT_LIMIT } from './seats.js';
+export { SEAT_LIMIT };
 export const SESSION_COOKIE = 'sb-token';
 
 /**
@@ -69,7 +72,7 @@ function asUser(token: string): SupabaseClient {
 export async function seatsTaken(): Promise<number> {
   try {
     const { data, error } = await auth().rpc('seats_taken');
-    if (error) return SEAT_LIMIT; // Unknown: assume full rather than let a fifth in.
+    if (error) return SEAT_LIMIT; // Unknown: assume full rather than let one more in.
     return typeof data === 'number' ? data : SEAT_LIMIT;
   } catch {
     return SEAT_LIMIT;
