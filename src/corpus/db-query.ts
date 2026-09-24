@@ -147,6 +147,12 @@ export interface FacetOptions {
   client?: { rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
   wait?: (ms: number) => Promise<void>;
   attempt?: number;
+  /**
+   * Read the stored snapshot before counting. True everywhere except the job
+   * that WRITES the snapshot — which must compute fresh counts, and would
+   * otherwise read back the copy it is about to replace and store it again.
+   */
+  snapshot?: boolean;
 }
 
 /**
@@ -179,10 +185,66 @@ export interface FacetOptions {
  * null — the retry narrows the window, it does not close it, and the zeroed
  * fallback in the route is still there to be decided on.
  */
+/**
+ * True when nothing has been filtered — the view every visitor lands on.
+ *
+ * Every field here is one the facet counts depend on, which is why the list is
+ * spelled out rather than derived: a new filter added to feed_facets and not
+ * added here would be served the unfiltered counts, and wrong counts are worse
+ * than slow ones. facet-snapshot.test.ts checks the two lists agree.
+ *
+ * `cloudOnly` and `includeUnknown` default to true and are only false when the
+ * caller says so, which is why they are compared against false rather than
+ * checked for absence.
+ */
+export function isUnfilteredQuery(f: FeedQuery): boolean {
+  return (
+    !f.family && !f.country && !f.remote && !f.seniority && !f.employmentType &&
+    !f.provider && !f.q && !f.stack && !f.specialization && !f.adjacent &&
+    f.hasSalary !== true && f.ai !== true && f.hideGhosts !== true &&
+    f.minSalary === undefined && f.postedWithinDays === undefined &&
+    f.cloudOnly !== false && f.includeUnknown !== false
+  );
+}
+
+/**
+ * How stale a stored snapshot may be before it is ignored.
+ *
+ * A crawl refreshes it every few hours. If crawls have been failing for a day
+ * the corpus has stopped moving anyway, but the counts should not silently
+ * describe a corpus nobody has checked since — falling back to a live count is
+ * slower and correct, which is the right way round.
+ */
+const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promise<Facets | null> {
   const attempt = opts.attempt ?? 0;
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const client = opts.client ?? db();
+
+  // The stored answer, for the one query shape that can use it.
+  //
+  // Read first and only on the default view. A miss costs one primary-key
+  // lookup on a single-row table and falls through to the live count, so the
+  // worst case is what this path already did.
+  if (attempt === 0 && opts.snapshot !== false && !opts.client && isUnfilteredQuery(f)) {
+    try {
+      const { data, error } = await db()
+        .from('facet_snapshot')
+        .select('facets,computed_at')
+        .eq('id', true)
+        .maybeSingle();
+      const row = data as { facets: Facets; computed_at: string } | null;
+      if (!error && row?.facets) {
+        const age = Date.now() - Date.parse(row.computed_at);
+        if (Number.isFinite(age) && age >= 0 && age < SNAPSHOT_MAX_AGE_MS) return row.facets;
+      }
+    } catch {
+      // Never fatal, and never retried: this is an optimisation in front of a
+      // path that already works. Anything wrong here falls through to it.
+    }
+  }
+
   try {
     const { data, error } = await client.rpc('feed_facets', {
       p_cutoff: cutoffIso(),

@@ -13,6 +13,7 @@ function argOf(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 import { writeFeed } from '../corpus/db-feed.js';
+import { refreshFacetSnapshot } from '../corpus/facet-snapshot.js';
 import { recordCrawlOutcomes } from '../corpus/board-store.js';
 import { embedNewJobs } from '../matching/run.js';
 import { tallyExclusions, recordExclusions } from '../corpus/exclusions.js';
@@ -112,6 +113,11 @@ async function main(): Promise<void> {
   // already stored its jobs correctly.
   const dropped = feed.jobs.length - roles;
   const tallied = await recordExclusions(tally);
+
+  // The filter counts, worked out once here instead of on every page view.
+  // One shard, like the purge — four shards computing the same global counts
+  // would be three repeats of the most expensive read in the database.
+  if (!shard || shard.index === 0) await refreshFacetSnapshot();
 
   // What the crawl learned about the boards themselves. Until this call existed,
   // last_crawled_at was NULL on all 12,479 boards and no board could ever retire

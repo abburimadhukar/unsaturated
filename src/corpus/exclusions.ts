@@ -1,4 +1,5 @@
 import { dbWrite } from '../db/supabase.js';
+import { upsertInChunks } from './db-feed.js';
 import type { FeedJob } from './types.js';
 
 /**
@@ -46,8 +47,13 @@ const TOP_N = Number.parseInt(process.env.EXCLUSION_TOP_N ?? '25000', 10);
  * The whole tally in one call would be a multi-megabyte JSON body. Chunking
  * keeps each request small while still being a handful of statements rather
  * than one per title.
+ *
+ * 1,000, down from 5,000. At 5,000 this averaged 2,349ms and peaked at 7,954ms
+ * against an 8-second limit — the slowest query in the database, and one that
+ * lost its results every time it crossed the line. The halving retry below now
+ * catches what does cross it; starting lower means it rarely has to.
  */
-const WRITE_CHUNK = 5000;
+const WRITE_CHUNK = 1000;
 
 /**
  * Titles are collapsed so trivially different postings land on one row.
@@ -112,27 +118,44 @@ export function tallyExclusions(jobs: FeedJob[], topN = TOP_N): ExclusionCount[]
 export async function recordExclusions(rows: ExclusionCount[]): Promise<number> {
   if (rows.length === 0) return 0;
   const client = dbWrite();
-  let written = 0;
-  for (let i = 0; i < rows.length; i += WRITE_CHUNK) {
-    const chunk = rows.slice(i, i + WRITE_CHUNK);
-    try {
-      const { data, error } = await client.rpc('record_exclusions', {
-        p_rows: chunk.map((r) => ({
-          reason: r.reason,
-          title: r.title,
-          n: r.n,
-          sample_company: r.sampleCompany,
-        })),
-      });
-      if (error) {
-        // Keep going: a chunk that fails costs its own counts, not the run's.
-        console.error(`exclusion chunk ${i / WRITE_CHUNK} not recorded:`, error.message);
-        continue;
-      }
-      written += (data as number) ?? 0;
-    } catch (err) {
-      console.error('exclusion tally not recorded:', err instanceof Error ? err.message : err);
-    }
+  try {
+    // Halved on a timeout, like every other write in this project.
+    //
+    // This was the one path that had no such retry: a 5,000-row chunk that ran
+    // out of time was logged and SKIPPED, so its counts were simply lost. On
+    // 24 Sep every chunk of every shard was skipped that way and the tally
+    // recorded nothing at all, while `record_exclusions` remained 12% of all
+    // database time at a 2,349ms mean and a 7,954ms worst case — against an
+    // 8-second limit. It was the most expensive query in the database AND the
+    // one throwing its own results away.
+    //
+    // upsertInChunks is the helper the jobs upsert uses. It halves on exactly
+    // the transient errors this was swallowing, and it never skips: a chunk is
+    // either written or it throws — which the catch below turns back into the
+    // "never fatal" behaviour instrumentation is supposed to have.
+    return await upsertInChunks(
+      rows,
+      async (chunk) => {
+        const { data, error } = await client.rpc('record_exclusions', {
+          p_rows: chunk.map((r) => ({
+            reason: r.reason,
+            title: r.title,
+            n: r.n,
+            sample_company: r.sampleCompany,
+          })),
+        });
+        return { error, count: (data as number | null) ?? chunk.length };
+      },
+      {
+        chunk: WRITE_CHUNK,
+        onRetry: (size, next, message) =>
+          console.warn(`  exclusion chunk of ${size} timed out, retrying ${next} — ${message}`),
+      },
+    );
+  } catch (err) {
+    // Never fatal. A crawl that read and stored jobs correctly must not be
+    // failed because the bookkeeping table is missing or slow.
+    console.error('exclusion tally not recorded:', err instanceof Error ? err.message : err);
+    return 0;
   }
-  return written;
 }

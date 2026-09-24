@@ -498,7 +498,19 @@ export async function upsertInChunks<T>(
     wait?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<number> {
-  const start = opts.chunk ?? 500;
+  // 250, not 500.
+  //
+  // The halving below always worked — it just always started too high. Under
+  // four-shard contention a 500-row upsert into `jobs` regularly runs past the
+  // 8-second statement timeout while a 250-row one goes through, which is what
+  // the note above this function already says. So every crawl spent a full
+  // timeout discovering that, then did the work at 250 anyway: five wasted
+  // 8-second statements in the 24 Sep run alone, and the jobs upsert is 22% of
+  // all database time with a 7,887ms worst case.
+  //
+  // Starting where it reliably lands costs two extra round trips on a good day
+  // and saves an eight-second stall on a bad one.
+  const start = opts.chunk ?? 250;
   const floor = opts.floor ?? 25;
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
 

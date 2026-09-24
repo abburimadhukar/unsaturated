@@ -151,17 +151,26 @@ test('every row is written when nothing goes wrong', async () => {
   const seen: number[] = [];
   const n = await upsertInChunks(rows(1200), async (c) => { seen.push(c.length); return { error: null, count: c.length }; }, { wait: noWait });
   assert.equal(n, 1200);
-  assert.deepEqual(seen, [500, 500, 200]);
+  // 250, not 500. The halving always worked; it just always started too high.
+  // Under four-shard contention a 500-row upsert into `jobs` regularly ran past
+  // the 8-second statement timeout while 250 went through, so every crawl spent
+  // a full timeout rediscovering that before doing the work at 250 anyway —
+  // five wasted 8-second statements in the 24 Sep run alone.
+  assert.deepEqual(seen, [250, 250, 250, 250, 200]);
 });
 
 test('a timeout halves the statement instead of failing the run', async () => {
   // The real shape of the failure: the database will take 250 rows but not 500.
+  //
+  // `chunk` is passed explicitly so this keeps exercising the halving even
+  // though the default is now 250 — otherwise lowering the default would have
+  // quietly turned this into a test that never retries anything.
   const written: number[] = [];
   const n = await upsertInChunks(rows(1000), async (c) => {
     if (c.length > 250) return { error: { message: TIMEOUT }, count: null };
     written.push(c.length);
     return { error: null, count: c.length };
-  }, { wait: noWait });
+  }, { wait: noWait, chunk: 500 });
 
   assert.equal(n, 1000, 'no row may be lost to a retry');
   assert.equal(written.reduce((a, b) => a + b, 0), 1000);
@@ -175,7 +184,7 @@ test('nothing is skipped when only the first chunk is slow', async () => {
     if (first && c.length === 500) { first = false; return { error: { message: TIMEOUT }, count: null }; }
     for (const r of c) got.push(r.key);
     return { error: null, count: c.length };
-  }, { wait: noWait });
+  }, { wait: noWait, chunk: 500 });
   assert.equal(n, 600);
   assert.equal(new Set(got).size, 600, 'every distinct row written exactly once');
 });
