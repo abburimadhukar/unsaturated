@@ -95,11 +95,20 @@ const PURGE_AFTER_DAYS = 7;
  * Most rows one run will delete.
  *
  * The purge is housekeeping attached to the end of a crawl, so it gets a budget
- * rather than the whole backlog. At several crawls a day this clears 61,614
- * waiting rows in two or three runs and then has almost nothing to do, which is
- * the state it should live in.
+ * rather than the whole backlog. It should end up with almost nothing to do on
+ * each run, which is the state it lives in once the backlog is gone.
+ *
+ * 15,000, raised from 5,000 after watching the first working run. That run hit
+ * the row cap with roughly 56 of its 60 seconds unused, so the budget — not the
+ * clock, not the database — was the thing holding it back.
+ *
+ * Sized against the INFLOW, which the first estimate ignored. A run purges the
+ * budget, and ~1,300 more postings age past PURGE_AFTER_DAYS while it does, so
+ * the net drain is the budget minus about 1,300. At 5,000 that is ~3,700 a run
+ * and a 57,887 backlog takes days; at 15,000 it is ~13,700 and the backlog is
+ * gone inside a day, after which the inflow is all there is to do.
  */
-const PURGE_BUDGET = 5_000;
+const PURGE_BUDGET = 15_000;
 
 /** And it stops here regardless, so a slow database cannot stretch a crawl. */
 const PURGE_DEADLINE_MS = 60_000;
