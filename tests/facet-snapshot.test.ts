@@ -81,7 +81,7 @@ test('the snapshot is only read for the default view, and never by its own write
   assert.match(query, /isUnfilteredQuery\(f\)/);
   // The writer must compute fresh counts, or it would read back the copy it is
   // about to replace and store it again forever.
-  assert.match(snapshot, /facetsFromDb\(\{\}, \{ snapshot: false \}\)/);
+  assert.match(snapshot, /facetsFromDb\(\{\}, \{ snapshot: false, client: dbWrite\(\) \}\)/);
 });
 
 test('a stale snapshot is ignored rather than served', () => {
@@ -101,4 +101,24 @@ test('only one shard refreshes it', () => {
   // Four shards computing the same global counts would be three repeats of the
   // most expensive read in the database.
   assert.match(cli, /if \(!shard \|\| shard\.index === 0\) await refreshFacetSnapshot\(\)/);
+});
+
+test('the refresh uses the write client, not the publishable one', () => {
+  // `anon` carries a 3-second statement timeout; the crawler's key gets 8. The
+  // first version used db() and so asked for the most expensive read in the
+  // database, at the busiest moment of the day, on the tightest budget of any
+  // client. It failed on the first run it ever had.
+  assert.match(snapshot, /client: dbWrite\(\)/);
+  // The publishable client must not appear here at all. Written as a plain
+  // string search rather than a regex: the first attempt anchored "db(" with
+  // a word boundary, the backslash was lost writing the file, and the test
+  // shipped a literal backspace byte the control-character guard then caught.
+  assert.ok(!snapshot.includes('client: db()'), 'the refresh must not use the anon client');
+});
+
+test('it retries, and waits between attempts rather than hammering', () => {
+  // What competes with this query is the crawl that just finished, so the
+  // useful response is to let it drain — not to ask again immediately.
+  assert.match(snapshot, /const TRIES = \[0, \d+_?\d*, \d+_?\d*\]/);
+  assert.match(snapshot, /if \(pause\) await wait\(pause\)/);
 });

@@ -110,8 +110,19 @@ const PURGE_AFTER_DAYS = 7;
  */
 const PURGE_BUDGET = 15_000;
 
-/** And it stops here regardless, so a slow database cannot stretch a crawl. */
-const PURGE_DEADLINE_MS = 60_000;
+/**
+ * And it stops here regardless, so a slow database cannot stretch a crawl.
+ *
+ * 120s, raised from 60. The first run at a 15,000 budget stopped at 8,000 and
+ * printed no "(budget reached)", which is how the log says it ran out of clock
+ * rather than allowance — the deletes are competing with the crawl that just
+ * wrote 12,000 roles, so they take longer here than anywhere else.
+ *
+ * Two minutes on a 25-minute crawl is affordable; not clearing the backlog is
+ * what is not. The budget still caps the work, so this only lets a slow run
+ * finish what a fast one already would.
+ */
+const PURGE_DEADLINE_MS = 120_000;
 
 /** Keys to read per select. PostgREST caps a single select at 1000 whatever we ask. */
 const PURGE_READ = 1_000;

@@ -23,12 +23,36 @@ import { facetsFromDb } from './db-query.js';
  * Written by ONE shard, like the purge, and never fatal: a crawl that stored
  * its jobs correctly must not fail because a cache did not refresh.
  */
-export async function refreshFacetSnapshot(): Promise<boolean> {
+/** Attempts, and how long to wait before each retry. */
+const TRIES = [0, 5_000, 20_000];
+
+export async function refreshFacetSnapshot(
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<boolean> {
   try {
     // Computed through the same function the site calls, with the same default
     // query, rather than a second copy of the counting logic here. A snapshot
     // that disagreed with the live path would be worse than no snapshot.
-    const facets = await facetsFromDb({}, { snapshot: false });
+    //
+    // THROUGH THE WRITE CLIENT, which is the bug the first version shipped with.
+    // Without it this used the publishable key, and `anon` carries a 3-SECOND
+    // statement timeout while the crawler's key gets 8. So the one caller that
+    // runs at the busiest moment in the day — the end of a crawl — was asking
+    // for the most expensive read in the database on the tightest budget of any
+    // client. It failed on the first run it ever had:
+    //
+    //   facet snapshot not refreshed: the counts did not come back
+    //
+    // Retried, too, and spaced out rather than immediately: the thing competing
+    // with this query is the crawl that just finished, so the useful thing to do
+    // is wait for it to drain instead of asking again into the same contention.
+    let facets = null;
+    for (const [i, pause] of TRIES.entries()) {
+      if (pause) await wait(pause);
+      facets = await facetsFromDb({}, { snapshot: false, client: dbWrite() });
+      if (facets) break;
+      console.warn(`facet snapshot attempt ${i + 1} of ${TRIES.length} did not come back`);
+    }
     if (!facets) {
       console.warn('facet snapshot not refreshed: the counts did not come back');
       return false;

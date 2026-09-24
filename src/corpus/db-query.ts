@@ -144,7 +144,14 @@ const FACET_RETRY_PAUSE_MS = 150;
  * Shared by queryFeedFromDb and facetsFromDb.
  */
 export interface FacetOptions {
-  client?: { rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
+  /**
+   * PromiseLike, not Promise: supabase-js returns a thenable query builder from
+   * .rpc(), so a real client does not satisfy `Promise` structurally. Typing it
+   * as Promise meant the only caller that needs to pass one — the snapshot
+   * refresh, which must use the WRITE client for its 8-second timeout rather
+   * than anon's 3 — could not be typed at all.
+   */
+  client?: { rpc: (name: string, params: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> };
   wait?: (ms: number) => Promise<void>;
   attempt?: number;
   /**
