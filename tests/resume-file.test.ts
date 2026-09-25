@@ -270,8 +270,12 @@ test('the vector type exists before any column declares it', () => {
     .map((l) => l.replace(/--.*$/, ''));
 
   const ext = lines.findIndex((l) => /create extension if not exists vector/.test(l));
-  const firstUse = lines.findIndex((l) => /halfvec\(/.test(l));
+  const firstUse = lines.findIndex((l) => /halfvec\(|vector\(/.test(l));
   assert.ok(ext >= 0, 'the vector extension must be created in schema.sql');
-  assert.ok(firstUse >= 0, 'expected a halfvec column');
-  assert.ok(ext < firstUse, `extension on line ${ext + 1}, halfvec used on line ${firstUse + 1}`);
+  // No vector column exists since job matching was removed on 25 Sep 2026, so
+  // this guards the next one: whenever a vector column is added back, the
+  // extension must still come first.
+  if (firstUse >= 0) {
+    assert.ok(ext < firstUse, `extension on line ${ext + 1}, a vector column on line ${firstUse + 1}`);
+  }
 });

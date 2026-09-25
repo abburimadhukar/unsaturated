@@ -1128,32 +1128,11 @@ a.stat:hover b { color: var(--accent); }
 
 .tfoot { margin-top: 11px; font-size: 10.5px; color: var(--text-faint); }
 
-/* An <a> to /tailor now, not a button that opened a panel under the post, so it
-   has to opt out of the global link underline it never used to inherit. */
-.tailorbtn {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: none;
-}
-.tailorbtn:hover { text-decoration: underline; }
-
 @media (max-width: 620px) {
   .tpct { margin-left: 0; }
   .tailor { padding: 11px; }
 }
 
-/* What is left of the old /tailor page: the notice shown when a vendor publishes
-   no description anywhere we can read, so there is nothing to tailor against. A
-   paragraph keeps a paragraph's measure. The workspace itself is .twork, and is
-   sized around the document instead. */
-.tailorpage { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
-.tailornav { display: flex; gap: 16px; font-size: 12px; margin-bottom: 20px; }
-.tailorpage h1 { font-size: 19px; margin: 0 0 5px; line-height: 1.35; }
-.tailormeta { color: var(--text-dim); font-size: 13px; margin: 0 0 18px; }
 .tclosed { color: var(--danger); }
 .tmissing { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
 

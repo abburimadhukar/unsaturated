@@ -24,6 +24,13 @@ const nextConfig = {
   turbopack: {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json'],
   },
+
+  // Resume tailoring was removed on 25 Sep 2026. Anyone with /tailor?job=…
+  // bookmarked lands on the feed instead of an error page. Temporary (307), so
+  // browsers do not cache it forever if the path is ever reused.
+  async redirects() {
+    return [{ source: '/tailor', destination: '/', permanent: false }];
+  },
 };
 
 export default nextConfig;

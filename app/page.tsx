@@ -17,7 +17,6 @@ import {
 } from '../src/ui/filter-state.js';
 import { COUNTRY_LABELS } from '../src/ats/geo.js';
 import { initialsOf } from '../src/ui/initials.js';
-import { FROM_DETAIL, FROM_LISTING } from '../src/tailor/providers.js';
 
 interface Job {
   key: string;
@@ -205,17 +204,6 @@ export default function Page() {
   // redirect, which looks like a broken page.
   const [meChecked, setMeChecked] = useState(false);
 
-  /**
-   * The vendors a description can be read from, as a Set for the card to test.
-   *
-   * Built from the same two lists the server fetches with, so the button cannot
-   * appear for a vendor the route would refuse. Outside the render path because it
-   * never changes.
-   */
-  const CAN_TAILOR = useMemo(
-    () => new Set<string>([...FROM_DETAIL, ...FROM_LISTING]),
-    [],
-  );
   const [saveError, setSaveError] = useState<string | null>(null);
 
   /**
@@ -1032,28 +1020,6 @@ export default function Page() {
                         {j.applyUrl && (
                           <a href={j.applyUrl} target="_blank" rel="noopener noreferrer" onClick={() => void open(j)}>
                             Open posting ↗
-                          </a>
-                        )}
-                        {/* Not shown for the six vendors that publish no
-                            description anywhere we can read — 5,727 open
-                            postings. A button that can only ever explain why it
-                            cannot work is worse than no button. */}
-                        {/* A LINK NOW, NOT A PANEL THAT OPENS UNDER THE POST.
-                            Two tailoring experiences existed side by side: this
-                            card opened the old line-edit panel — four chips
-                            including "Cut what doesn't matter", which once
-                            deleted every mention of AI from a CV for an AI
-                            company — while /tailor ran the whole-document
-                            rewrite and the two suggestion buttons. Same button
-                            name, different feature, depending on where you
-                            clicked it. There is one now. */}
-                        {CAN_TAILOR.has(j.provider) && (
-                          <a
-                            className="tailorbtn"
-                            href={`/tailor?job=${encodeURIComponent(j.key)}`}
-                            onClick={() => void open(j)}
-                          >
-                            Tailor my resume
                           </a>
                         )}
                         <a href={`/after-apply?job=${encodeURIComponent(j.key)}`}>

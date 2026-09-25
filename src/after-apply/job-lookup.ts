@@ -1,7 +1,11 @@
 import { dbWrite } from '../db/supabase.js';
 
 /**
- * Finding the job a tailoring request is about.
+ * Finding the job an After applying request is about.
+ *
+ * Moved here from src/tailor/ when resume tailoring was removed (25 Sep 2026).
+ * After applying was its other caller, so the lookup outlived the feature it
+ * was written for; the code is unchanged.
  *
  * WHY THIS IS SHARED RATHER THAN WRITTEN TWICE
  *
@@ -57,7 +61,7 @@ export interface LookupOptions {
   client?: ReturnType<typeof dbWrite>;
 }
 
-export async function loadJobForTailoring(
+export async function loadJob(
   jobKey: string,
   opts: LookupOptions = {},
 ): Promise<JobLookup> {

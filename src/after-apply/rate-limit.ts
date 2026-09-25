@@ -1,9 +1,13 @@
 /**
  * A ceiling on how often one person can spend money.
  *
- * Every tailoring attempt is an OpenAI call. Five people clicking through chips
- * on a handful of jobs is a few pence a month; a page stuck in a render loop is
- * an open tap, and the difference between those two is entirely a matter of rate.
+ * Every After applying research request is an OpenAI call. A few people
+ * checking a few jobs is pennies; a page stuck in a render loop is an open tap,
+ * and the difference between those two is entirely a matter of rate.
+ *
+ * Moved here from src/tailor/ when resume tailoring was removed (25 Sep 2026).
+ * The tailor-only shared instance went with it; research builds its own limiter
+ * with createLimiter().
  *
  * PER ISOLATE, NOT GLOBAL — AND THAT IS A REAL LIMITATION
  *
@@ -83,19 +87,4 @@ export function createLimiter(opts: LimiterOptions = {}): Limiter {
       return Math.max(0, perWindow - current(userId, now).length);
     },
   };
-}
-
-const SHARED_KEY = Symbol.for('unsaturated.tailor.limiter');
-
-/**
- * The limiter the route uses.
- *
- * On globalThis so it survives module re-evaluation within an isolate, which is
- * the same trick the profile cache uses and for the same reason — without it a
- * bundler or a hot path that re-imports resets the tally to empty.
- */
-export function sharedLimiter(): Limiter {
-  const g = globalThis as unknown as Record<symbol, Limiter | undefined>;
-  g[SHARED_KEY] ??= createLimiter();
-  return g[SHARED_KEY]!;
 }

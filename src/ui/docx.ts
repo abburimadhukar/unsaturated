@@ -1,6 +1,14 @@
 /**
  * Writing a .docx, with no library.
  *
+ * WHY THIS OUTLIVED RESUME TAILORING
+ *
+ * It was written to export a tailored resume, and tailoring was removed on
+ * 25 Sep 2026. It stays because scripts/extension-resume-e2e.mjs uses it to
+ * build the sample Word resume that checks the browser extension can import a
+ * .docx — and docx.test.ts reads its output back through resume-file.ts, the
+ * same reader the Account page uploads with. Nothing on the site calls it now.
+ *
  * The mirror of what resume-file.ts already does. That reads a .docx by unzipping
  * it by hand, because the browser ships an inflater in DecompressionStream and the
  * only entry needed is one known name. This writes one by hand for the same

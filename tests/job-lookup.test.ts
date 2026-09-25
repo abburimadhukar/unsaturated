@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { JOB_COLUMNS, loadJobForTailoring } from '../src/tailor/job-lookup.js';
+import { JOB_COLUMNS, loadJob } from '../src/after-apply/job-lookup.js';
 
 /**
  * The columns a query names have to exist, and a broken database must not be
@@ -141,12 +141,12 @@ function fakeClient(jobs: {
 }
 
 test('A MISSING ROW AND A BROKEN DATABASE DO NOT SHARE A MESSAGE', async () => {
-  const missing = await loadJobForTailoring('nope', { client: fakeClient({ data: null }) });
+  const missing = await loadJob('nope', { client: fakeClient({ data: null }) });
   assert.equal(missing.ok, false);
   assert.equal(missing.ok === false && missing.found, false);
   assert.match(missing.reason, /not in the feed any more/);
 
-  const broken = await loadJobForTailoring('x', {
+  const broken = await loadJob('x', {
     client: fakeClient({ error: { message: 'column jobs.extra does not exist' } }),
   });
   assert.equal(broken.ok, false);
@@ -158,7 +158,7 @@ test('A MISSING ROW AND A BROKEN DATABASE DO NOT SHARE A MESSAGE', async () => {
 });
 
 test('an unreachable database is reported as our fault, not as a missing job', async () => {
-  const out = await loadJobForTailoring('x', { client: fakeClient({ throws: true }) });
+  const out = await loadJob('x', { client: fakeClient({ throws: true }) });
   assert.equal(out.ok, false);
   assert.equal(out.ok === false && out.found, true);
   assert.match(out.reason, /could not reach the database/);
@@ -174,7 +174,7 @@ test('a found job comes back whole', async () => {
     apply_url: null,
     closed_at: null,
   };
-  const out = await loadJobForTailoring('greenhouse:acme:1', { client: fakeClient({ data: row }) });
+  const out = await loadJob('greenhouse:acme:1', { client: fakeClient({ data: row }) });
   assert.equal(out.ok, true);
   assert.equal(out.ok === true && out.job.title, 'Platform Engineer');
   // Only Workday needs the second read, so nothing else pays for it.
@@ -185,10 +185,13 @@ test('THE ROUTE REPORTS THE TWO CASES WITH DIFFERENT STATUS CODES', () => {
   // 404 means the posting has gone. 503 means we could not ask. A person seeing
   // the first goes and finds another job; a person seeing the second tries again.
   const src = readFileSync(
-    new URL('../app/api/tailor/rewrite/route.ts', import.meta.url),
+    // After applying's research route. This read the tailor rewrite route until
+    // tailoring was removed on 25 Sep 2026; After applying is now the caller
+    // that has to keep "posting gone" and "we are broken" apart.
+    new URL('../app/api/after-apply/research/route.ts', import.meta.url),
     'utf8',
   );
-  assert.match(src, /loadJobForTailoring\(jobKey\)/);
+  assert.match(src, /loadJob\(jobKey\)/);
   assert.match(src, /found\.found \? 503 : 404/);
   // It may DESCRIBE the old message in a comment — the header does, because the
   // reason this code looks like this is worth keeping. What it may not do is

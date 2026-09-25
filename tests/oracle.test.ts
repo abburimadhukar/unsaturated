@@ -12,7 +12,6 @@ import {
 import { PATTERNS, toBoard } from '../src/discovery/commoncrawl.js';
 import { resolveApplyUrl } from '../src/ats/resolve.js';
 import { needsBackfill } from '../src/ats/describe.js';
-import { canDescribe } from '../src/tailor/providers.js';
 import type { FetchContext } from '../src/ats/types.js';
 
 /**
@@ -372,13 +371,15 @@ test('a non-recruiting oracle host is still classified, not resolved', () => {
 
 // ---------------------------------------------------------------- wiring
 
-test('oracle is wired for descriptions in both places that decide it', () => {
+test('oracle is wired for descriptions', () => {
   // The listing carries an empty ShortDescriptionStr and null description
   // fields, so without the backfill every Oracle posting reaches scoring with
-  // nothing to match a resume against — and the feed would offer a tailor
-  // button that can only ever fail.
+  // nothing to classify or score from.
+  //
+  // This also checked canDescribe(), the list that decided which cards got a
+  // "Tailor my resume" button. That list went with resume tailoring on
+  // 25 Sep 2026; the backfill is the half that still matters.
   assert.equal(needsBackfill('oracle'), true);
-  assert.equal(canDescribe('oracle'), true);
 });
 
 test('a descriptor is only stripped as a whole word', () => {

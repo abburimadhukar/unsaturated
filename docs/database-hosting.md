@@ -26,6 +26,10 @@ planned, so the database needs a bigger home.
 
 ## 40% of the database is not used yet
 
+> **Update, 25 Sep 2026: removed.** `job_embedding`, the resume-vector columns
+> and resume tailoring were all removed, freeing ~200 MB. The analysis below is
+> kept because it is why. The size numbers elsewhere in this file predate it.
+
 **`job_embedding` — ~180 MB, 40% of the database — is written and never read.**
 
 - No query selects the `embedding` column. The only read is

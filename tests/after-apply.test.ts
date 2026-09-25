@@ -121,16 +121,15 @@ test('the back link can only point at pages on this site', () => {
   }
 });
 
-test('the card does not offer tailoring it cannot deliver', () => {
-  // The feed gates tailoring on the vendors that publish a readable description
-  // — 5,727 open postings have none. An ungated copy here would be a button
-  // that can only ever explain why it does not work.
-  //
-  // Asserted on the LINK rather than the label, because the label is named in
-  // the comment beside the actions row explaining why it is absent.
-  assert.doesNotMatch(card, /href=\{?`?\/tailor\?job=/);
-  // And the feed's own gate is still there, so this stays a deliberate
-  // difference rather than a feature quietly removed from both.
+test('resume tailoring is gone from every card, and After applying is not', () => {
+  // Tailoring was removed on 25 Sep 2026. This used to assert the feed still
+  // gated its tailor button; now it asserts nothing links to /tailor at all —
+  // and, the part that matters, that removing it did not take After applying
+  // off the cards with it. Asserted on the LINKS, not labels, because comments
+  // name both.
   const feed = readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8');
-  assert.match(feed, /CAN_TAILOR\.has\(j\.provider\)/);
+  for (const [name, src] of [['JobCard', card], ['feed', feed]] as const) {
+    assert.doesNotMatch(src, /href=\{?`?\/tailor/, `${name} still links to /tailor`);
+    assert.match(src, /\/after-apply\?job=\$\{encodeURIComponent\(/, `${name} lost its After applying link`);
+  }
 });

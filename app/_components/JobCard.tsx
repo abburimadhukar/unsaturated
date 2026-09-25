@@ -141,11 +141,6 @@ export function JobCard({
           which is what makes them one product rather than three: `.actions`
           styles links with var(--accent), so the row comes out teal on Quiet
           Roles and blue on Institutions without a rule of its own.
-
-          "Tailor my resume" is deliberately absent. The feed gates it on the
-          six vendors that publish a description anywhere readable, and putting
-          an ungated copy here would offer a button that can only explain why it
-          cannot work — the exact thing that gate exists to prevent.
         */}
         <div className="actions">
           {job.applyUrl && (

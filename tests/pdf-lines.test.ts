@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { linesFromItems, type TextItem } from '../src/ui/pdf-lines.js';
-import { readResume } from '../src/ui/resume-render.js';
 
 /**
  * Putting the lines back into a PDF resume.
@@ -175,11 +174,15 @@ test('THE REBUILT TEXT READS BACK AS A DOCUMENT', () => {
     at('• Built services in .NET Core', 50, 570, 160),
   ]);
 
-  const kinds = readResume(text).map((b) => b.kind);
-  assert.ok(kinds.includes('name'), 'the name is not read as a name');
-  assert.ok(kinds.includes('contact'), 'the contact line is not read as one');
-  assert.ok(kinds.includes('heading'), 'no section heading survived');
-  assert.ok(kinds.includes('bullet'), 'no bullet survived');
+  // Checked on the lines themselves. This used to go through the resume
+  // renderer, which was removed with resume tailoring on 25 Sep 2026; what the
+  // kept readers — Account-page upload and the browser extension — rely on is
+  // that each of these arrives on a line of its own, and that is what's asserted.
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  assert.ok(lines.includes('MADHUKAR ABBURI'), 'the name is not a line of its own');
+  assert.ok(lines.some((l) => l.startsWith('madhukar@example.com')), 'the contact line is not its own');
+  assert.ok(lines.includes('TECHNICAL SKILLS') && lines.includes('EXPERIENCE'), 'a section heading was merged into a neighbour');
+  assert.ok(lines.some((l) => l.startsWith('• Built services')), 'the bullet is not its own line');
 });
 
 // ---------------------------------------------------------------------------

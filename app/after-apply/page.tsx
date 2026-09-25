@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { AfterApplyWorkspace } from '../_components/AfterApplyWorkspace.js';
-import { loadJobForTailoring } from '../../src/tailor/job-lookup.js';
+import { loadJob } from '../../src/after-apply/job-lookup.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +27,7 @@ export default async function AfterApplyPage({
   const { job: key, from } = await searchParams;
   const back = (from && BACK_TO[from]) || BACK_TO['/']!;
   const validKey = key && key.length <= 200 && /^[a-z]+:[^:]+:.+$/i.test(key);
-  const found = validKey ? await loadJobForTailoring(key) : null;
+  const found = validKey ? await loadJob(key) : null;
   if (!found?.ok) {
     return (
       <main className="aapage">

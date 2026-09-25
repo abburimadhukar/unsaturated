@@ -161,10 +161,15 @@ title on the Quiet page.
 design below.* On 11 Sep a vector approach was started instead of per-screen AI
 calls (`a41bd59`, `f0f9c0d`, `01ada76`, `346c7cc`, `62db83e`):
 
+*25 Sep — all three below were removed* (2026-09-25-remove-tailor-and-matching.sql).
+The job vectors had grown to ~200 MB, 40% of the database, while nothing read
+them. If this is picked up again, start from scratch — and budget for the HNSW
+index, which roughly doubles the vector storage.
+
 ```
-job_embedding          74,231 job vectors (bge-small, Workers AI) — filled by the crawl
-user_state.resume_text      stored now (2026-09-12-resume-text.sql)
-user_state.resume_embedding column exists — 0 resumes embedded
+job_embedding          74,231 job vectors (bge-small, Workers AI) — REMOVED 25 Sep
+user_state.resume_text      stored for tailoring — REMOVED 25 Sep
+user_state.resume_embedding column existed, 0 resumes embedded — REMOVED 25 Sep
 ```
 
 Nothing on the site uses the vectors yet: no resume has one, and the feed still

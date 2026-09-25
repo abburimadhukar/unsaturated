@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 
 import { attachSession } from '../../../../src/state/auth.js';
 import { attachVisitor, subjectFor } from '../../../../src/state/identity.js';
-import { createLimiter } from '../../../../src/tailor/rate-limit.js';
+import { createLimiter } from '../../../../src/after-apply/rate-limit.js';
 import { researchJob } from '../../../../src/after-apply/research.js';
-import { loadJobForTailoring } from '../../../../src/tailor/job-lookup.js';
+import { loadJob } from '../../../../src/after-apply/job-lookup.js';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     return answer({ error: 'Choose a valid job from the feed.' }, 400);
   }
 
-  const found = await loadJobForTailoring(jobKey);
+  const found = await loadJob(jobKey);
   if (!found.ok) return answer({ error: found.found ? 'Could not load this job right now.' : found.reason }, found.found ? 503 : 404);
   if (!limiter().allow(visitor.id)) return answer({ error: 'Please wait a minute before scanning again.' }, 429);
 

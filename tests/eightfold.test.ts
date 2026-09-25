@@ -9,7 +9,6 @@ import {
 } from '../src/ats/adapters/eightfold.js';
 import { fetchDetail, needsBackfill } from '../src/ats/describe.js';
 import { resolveApplyUrl } from '../src/ats/resolve.js';
-import { canDescribe } from '../src/tailor/providers.js';
 import { PATTERNS, toBoard } from '../src/discovery/commoncrawl.js';
 import type { FetchContext } from '../src/ats/types.js';
 
@@ -143,7 +142,6 @@ test('the employer name comes from branding', () => {
 
 test('the description comes from the per-posting endpoint', async () => {
   assert.equal(needsBackfill('eightfold'), true);
-  assert.equal(canDescribe('eightfold'), true);
   let asked = '';
   const impl = (async (url: string) => {
     asked = String(url);

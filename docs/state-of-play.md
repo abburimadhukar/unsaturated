@@ -230,10 +230,11 @@ Recorded in the commit history; the headlines:
   board rather than reading its message (`697de49`), and a board no longer
   carries a neighbour's error text (`f645ce0`). The 46 wrongly retired Workday
   companies are all back.
-- **Resume tailoring** (12–15 Sep): the person's own .docx or PDF is edited in
-  place, nothing is invented and no line is silently deleted.
-- **Job vectors** for matching (11 Sep): 74,231 filled; not used on the site
-  yet — [parked.md §4](parked.md).
+- ~~**Resume tailoring** (12–15 Sep)~~ — **removed 25 Sep 2026**, not in use.
+  The stored CV text went with it; skills extraction for Best match stayed.
+- ~~**Job vectors** for matching (11 Sep)~~ — **removed 25 Sep 2026.** Never
+  read by anything and ~200 MB, 40% of a database at its free-plan ceiling.
+  See migrations/2026-09-25-remove-tailor-and-matching.sql.
 - **Profiles made private** (`d855585`, `9035192`).
 - **Rupees no longer outrank dollars** in "highest paid" (`2e68b7c`).
 - **Oracle Cloud and Eightfold connected**, the Internet Archive added as a

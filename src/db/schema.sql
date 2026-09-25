@@ -14,11 +14,10 @@
 -- ---------------------------------------------------------------------------
 -- jobs — one row per posting, keyed by "provider:token:externalId"
 -- ---------------------------------------------------------------------------
--- pgvector, first, because user_state and job_embedding both declare halfvec
--- columns below and a type has to exist before a column can be it. Learned the
--- obvious way: the extension was created inside the job_embedding block, which
--- is 2,600 characters AFTER user_state already used halfvec(384), so this file
--- would have failed on a fresh database.
+-- pgvector. Nothing in this schema uses it since job_embedding and the resume
+-- vector columns were removed on 25 Sep 2026; it is kept because vector search,
+-- if it is ever built properly, will need it, and an unused extension costs
+-- nothing.
 create extension if not exists vector;
 
 create table if not exists public.jobs (
@@ -204,19 +203,10 @@ create table if not exists public.user_state (
   -- 2026-09-06-resume-file.sql -- the uploaded file, not its text
   resume_name  text,
   resume_size  integer,
-  resume_path  text,
-  -- 2026-09-11-match-vectors.sql -- the resume's position on the map
-  resume_embedding   halfvec(384),
-  resume_model       text,
-  resume_embedded_at timestamptz,
-  -- Bumped when the resume changes, so cached per-job explanations written
-  -- against an older version fall out of use without being deleted.
-  resume_version     integer not null default 0,
-  -- 2026-09-12-resume-text.sql -- the CV itself, needed at request time by
-  -- tailoring. Only defensible because this table has no anon select policy:
-  -- see 2026-09-11-private-profiles.sql. Never part of the Profile the browser
-  -- receives; read server-side by getResumeText.
-  resume_text        text
+  resume_path  text
+  -- The resume's vector, match version and full text were removed on
+  -- 25 Sep 2026 with resume tailoring and job matching.
+  -- See migrations/2026-09-25-remove-tailor-and-matching.sql.
 );
 
 create table if not exists public.job_events (
@@ -242,45 +232,7 @@ create table if not exists public.job_events (
 -- began bypassing RLS. Verified empirically: with them gone, a direct PATCH from
 -- outside changes zero rows while the site still saves.
 -- ---------------------------------------------------------------------------
--- ---------------------------------------------------------------------------
--- job_embedding -- one vector per posting, for resume matching
---
--- halfvec(384) because the model is @cf/baai/bge-small-en-v1.5 on Cloudflare
--- Workers AI: 384 output dimensions, 512 maximum input tokens. The 512 is why
--- the embedded text is a short composition rather than the description -- a
--- median description is ~2,065 tokens, four times the limit.
---
--- A separate table rather than a column on  on purpose. The crawl
--- re-upserts every job every run, and one future edit to toJobRow including
--- this column as null would wipe the entire map.
---
--- Neither the description nor the embedded text is stored -- only a hash of the
--- latter, which is what lets the crawl skip an unchanged job without keeping the
--- prose. A vector reads back into neither.
---
--- No vector index here deliberately: HNSW roughly doubles the storage and costs
--- memory to build on a free-tier instance, and 65,818 rows may not need one.
--- See migrations/2026-09-11-match-vectors.sql.
--- ---------------------------------------------------------------------------
-
-create table if not exists public.job_embedding (
-  job_key      text primary key references public.jobs(key) on delete cascade,
-  embedding    halfvec(384) not null,
-  model        text not null,
-  source_hash  text not null,
-  created_at   timestamptz not null default now()
-);
-
-create index if not exists job_embedding_model_idx on public.job_embedding (model);
-
--- Applying these to an existing database:
---   alter table public.user_state add column if not exists resume_embedding halfvec(384);
---   alter table public.user_state add column if not exists resume_model text;
---   alter table public.user_state add column if not exists resume_embedded_at timestamptz;
---   alter table public.user_state add column if not exists resume_version integer not null default 0;
-
 alter table public.blocked_boards enable row level security;
-alter table public.job_embedding enable row level security;
 alter table public.jobs       enable row level security;
 alter table public.boards     enable row level security;
 alter table public.crawl_runs enable row level security;
