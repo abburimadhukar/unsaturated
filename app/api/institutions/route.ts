@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { db, readAllRows } from '../../../src/db/supabase.js';
+import { db } from '../../../src/db/supabase.js';
 import { MAX_AGE_DAYS } from '../../../src/corpus/types.js';
 import { FAMILY_ORDER } from '../../../src/taxonomy/families.js';
 import { SECTOR_ORDER, type Sector } from '../../../src/taxonomy/sector.js';
+import { pageFacets } from '../../../src/corpus/page-facets.js';
 
 /**
  * Roles at universities, hospitals, charities and public bodies.
@@ -26,6 +27,8 @@ const COUNTRY_FACETS = ['US', 'GB', 'IN', 'CA', 'DE', 'AU', 'NL', 'IE', 'PL', 'S
 const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
+/** Same reasoning as the main feed's: seconds, not no-store, so a busy database is not stampeded. */
+const DEGRADED_CACHE_HEADER = 'public, s-maxage=5';
 
 interface Row {
   key: string;
@@ -111,8 +114,11 @@ export async function GET(request: Request) {
   const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86_400_000).toISOString();
   const client = db();
 
-  /** `withPlace: false` for the country facets — see the note in /api/quiet. */
-  const base = ({ withPlace = true }: { withPlace?: boolean } = {}) => {
+  /**
+   * The matching set for the list itself. The counts are institution_facets'
+   * job, and it applies the same conditions — keep the two in step.
+   */
+  const base = () => {
     let q = client
       .from('jobs')
       .select(
@@ -132,7 +138,7 @@ export async function GET(request: Request) {
     if (quietOnly) q = q.eq('quiet', true);
     if (specialization) q = q.eq('specialization', specialization);
     if (search) q = q.or(`title.ilike.*${search}*,company.ilike.*${search}*`);
-    if (withPlace && country) {
+    if (country) {
       q = country === UNPLACED ? q.is('country', null) : q.eq('country', country.toUpperCase());
     }
     return q;
@@ -164,71 +170,41 @@ export async function GET(request: Request) {
   const rows = (data ?? []) as unknown as Row[];
   const now = Date.now();
 
+  /**
+   * Every count on the page, in ONE query (institution_facets).
+   *
+   * These used to be a request per sector, per country and for "location
+   * unclear", all at once, followed by a paged read of every matching row's
+   * specialization to tally in JavaScript. See 2026-09-25-page-facets.sql.
+   *
+   * What each count ignores is unchanged, and now lives in the SQL:
+   *  - the sector tabs ignore the country and the chosen sector — they are
+   *    navigation, and a tab reading 0 because of a filter set elsewhere is how
+   *    someone concludes the page is broken;
+   *  - the countries are counted without the country itself applied, or every
+   *    other country would read zero;
+   *  - the specialization list ignores the specialization and search filters,
+   *    for the same reason as the tabs.
+   *
+   * If the counts fail they are left OUT, not set to 0. The page hides a count
+   * it was not given; a zero would be an invented number.
+   */
+  const facets = await pageFacets('institution_facets', {
+    p_cutoff: cutoff,
+    p_family: familyRaw || null,
+    p_quiet: quietOnly,
+    p_specialization: specialization || null,
+    p_q: search || null,
+    p_sector: sectorRaw || null,
+  });
   const counts: Record<string, number> = {};
   const countries: Record<string, number> = {};
-  const specializations: Record<string, number> = {};
-  let countryUnknown = 0;
-  await Promise.all([
-    ...SECTOR_ORDER.map(async (s) => {
-      const { count: n } = await base({ withPlace: false }).eq('sector', s).range(0, 0);
-      counts[s] = n ?? 0;
-    }),
-    ...COUNTRY_FACETS.map(async (c) => {
-      let q = base({ withPlace: false }).eq('country', c);
-      if (sectorRaw) q = q.eq('sector', sectorRaw);
-      const { count: n } = await q.range(0, 0);
-      if (n) countries[c] = n;
-    }),
-    (async () => {
-      let q = base({ withPlace: false }).is('country', null);
-      if (sectorRaw) q = q.eq('sector', sectorRaw);
-      const { count: n } = await q.range(0, 0);
-      countryUnknown = n ?? 0;
-    })(),
-  ]);
-
-  /**
-   * Which kinds of work this sector actually has.
-   *
-   * Counted over the WHOLE matching set, not the page: tallying the 50 rows on
-   * screen would have made the dropdown change every time you pressed "show 50
-   * more". The whole set is affordable here in a way it would not be on the
-   * main feed — institutions are 1,431 roles in total, and this reads one
-   * small column of them.
-   *
-   * The specialization filter itself is deliberately not applied, for the same
-   * reason the sector tabs ignore it: an option that reads 0 because of a
-   * filter you set is indistinguishable from a broken page.
-   */
-  {
-    // Paged, because PostgREST caps a response at 1,000 rows silently — asking
-    // for 5,000 returns 1,000 with no error and no sign anything is missing.
-    // Institutions are 1,431 roles today and 799 of them carry a
-    // specialization, so a single request happens to be complete right now and
-    // would quietly start under-counting the day it is not. That is the worst
-    // kind of bug to leave lying: correct until it isn't, and silent when it
-    // turns.
-    const specRows = await readAllRows<{ specialization: string | null }>((from, to) => {
-      let q = client
-        .from('jobs')
-        .select('specialization')
-        .is('closed_at', null)
-        .not('sector', 'is', null)
-        .not('family', 'is', null)
-        .not('specialization', 'is', null)
-        .eq('adjacent', false)
-        .or(`posted_at.gte.${cutoff},and(posted_at.is.null,first_seen_at.gte.${cutoff})`);
-      if (sectorRaw) q = q.eq('sector', sectorRaw);
-      if (familyRaw) q = q.eq('family', familyRaw);
-      if (quietOnly) q = q.eq('quiet', true);
-      return q.range(from, to);
-    });
-    for (const r of specRows) {
-      if (r.specialization) {
-        specializations[r.specialization] = (specializations[r.specialization] ?? 0) + 1;
-      }
-    }
+  if (facets) {
+    for (const s of SECTOR_ORDER) counts[s] = facets.counts[s] ?? 0;
+    // Only the shortlist is offered, as before; an empty country is dropped.
+    for (const c of COUNTRY_FACETS) if (facets.countries[c]) countries[c] = facets.countries[c]!;
   }
+  const specializations = facets?.specializations ?? {};
 
   const res = NextResponse.json({
     sector: sectorRaw,
@@ -239,7 +215,7 @@ export async function GET(request: Request) {
     hasMore: offset + rows.length < (count ?? 0),
     counts,
     countries,
-    countryUnknown,
+    countryUnknown: facets?.countryUnknown ?? 0,
     specializations,
     maxAgeDays: MAX_AGE_DAYS,
     jobs: rows.map((r) => {
@@ -267,6 +243,9 @@ export async function GET(request: Request) {
       };
     }),
   });
-  res.headers.set('cache-control', CACHE_HEADER);
+  // A page without its counts is cached for seconds, not minutes, so one
+  // refused count does not blank the tabs for everyone who follows.
+  res.headers.set('cache-control', facets ? CACHE_HEADER : DEGRADED_CACHE_HEADER);
+  if (!facets) res.headers.set('x-facets', 'unavailable');
   return res;
 }

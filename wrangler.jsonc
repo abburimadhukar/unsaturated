@@ -24,6 +24,21 @@
     "enabled": true
   },
 
+  // Run the Worker beside the database, not beside the visitor.
+  //
+  // Supabase is in us-east-1. Left to default, the Worker runs in whichever
+  // Cloudflare city the visitor is nearest, and every database question crosses
+  // that distance — /api/me alone makes several in a row. One trip from the
+  // browser to Virginia is cheaper than several from the Worker to Virginia.
+  //
+  // A region hint rather than "smart": smart placement has to observe enough
+  // traffic before it moves anything, and six people do not generate enough.
+  // Static assets are unaffected (Cloudflare's placement docs) — they are still
+  // served from the city nearest the visitor.
+  "placement": {
+    "region": "aws:us-east-1"
+  },
+
   "observability": {
     "enabled": true
   }

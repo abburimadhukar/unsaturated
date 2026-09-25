@@ -3,6 +3,7 @@ import { db } from '../../../src/db/supabase.js';
 import { MAX_AGE_DAYS } from '../../../src/corpus/types.js';
 import { FAMILY_ORDER } from '../../../src/taxonomy/families.js';
 import { quietReasons, quietScore, SYNDICATED_PROVIDERS } from '../../../src/taxonomy/quiet.js';
+import { pageFacets } from '../../../src/corpus/page-facets.js';
 
 /**
  * The Quiet Roles feed.
@@ -36,6 +37,8 @@ const COUNTRY_FACETS = ['US', 'GB', 'IN', 'CA', 'DE', 'AU', 'NL', 'IE', 'PL', 'S
 const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
+/** Same reasoning as the main feed's: seconds, not no-store, so a busy database is not stampeded. */
+const DEGRADED_CACHE_HEADER = 'public, s-maxage=5';
 
 interface Row {
   key: string;
@@ -143,13 +146,10 @@ export async function GET(request: Request) {
   const client = db();
 
   /**
-   * The matching set.
-   *
-   * `withPlace` is false when counting the countries themselves: a facet that
-   * had the chosen country applied to it as well would report the size of the
-   * intersection of a country with itself, and every other country as zero.
+   * The matching set for the list itself. The counts are quiet_facets' job,
+   * and it applies the same conditions — keep the two in step.
    */
-  const base = ({ withPlace = true }: { withPlace?: boolean } = {}) => {
+  const base = () => {
     let q = client
       .from('jobs')
       .select(
@@ -170,7 +170,7 @@ export async function GET(request: Request) {
     if (seniority) q = q.eq('seniority', seniority);
     if (paidOnly) q = q.not('salary_min', 'is', null);
     if (search) q = q.or(`title.ilike.*${search}*,company.ilike.*${search}*`);
-    if (withPlace && country) {
+    if (country) {
       q = country === UNPLACED ? q.is('country', null) : q.eq('country', country.toUpperCase());
     }
     return q;
@@ -227,35 +227,42 @@ export async function GET(request: Request) {
   /** In ranked mode the reachable set is the pool, not the whole match. */
   const reachable = ranked ? Math.min(count ?? all.length, POOL) : (count ?? all.length);
 
-  // One count per family, for the tabs. Cheap: HEAD requests against the same
-  // partial index the page query uses.
+  // The tab and dropdown counts, in ONE query (quiet_facets).
   //
-  // The family counts deliberately ignore the country and the search box: they
-  // are navigation, and a tab that reads 0 because of a filter set on another
-  // tab is how someone concludes the page is broken.
+  // They used to be seventeen `count=exact` requests fired at once — one per
+  // family, one per country, one for "location unclear" — each re-reading the
+  // same rows. On the free database that burst crowded out the main feed: 49
+  // statement timeouts in one hour on 25 Sep 2026 with no crawl running. See
+  // 2026-09-25-page-facets.sql.
+  //
+  // The family counts deliberately ignore the country: they are navigation, and
+  // a tab that reads 0 because of a filter set on another tab is how someone
+  // concludes the page is broken. The countries are counted within the family
+  // being looked at, without the country itself applied, so the number beside
+  // each one is the number you will get.
+  //
+  // If the counts fail they are left OUT, not set to 0 — the page hides a count
+  // it was not given, and a zero would be an invented number.
+  const facets = await pageFacets('quiet_facets', {
+    p_cutoff: cutoff,
+    p_family: family,
+    p_families: FAMILIES,
+    p_on_site: onSite,
+    p_no_entry: noEntry,
+    p_mid_market: midMarket,
+    p_syndicated: [...SYNDICATED_PROVIDERS],
+    p_seniority: seniority || null,
+    p_paid_only: paidOnly,
+    p_q: search || null,
+  });
   const counts: Record<string, number> = {};
   const countries: Record<string, number> = {};
-  let countryUnknown = 0;
-  await Promise.all([
-    ...FAMILIES.map(async (f) => {
-      const { count: n } = await base({ withPlace: false }).eq('family', f).range(0, 0);
-      counts[f] = n ?? 0;
-    }),
-    // Only the countries the corpus actually has enough of to be worth
-    // offering, counted within the family being looked at so the number beside
-    // each one is the number you will get.
-    ...COUNTRY_FACETS.map(async (c) => {
-      const { count: n } = await base({ withPlace: false }).eq('family', family).eq('country', c).range(0, 0);
-      if (n) countries[c] = n;
-    }),
-    (async () => {
-      const { count: n } = await base({ withPlace: false })
-        .eq('family', family)
-        .is('country', null)
-        .range(0, 0);
-      countryUnknown = n ?? 0;
-    })(),
-  ]);
+  if (facets) {
+    for (const f of FAMILIES) counts[f] = facets.counts[f] ?? 0;
+    // Only the shortlist is offered, as before; a country with nothing in it
+    // is dropped rather than shown as a dead option.
+    for (const c of COUNTRY_FACETS) if (facets.countries[c]) countries[c] = facets.countries[c]!;
+  }
 
   const res = NextResponse.json({
     family,
@@ -269,7 +276,7 @@ export async function GET(request: Request) {
     ...(ranked ? { rankedPool: POOL, rankedCapped: (count ?? 0) > POOL } : {}),
     counts,
     countries,
-    countryUnknown,
+    countryUnknown: facets?.countryUnknown ?? 0,
     maxAgeDays: MAX_AGE_DAYS,
     jobs: rows.map((r) => {
       const stamp = r.posted_at ?? r.first_seen_at;
@@ -308,6 +315,9 @@ export async function GET(request: Request) {
       };
     }),
   });
-  res.headers.set('cache-control', CACHE_HEADER);
+  // A page without its counts is cached for seconds, not minutes, so one
+  // refused count does not blank the tabs for everyone who follows.
+  res.headers.set('cache-control', facets ? CACHE_HEADER : DEGRADED_CACHE_HEADER);
+  if (!facets) res.headers.set('x-facets', 'unavailable');
   return res;
 }

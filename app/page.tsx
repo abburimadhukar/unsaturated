@@ -407,9 +407,14 @@ export default function Page() {
     }
   }, [data, jobs.length, moreBusy, paramsFor]);
 
-  // Debounced so typing does not fire a request per keystroke.
+  // Debounced so typing does not fire a request per keystroke — but not the
+  // first load. Nobody is typing yet, and the pause was a quarter-second added
+  // to every visit before the jobs were even asked for.
+  const firstLoad = useRef(true);
   useEffect(() => {
-    const t = setTimeout(() => { void load(); }, 250);
+    const wait = firstLoad.current ? 0 : 250;
+    firstLoad.current = false;
+    const t = setTimeout(() => { void load(); }, wait);
     return () => clearTimeout(t);
   }, [load]);
 

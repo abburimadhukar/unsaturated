@@ -278,25 +278,56 @@ for (const title of [
 const quietRoute = readFileSync(new URL('../app/api/quiet/route.ts', import.meta.url), 'utf8');
 const instRoute = readFileSync(new URL('../app/api/institutions/route.ts', import.meta.url), 'utf8');
 
+/**
+ * The counts moved into two SQL functions on 25 Sep 2026 (one query instead of
+ * seventeen per page view), so the rules about what each count ignores are now
+ * checked in the SQL. The comment lines are stripped first so an explanation
+ * cannot satisfy the test on the code's behalf.
+ */
+const facetSql = readFileSync(new URL('../src/db/migrations/2026-09-25-page-facets.sql', import.meta.url), 'utf8')
+  .replace(/--.*$/gm, '');
+const quietFn = facetSql.slice(facetSql.indexOf('function public.quiet_facets'), facetSql.indexOf('function public.institution_facets'));
+const instFn = facetSql.slice(facetSql.indexOf('function public.institution_facets'));
+
 test('a country facet is not narrowed by the country already chosen', () => {
   // Counting each country WITH the chosen country applied would report the
   // size of a country intersected with itself and every other country as zero,
   // so the dropdown would empty itself the moment it was used.
-  for (const [name, src] of [['quiet', quietRoute], ['institutions', instRoute]] as const) {
-    assert.match(src, /withPlace = true/, `${name} has no facet escape hatch`);
-    assert.match(
-      src,
-      /COUNTRY_FACETS\.map\([\s\S]{0,200}?base\(\{ withPlace: false \}\)/,
-      `${name} counts its countries through the country filter`,
-    );
+  for (const [name, fn] of [['quiet', quietFn], ['institutions', instFn]] as const) {
+    assert.ok(fn.length > 0, `${name} facet function is missing`);
+    assert.doesNotMatch(fn, /p_country/, `${name} counts its countries through the country filter`);
+  }
+  // …and the routes do not pass one either.
+  for (const src of [quietRoute, instRoute]) {
+    assert.doesNotMatch(src.slice(src.indexOf('pageFacets(')), /p_country/);
   }
 });
 
 test('the navigation tabs ignore the filters set beneath them', () => {
   // A family tab that reads 0 because of a country picked on another tab is
   // how someone concludes the page is broken rather than filtered.
-  assert.match(quietRoute, /FAMILIES\.map\([\s\S]{0,160}?base\(\{ withPlace: false \}\)/);
-  assert.match(instRoute, /SECTOR_ORDER\.map\([\s\S]{0,160}?base\(\{ withPlace: false \}\)/);
+  assert.match(quietFn, /select family, count\(\*\) n from m group by family/);
+  assert.match(instFn, /select sector, count\(\*\) n from m where hit group by sector/);
+  // The sector tabs must not be narrowed by the sector already chosen.
+  const tabs = instFn.slice(instFn.indexOf("'counts'"), instFn.indexOf("'countries'"));
+  assert.doesNotMatch(tabs, /p_sector/);
+});
+
+test('the specialization list ignores the specialization and search filters', () => {
+  // Same reason as the tabs: an option reading 0 because of a filter you set
+  // is indistinguishable from a broken page.
+  const specs = instFn.slice(instFn.indexOf("'specializations'"));
+  assert.doesNotMatch(specs, /\bhit\b/);
+});
+
+test('a count that could not be had is left off, never shown as zero', () => {
+  // The old per-option counts wrote `n ?? 0` for a timed-out count.
+  for (const src of [quietRoute, instRoute]) {
+    assert.doesNotMatch(src, /count: n \} = await/);
+    assert.match(src, /facets \? CACHE_HEADER : DEGRADED_CACHE_HEADER/);
+  }
+  const page = readFileSync(new URL('../app/institutions/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /Object\.keys\(data\.counts\)\.length > 0/);
 });
 
 test('roles we could not place are selectable, and never folded into a country', () => {
@@ -309,6 +340,7 @@ test('roles we could not place are selectable, and never folded into a country',
     assert.match(src, /const UNPLACED = '__unknown__'/);
     assert.match(src, /country === UNPLACED \? q\.is\('country', null\)/);
     assert.match(src, /countryUnknown/, 'the unplaced option has no count to show');
+    assert.match(facetSql, /'countryUnknown'/);
     assert.doesNotMatch(src, /includeUnknown/, 'the folded-in behaviour is back');
   }
 });
@@ -372,7 +404,6 @@ test('a whole-table read is paged, never a single oversized request', () => {
 
   for (const [name, path] of [
     ['the iCIMS rename', '../src/cli/icims-names.ts'],
-    ['the institutions facet', '../app/api/institutions/route.ts'],
   ] as const) {
     const src = readFileSync(new URL(path, import.meta.url), 'utf8');
     assert.match(src, /readAllRows/, `${name} reads the table in one request`);

@@ -130,7 +130,11 @@ export default function Institutions() {
     void load();
   }, [load]);
 
-  const total = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : null;
+  // Hidden, not 0, when the counts did not arrive — the route leaves them out
+  // rather than inventing zeros, and summing nothing would put one back.
+  const total = data && Object.keys(data.counts).length > 0
+    ? Object.values(data.counts).reduce((a, b) => a + b, 0)
+    : null;
 
   const active: [string, () => void][] = [];
   if (filters.family) {

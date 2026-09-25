@@ -151,13 +151,29 @@ export async function resolveSession(request: Request): Promise<ResolvedSession 
 
   if (token) {
     try {
-      const { data, error } = await auth().auth.getUser(token);
+      // Both checks at once rather than one after the other.
+      //
+      // They used to be sequential — verify the token, THEN look up the seat —
+      // two round trips to the database before any page could show. The seat
+      // lookup needs a user id, and the token already names one in its `sub`
+      // claim. That claim is not trusted on its own: the seat lookup runs AS
+      // the token, so the database verifies its signature and a forged one
+      // finds nothing; and the answer is only used if getUser independently
+      // confirms the very same id. Both checks still have to pass.
+      const claimed = subjectOf(token);
+      const [{ data, error }, seated] = await Promise.all([
+        auth().auth.getUser(token),
+        claimed ? hasSeat(token, claimed) : Promise.resolve(false),
+      ]);
       if (!error && data.user?.email) {
         const user = {
           id: data.user.id,
           email: data.user.email,
           metadata: (data.user.user_metadata ?? {}) as { first_name?: string; last_name?: string },
         };
+        if (claimed === user.id) return seated ? { user } : null;
+        // A token whose claim did not decode or disagreed: fall back to the
+        // sequential check rather than refusing someone valid.
         if (await hasSeat(token, user.id)) return { user };
         return null;
       }
@@ -228,6 +244,24 @@ export function attachSession<T extends { cookies: { set: (name: string, value: 
 /** Convenience wrapper for callers that only need to know who is asking. */
 export async function userFromRequest(request: Request): Promise<SignedInUser | null> {
   return (await resolveSession(request))?.user ?? null;
+}
+
+/**
+ * The user id a token CLAIMS, without verifying it.
+ *
+ * Only ever used to start the seat lookup early; see resolveSession for why an
+ * unverified value is safe there and nowhere else. Never an identity on its own.
+ */
+export function subjectOf(token: string): string | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    const sub = (JSON.parse(json) as { sub?: unknown }).sub;
+    return typeof sub === 'string' && sub ? sub : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
