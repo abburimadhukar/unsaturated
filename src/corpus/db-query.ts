@@ -137,6 +137,55 @@ export async function queryFeedFromDb(
   }
 }
 
+/**
+ * The default view — no filters, newest first — without counting it.
+ *
+ * feed_page counts every match (~40,000 rows) to report the total, and for
+ * this view that count was nearly all of its cost: 2.6 s against anon's 3 s
+ * limit, measured 25 Sep 2026, while the 50 rows themselves take ~40 ms once
+ * the ORDER BY can use the date index. See 2026-09-25-feed-newest.sql.
+ *
+ * So this returns the rows only. The caller takes the total from the sidebar
+ * counts, which for this view already hold it (facets.adjacent.core — equal to
+ * feed_page's total, checked at the same instant). One row more than asked is
+ * fetched so `hasMore` is exact rather than inferred from that total.
+ *
+ * Null on any failure; the caller falls back to feed_page.
+ */
+export async function queryNewestFromDb(
+  offset: number,
+  limit: number,
+  opts: FacetOptions = {},
+): Promise<{ jobs: FeedJob[]; hasMore: boolean } | null> {
+  const attempt = opts.attempt ?? 0;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const client = opts.client ?? db();
+  let message: string;
+  try {
+    const { data, error } = await client.rpc('feed_newest', {
+      p_cutoff: cutoffIso(),
+      p_offset: offset,
+      p_limit: limit + 1,
+    });
+    if (!error) {
+      const rows = (data as { rows?: JobRow[] } | null)?.rows;
+      if (!Array.isArray(rows)) return null;
+      return { jobs: rows.slice(0, limit).map((r) => toFeedJob(r)), hasMore: rows.length > limit };
+    }
+    message = error.message;
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+  }
+  if (attempt === 0 && isTransientWriteError(message)) {
+    console.warn(`feed_newest refused, retrying once: ${message}`);
+    await wait(FACET_RETRY_PAUSE_MS);
+    return queryNewestFromDb(offset, limit, { ...opts, attempt: 1 });
+  }
+  // Not fatal: the caller asks feed_page instead, which is slower but whole.
+  console.error('feed_newest failed:', message);
+  return null;
+}
+
 const FACET_RETRY_PAUSE_MS = 150;
 
 /**

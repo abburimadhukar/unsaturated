@@ -1,5 +1,12 @@
 import { NextResponse } from 'next/server';
-import { queryFeedFromDb, facetsFromDb, type Facets } from '../../../src/corpus/db-query.js';
+import {
+  queryFeedFromDb,
+  queryNewestFromDb,
+  facetsFromDb,
+  isUnfilteredQuery,
+  type Facets,
+  type FeedPage,
+} from '../../../src/corpus/db-query.js';
 // From ./types.js, not ./live.js. live.ts reads the board list and the build
 // snapshot off disk, so importing even a constant from it pulled `node:fs` into
 // the bundle — wasteful on a Node host and fatal on Workers, which have no
@@ -216,10 +223,27 @@ export async function GET(request: Request) {
   // measured 17 Sep 2026, ~0.55 s for the page then ~1 s for the counts, from a
   // client, on every cache miss. Now it is the slower of the two. If the page
   // fails the counts are simply not used.
-  const [fromDb, realFacets] = await Promise.all([
-    queryFeedFromDb(query, offset, limit),
+  //
+  // The default view — no filters, newest first — takes a faster road: the
+  // rows from feed_newest, and the total from the sidebar counts rather than a
+  // recount of ~40,000 rows (2.6 s of feed_page's 2.6 s, against a 3 s limit;
+  // measured 25 Sep 2026). For this view `adjacent.core` IS feed_page's total —
+  // checked equal at the same instant — and it comes from the per-crawl
+  // snapshot, so the matched figure and the sidebar agree with each other.
+  // Anything missing on that road falls back to feed_page, as before.
+  const fast = query.sort === 'newest' && isUnfilteredQuery(query);
+  const [newest, slowPage, realFacets] = await Promise.all([
+    fast ? queryNewestFromDb(offset, limit) : Promise.resolve(null),
+    fast ? Promise.resolve(null) : queryFeedFromDb(query, offset, limit),
     facetsFromDb(query),
   ]);
+  const fastTotal = realFacets?.adjacent?.core;
+  let fromDb: (FeedPage & { hasMore?: boolean }) | null = slowPage;
+  if (fast) {
+    fromDb = newest && typeof fastTotal === 'number'
+      ? { jobs: newest.jobs, total: fastTotal, undated: 0, hasMore: newest.hasMore }
+      : await queryFeedFromDb(query, offset, limit);
+  }
   if (fromDb) {
     // Remembered, because the cache header depends on it. Without this the
     // degraded answer was indistinguishable from a real one by the time the
@@ -238,7 +262,7 @@ export async function GET(request: Request) {
       offset,
       limit,
       shown: fromDb.jobs.length,
-      hasMore: offset + fromDb.jobs.length < fromDb.total,
+      hasMore: fromDb.hasMore ?? offset + fromDb.jobs.length < fromDb.total,
       maxAgeDays: MAX_AGE_DAYS,
       // The last crawl, not this request. Stamping now() made the header read
       // "updated just now" however old the corpus actually was.

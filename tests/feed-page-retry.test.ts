@@ -93,10 +93,16 @@ test('the route asks for the page and the counts AT THE SAME TIME', () => {
   // One after the other, a visitor waited for the sum of both — ~0.55 s and
   // ~1 s on 17 Sep. Wired from the source, as the facet-header tests are.
   const route = readFileSync(new URL('../app/api/feed/route.ts', import.meta.url), 'utf8');
+  // Since 25 Sep the default view asks feed_newest for its page instead, still
+  // alongside the counts; every other view asks feed_page, alongside them.
   assert.match(
     route,
-    /Promise\.all\(\[\s*queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
+    /Promise\.all\(\[\s*fast \? queryNewestFromDb\(offset, limit\) : Promise\.resolve\(null\),\s*fast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
   );
-  assert.doesNotMatch(route, /await queryFeedFromDb\(/, 'no sequential call left behind');
   assert.doesNotMatch(route, /await facetsFromDb\(/);
+  // The one sequential feed_page call is the fallback when the fast road
+  // fails — never the normal path.
+  const sequential = route.match(/await queryFeedFromDb\(/g) ?? [];
+  assert.equal(sequential.length, 1);
+  assert.match(route, /typeof fastTotal === 'number'[\s\S]{0,160}: await queryFeedFromDb\(/);
 });
