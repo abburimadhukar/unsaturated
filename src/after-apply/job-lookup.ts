@@ -37,7 +37,8 @@ import { dbWrite } from '../db/supabase.js';
  */
 
 /** Exactly the columns that exist on `jobs`. Asserted against schema.sql by a test. */
-export const JOB_COLUMNS = 'key,title,company,provider,board_token,apply_url,closed_at' as const;
+export const JOB_COLUMNS =
+  'key,title,company,provider,board_token,apply_url,closed_at,ghost_risk,posted_at,first_seen_at,last_seen_at' as const;
 
 export interface JobRow {
   key: string;
@@ -47,6 +48,14 @@ export interface JobRow {
   board_token: string;
   apply_url: string | null;
   closed_at: string | null;
+  // The crawler's own liveness signals, reused by the "is this role live?" read
+  // on the After applying page. ghost_risk is 0..1, the same number the feed
+  // shows as a "ghost risk %" chip; the three timestamps are when we first and
+  // last saw the posting on its board. All may be null for an older row.
+  ghost_risk: number | null;
+  posted_at: string | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
 }
 
 export type JobLookup =

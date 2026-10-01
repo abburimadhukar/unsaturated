@@ -11,6 +11,7 @@ const contact = {
   connection: 'Jordan leads the employer data platform team',
   whyRelevant: 'The job concerns data platforms',
   sourceUrl: source, sourceTitle: 'Example Cloud team',
+  recentDetail: '', recentSource: '',
 };
 const payload = (json: object, urls = [source]) => ({
   status: 'completed',
@@ -31,6 +32,27 @@ test('shows direct named contacts only when the search actually consulted their 
   assert.equal(report?.searchedAt, '2026-09-20T00:00:00.000Z');
   assert.equal(parseResearchResponse(payload({ contacts: [contact], signals: [] }, [])), null);
   assert.equal(parseResearchResponse({ status: 'completed', output: [{ type: 'message', content: [] }] }), null);
+});
+
+test('a recent-activity hook is kept only when its own source was consulted', () => {
+  // The "your in" — the single biggest reply-rate lever — rides on the same
+  // provenance rule as the person: shown only when its URL was actually consulted.
+  const good = parseResearchResponse(payload({
+    contacts: [{ ...contact, recentDetail: 'posted about migrating the warehouse to Iceberg', recentSource: source }],
+    signals: [],
+  }), new Date());
+  assert.equal(good?.contacts[0]?.recentDetail, 'posted about migrating the warehouse to Iceberg');
+  assert.equal(good?.contacts[0]?.recentSource, source);
+
+  // A hook citing a page the search never consulted is dropped, but the person
+  // (whose own source WAS consulted) is still kept — never invent what they did.
+  const unsourced = parseResearchResponse(payload({
+    contacts: [{ ...contact, recentDetail: 'spoke at a conference', recentSource: 'https://unrelated.test/talk' }],
+    signals: [],
+  }), new Date());
+  assert.equal(unsourced?.contacts.length, 1);
+  assert.equal(unsourced?.contacts[0]?.recentDetail, '');
+  assert.equal(unsourced?.contacts[0]?.recentSource, '');
 });
 
 test('research sends one bounded server-side web search using the existing OpenAI key', async () => {
@@ -66,6 +88,38 @@ test('draft uses only supplied experience and no invented referral', () => {
     contactName: '', contactType: 'recruiter', company: 'Example Cloud',
     jobTitle: 'Data Engineer', sourceDetail: '', proof: 'experience',
   }), '');
+});
+
+test('a one-click draft fills the proof as a marked placeholder, never a fabrication', () => {
+  // "Use this contact" drafts immediately, before the applicant types their own
+  // result. The gap becomes a visible placeholder — the one thing the app cannot
+  // know since it stores no resume — so the message is sendable after one edit.
+  const draft = outreachDraft({
+    contactName: 'Jordan Lee', contactType: 'manager', company: 'Example Cloud',
+    jobTitle: 'Data Engineer', sourceDetail: 'I saw your Iceberg migration post', proof: '',
+  });
+  assert.match(draft, /Hi Jordan/);
+  assert.match(draft, /\[one sentence on your most relevant result\]/);
+  assert.doesNotMatch(draft, /referred|hiring manager|guarantee/i);
+  // A draft still needs a specific detail to be worth sending.
+  assert.equal(outreachDraft({
+    contactName: 'Jordan Lee', contactType: 'manager', company: 'Example Cloud',
+    jobTitle: 'Data Engineer', sourceDetail: '', proof: '',
+  }), '');
+});
+
+test('the workspace drafts on "Use this contact", shows the hook, and renders the liveness read', () => {
+  const ws = readFileSync(new URL('../app/_components/AfterApplyWorkspace.tsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../app/after-apply/page.tsx', import.meta.url), 'utf8');
+  // One click builds a draft, gated on the same "I applied" confirmation.
+  assert.match(ws, /setDraft\(confirmed/);
+  assert.match(ws, /outreachDraft\(\{ contactName: lead\.name/);
+  // The hook is shown, preferred over the connection as the opening detail.
+  assert.match(ws, /lead\.recentDetail/);
+  assert.match(ws, /aahook/);
+  // The liveness banner is rendered from a server-computed prop.
+  assert.match(ws, /aaliveness-\$\{liveness\.tone\}/);
+  assert.match(page, /jobLiveness\(\{/);
 });
 
 test('a contact must have a normal HTTPS source before drafting', () => {

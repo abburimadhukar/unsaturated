@@ -22,14 +22,25 @@ function sentence(value: string): string {
   return value.trim().replace(/[.!?\s]+$/, '');
 }
 
+/**
+ * The one thing the app cannot know, since it no longer stores a resume: the
+ * applicant's own relevant result. Left as a clearly-marked blank so a one-click
+ * draft is complete and sendable after a single edit, rather than refusing to
+ * draft at all. Never a fabricated achievement.
+ */
+export const PROOF_PLACEHOLDER = '[one sentence on your most relevant result]';
+
 /** Assemble only user-supplied facts; no inferred relationship or fake referral. */
 export function outreachDraft(input: DraftInput): string {
   const firstName = input.contactName.trim().split(/\s+/)[0] || 'there';
   const role = input.jobTitle.trim();
   const company = input.company.trim();
   const context = sentence(input.sourceDetail);
-  const proof = sentence(input.proof);
-  if (!role || !company || !context || !proof) return '';
+  // A missing proof becomes a visible placeholder, not an empty draft. The
+  // message still needs a name, role, company and a specific detail to be worth
+  // sending, so those stay required.
+  const proof = sentence(input.proof) || PROOF_PLACEHOLDER;
+  if (!role || !company || !context) return '';
 
   if (input.contactType === 'recruiter') {
     return `Hi ${firstName}, I applied for the ${role} role at ${company}. ${context}. In my own work, ${proof}. If you're working on this search, is there a particular problem or skill the team is prioritizing? Happy to send a concise example. Thanks for your time.`;

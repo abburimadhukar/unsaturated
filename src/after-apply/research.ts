@@ -7,6 +7,14 @@ export interface ContactLead {
   whyRelevant: string;
   sourceUrl: string;
   sourceTitle: string;
+  /**
+   * The "your in": one recent, specific, public thing this person did — a post,
+   * a talk, a launch, a hire — that an opening line can reference. The single
+   * biggest lever on whether outreach gets a reply. Empty when no such detail is
+   * backed by a consulted source; `recentSource` is the URL that supports it.
+   */
+  recentDetail: string;
+  recentSource: string;
 }
 
 export interface CompanySignal {
@@ -42,8 +50,9 @@ const evidenceSchema = {
           category: { type: 'string', enum: ['Recruiting', 'Team leadership', 'Employee'] },
           connection: { type: 'string' }, whyRelevant: { type: 'string' },
           sourceUrl: { type: 'string' }, sourceTitle: { type: 'string' },
+          recentDetail: { type: 'string' }, recentSource: { type: 'string' },
         },
-        required: ['name', 'role', 'category', 'connection', 'whyRelevant', 'sourceUrl', 'sourceTitle'],
+        required: ['name', 'role', 'category', 'connection', 'whyRelevant', 'sourceUrl', 'sourceTitle', 'recentDetail', 'recentSource'],
       },
     },
     signals: {
@@ -151,8 +160,14 @@ export function parseResearchResponse(payload: unknown, now = new Date()): Resea
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    // The hook rides on the same provenance rule as everything else: a recent
+    // detail is shown only when its own URL is one the search actually consulted.
+    // No source, no hook — we never invent what someone "recently did".
+    const recentSource = sourced(row.recentSource);
+    const recentDetail = recentSource ? short(row.recentDetail, 240) : '';
     contacts.push({ name, role, category, connection, whyRelevant, sourceUrl,
-      sourceTitle: citedTitles.get(sourceKey(sourceUrl)) || new URL(sourceUrl).hostname });
+      sourceTitle: citedTitles.get(sourceKey(sourceUrl)) || new URL(sourceUrl).hostname,
+      recentDetail, recentSource: recentDetail ? recentSource! : '' });
     if (contacts.length >= 4) break;
   }
   const signals: CompanySignal[] = [];
@@ -190,6 +205,7 @@ export async function researchJob(job: ResearchJob, apiKey: string, doFetch: typ
         'Return zero to four named people, only when a public source actually supports their current connection to this employer.',
         'Never claim someone is the hiring manager for this exact opening unless an explicit source says so. Prefer role-specific recruiters and relevant team leaders.',
         'For each person, sourceUrl MUST be the exact public URL from your web search that supports their name, role, and employer; connection states what that source establishes.',
+        'For each person, also try to find ONE recent, specific, public thing they did that an applicant could reference as an opening line — a post, a talk, a project launch, a hire, an award. Put it in recentDetail as a short factual phrase (e.g. "posted about migrating the data warehouse to Iceberg"), and put the exact URL that supports it in recentSource. If you cannot find such a thing from a real source, set both recentDetail and recentSource to an empty string. Never invent recentDetail.',
         'Do not fabricate profiles, emails, private details, inferred reporting lines or referrals. If uncertain, omit the person.',
         'Return up to three concrete company/team signals with exact source URLs. If no reliable evidence exists, return empty arrays.',
         'Output only JSON matching the schema, without markdown or citation markers in the field values.',

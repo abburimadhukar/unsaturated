@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { isPublicSourceUrl, outreachDraft, type ContactType } from '../../src/after-apply/draft.js';
 import type { ContactLead, ResearchReport } from '../../src/after-apply/research.js';
+import type { Liveness } from '../../src/after-apply/liveness.js';
 
 interface JobContext {
   key: string;
@@ -14,11 +15,13 @@ interface JobContext {
   closed: boolean;
 }
 
-export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
+export function AfterApplyWorkspace({ job, scanConfigured, backTo, liveness }: {
   job: JobContext;
   scanConfigured: boolean;
   /** Already checked against BACK_TO by the page; never a raw query value. */
   backTo?: { href: string; label: string };
+  /** The crawler's "is this role live?" read, computed on the server. */
+  liveness?: Liveness;
 }) {
   const [confirmed, setConfirmed] = useState(false);
   const [report, setReport] = useState<ResearchReport | null>(null);
@@ -55,11 +58,24 @@ export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
   }
 
   function chooseContact(lead: ContactLead) {
+    const type: ContactType = lead.category === 'Recruiting' ? 'recruiter' : lead.category === 'Employee' ? 'employee' : 'manager';
+    // Prefer the "your in" hook as the specific detail — it is the opening line
+    // that actually earns a reply — and fall back to the public connection.
+    const detail = lead.recentDetail
+      ? `I saw ${lead.recentDetail.replace(/[.!?\s]+$/, '')}`
+      : `I noticed ${lead.connection.replace(/[.!?\s]+$/, '')}`;
     setContactName(lead.name);
-    setContactType(lead.category === 'Recruiting' ? 'recruiter' : lead.category === 'Employee' ? 'employee' : 'manager');
+    setContactType(type);
     setContactUrl(lead.sourceUrl);
-    setSourceDetail(`I noticed ${lead.connection.replace(/[.!?\s]+$/, '')}`);
-    setDraft('');
+    setSourceDetail(detail);
+    // One click gives a complete, ready-to-send draft. We only auto-draft once
+    // the application is confirmed, because the note says "I applied" — the same
+    // gate the Draft button uses. The proof line comes through as a marked
+    // placeholder for the user to fill; nothing is invented.
+    setDraft(confirmed
+      ? outreachDraft({ contactName: lead.name, contactType: type, company: job.company, jobTitle: job.title, sourceDetail: detail, proof: '' })
+      : '');
+    setCopied(false);
     document.getElementById('aa-outreach')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -84,6 +100,12 @@ export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
         {job.applyUrl && <> · <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">Employer posting ↗</a></>}
       </p>
       <p className="aaintro">See relevant people and company context directly, with links to the public evidence. Nothing is sent to anyone and your application is unchanged.</p>
+
+      {liveness && <section className={`aaliveness aaliveness-${liveness.tone}`} aria-label="Is this role live?">
+        <h2>{liveness.headline}</h2>
+        <ul>{liveness.points.map((point, i) => <li key={i}>{point}</li>)}</ul>
+        <p className="aaquiet">Read from our own crawl of the employer’s board — not a guarantee, but the freshest signal we have.</p>
+      </section>}
 
       <section className="aacard">
         <div className="aastep">01 / Confirm</div>
@@ -117,9 +139,11 @@ export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
               <p className="aarole">{lead.role}</p>
               <p><strong>Public connection:</strong> {lead.connection}</p>
               <p><strong>Why this person:</strong> {lead.whyRelevant}</p>
+              {lead.recentDetail && <p className="aahook"><strong>Your in:</strong> {lead.recentDetail}
+                {lead.recentSource && <> · <a href={lead.recentSource} target="_blank" rel="noopener noreferrer">source ↗</a></>}</p>}
               <div className="aacontactactions">
                 <a href={lead.sourceUrl} target="_blank" rel="noopener noreferrer">View evidence: {lead.sourceTitle} ↗</a>
-                <button type="button" onClick={() => chooseContact(lead)}>Use this contact ↓</button>
+                <button type="button" onClick={() => chooseContact(lead)}>Use this contact &amp; draft ↓</button>
               </div>
             </article>)}</div>}
           <h3>Company and team context</h3>

@@ -1166,6 +1166,21 @@ a.stat:hover b { color: var(--accent); }
 .aacontactactions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; }
 .aacontactactions a, .aasignal a { font-size: 12px; overflow-wrap: anywhere; }
 .aacontactactions button { font-size: 12px; padding: 8px 11px; }
+/* "Is this role live?" — the crawler's read, shown before any scan. A left
+   border carries the verdict: green (--hot, the same "done/good" green the
+   applied card uses) when it looks live, --danger when it is worth checking,
+   neutral when we have no signal. */
+.aaliveness { border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius-sm); padding: 14px 16px; margin: 18px 0 4px; }
+.aaliveness h2 { font-size: 15px; margin: 0 0 8px; }
+.aaliveness ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.aaliveness li { color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.aaliveness .aaquiet { margin: 8px 0 0; }
+.aaliveness-live { border-left-color: var(--hot); }
+.aaliveness-caution { border-left-color: var(--danger); background: var(--danger-dim); }
+.aaliveness-unknown { border-left-color: var(--line-strong); }
+/* The "your in" hook on a contact card: the one detail worth opening with. */
+.aahook { background: var(--accent-dim); border-radius: 6px; padding: 8px 10px; margin: 0 0 4px; }
+.aacontact .aahook strong { color: var(--accent); }
 #aa-outreach { scroll-margin-top: 18px; }
 .aaform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 20px 0 0; }
 .aaform label, .aadraft label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 600; }
