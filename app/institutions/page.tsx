@@ -6,6 +6,7 @@ import { SECTOR_LABELS, SECTOR_ORDER, type Sector } from '../../src/taxonomy/sec
 import { SPECIALIZATION_LABELS } from '../../src/taxonomy/specializations.js';
 import { COUNTRY_LABELS } from '../../src/ats/geo.js';
 import { INST_DEFAULTS, readFrom, writeTo, type InstFilters } from '../../src/ui/filter-state.js';
+import { initialShown, savedScrollY, writeRestorable } from '../../src/ui/restore.js';
 import { JobCard } from '../_components/JobCard.js';
 
 /**
@@ -29,6 +30,8 @@ import { JobCard } from '../_components/JobCard.js';
 
 const FAMILIES = FAMILY_ORDER.filter((f) => f !== 'unsorted') as Family[];
 const PAGE = 50;
+/** This page's own key for its remembered scroll position and page count. */
+const SCROLL_KEY = 'unsaturated.inst.scroll';
 
 interface InstJob {
   key: string;
@@ -68,7 +71,9 @@ export default function Institutions() {
   const [filters, setFilters] = useState<InstFilters>(() =>
     typeof window === 'undefined' ? INST_DEFAULTS : readFrom(INST_DEFAULTS, window.location.search),
   );
-  const [shown, setShown] = useState(PAGE);
+  // Start at the saved page count when returning to this exact view, so "show
+  // more" survives the trip to After applying and back.
+  const [shown, setShown] = useState(() => initialShown(SCROLL_KEY, PAGE));
   /** The sidebar, closed on a phone and open on a wide screen, like the feed's. */
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -97,6 +102,8 @@ export default function Institutions() {
 
   /** Late responses are discarded — see the note on the same guard in /quiet. */
   const seq = useRef(0);
+  /** True until the first load settles, so the scroll is restored once. */
+  const restoring = useRef(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +125,15 @@ export default function Institutions() {
       } else {
         setFailed(null);
         setData(body);
+        // Restore the place once, after the rows have painted. A different filter
+        // set saved nothing for this view, so this is a no-op there.
+        if (restoring.current) {
+          restoring.current = false;
+          const y = savedScrollY(SCROLL_KEY);
+          if (y > 0) {
+            requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: y })));
+          }
+        }
       }
     } catch {
       if (mine === seq.current) setFailed('Could not reach the server.');
@@ -129,6 +145,18 @@ export default function Institutions() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Record the place before leaving or refreshing, so the next load restores it.
+  useEffect(() => {
+    const remember = () =>
+      writeRestorable(SCROLL_KEY, { shown, scrollY: window.scrollY, search: window.location.search });
+    window.addEventListener('pagehide', remember);
+    document.addEventListener('visibilitychange', remember);
+    return () => {
+      window.removeEventListener('pagehide', remember);
+      document.removeEventListener('visibilitychange', remember);
+    };
+  }, [shown]);
 
   // Hidden, not 0, when the counts did not arrive — the route leaves them out
   // rather than inventing zeros, and summing nothing would put one back.
@@ -161,6 +189,12 @@ export default function Institutions() {
     setFilters({ ...INST_DEFAULTS, sector: filters.sector });
     setShown(PAGE);
   };
+
+  // The view to return to from "After applying": this page WITH its filters.
+  const backTo = (() => {
+    const qs = writeTo(INST_DEFAULTS, filters);
+    return qs ? `/institutions?${qs}` : '/institutions';
+  })();
 
   return (
     <>
@@ -371,7 +405,7 @@ export default function Institutions() {
                 <JobCard
                   key={j.key}
                   job={j}
-                  backTo="/institutions"
+                  backTo={backTo}
                   chips={
                     <>
                       {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}

@@ -2,22 +2,9 @@ import Link from 'next/link';
 
 import { AfterApplyWorkspace } from '../_components/AfterApplyWorkspace.js';
 import { loadJob } from '../../src/after-apply/job-lookup.js';
+import { safeBackTo } from '../../src/ui/back-link.js';
 
 export const dynamic = 'force-dynamic';
-
-/**
- * Where "← Back to" may point, and the only values accepted.
- *
- * A fixed list rather than a check on the string, because `from` arrives in the
- * URL and lands in an anchor's href. Anything not named here falls back to the
- * feed, so a crafted link cannot turn this page's own navigation into a way off
- * the site.
- */
-const BACK_TO: Record<string, { href: string; label: string }> = {
-  '/': { href: '/', label: 'jobs' },
-  '/quiet': { href: '/quiet', label: 'quiet roles' },
-  '/institutions': { href: '/institutions', label: 'institutions' },
-};
 
 export default async function AfterApplyPage({
   searchParams,
@@ -25,7 +12,10 @@ export default async function AfterApplyPage({
   searchParams: Promise<{ job?: string; from?: string }>;
 }) {
   const { job: key, from } = await searchParams;
-  const back = (from && BACK_TO[from]) || BACK_TO['/']!;
+  // `from` now carries the filters too (e.g. /quiet?family=data), so the back
+  // button returns to the exact view — path AND filters — rather than the bare
+  // page. safeBackTo validates it before it reaches the href; see back-link.ts.
+  const back = safeBackTo(from);
   const validKey = key && key.length <= 200 && /^[a-z]+:[^:]+:.+$/i.test(key);
   const found = validKey ? await loadJob(key) : null;
   if (!found?.ok) {

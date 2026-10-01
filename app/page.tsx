@@ -522,6 +522,15 @@ export default function Page() {
   const skills = me?.profile.skills ?? [];
   const facets = data?.facets;
 
+  // Where "After applying" sends the reader back to: this page WITH its filters,
+  // so returning restores the exact view rather than dropping them at the top of
+  // an unfiltered list. The after-apply page validates it (safeBackTo) before it
+  // becomes a link.
+  const backTo = (() => {
+    const qs = serializeFilters(filters);
+    return qs ? `/?${qs}` : '/';
+  })();
+
   /**
    * Filters and ordering that depend on the visitor.
    *
@@ -1027,7 +1036,7 @@ export default function Page() {
                             Open posting ↗
                           </a>
                         )}
-                        <a href={`/after-apply?job=${encodeURIComponent(j.key)}`}>
+                        <a href={`/after-apply?job=${encodeURIComponent(j.key)}&from=${encodeURIComponent(backTo)}`}>
                           After applying
                         </a>
                         <span className="src">{j.provider}</span>

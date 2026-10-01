@@ -95,30 +95,25 @@ test('the shared card links every posting to After applying', () => {
   assert.match(card, /encodeURIComponent\(backTo\)/);
 });
 
-test('both pages say where the back link should return to', () => {
+test('both pages send the back link their path AND their filters', () => {
+  // Since the "return to my place" fix the back target carries the filters, so
+  // returning lands on the same view rather than a bare page.
   for (const [path, page] of [
     ['/quiet', '../app/quiet/page.tsx'],
     ['/institutions', '../app/institutions/page.tsx'],
   ] as const) {
     const src = readFileSync(new URL(page, import.meta.url), 'utf8');
-    assert.match(src, new RegExp(`backTo="${path}"`), `${path} does not pass backTo`);
+    assert.match(src, new RegExp(`\`${path}\\?\\$\\{qs\\}\``), `${path} does not carry its filters`);
+    assert.match(src, /backTo=\{backTo\}/, `${path} does not pass the computed backTo`);
   }
 });
 
-test('the back link can only point at pages on this site', () => {
-  // `from` arrives in the query string and ends up in an anchor's href, so it
-  // is matched against a fixed list rather than checked as a string. Anything
-  // else falls back to the feed, and a crafted link cannot turn this page's own
-  // navigation into a way off the site.
-  assert.match(aaPage, /const BACK_TO: Record<string, \{ href: string; label: string \}>/);
-  assert.match(aaPage, /const back = \(from && BACK_TO\[from\]\) \|\| BACK_TO\['\/'\]!/);
-  // Every allowed target is a root-relative path.
-  const entries = [...aaPage.matchAll(/'(\/[a-z-]*)': \{ href: '(\/[a-z-]*)'/g)];
-  assert.ok(entries.length >= 3, `expected the three list pages, found ${entries.length}`);
-  for (const [, key, href] of entries) {
-    assert.equal(key, href, 'the key and its href must agree');
-    assert.match(href!, /^\/[a-z-]*$/, `${href} is not a path on this site`);
-  }
+test('the back link is validated before it becomes an href', () => {
+  // `from` arrives in the query string and ends up in an anchor's href, so it is
+  // validated by safeBackTo (tested exhaustively in back-link.test.ts) rather
+  // than trusted. The old unchecked fixed map must be gone.
+  assert.match(aaPage, /safeBackTo\(from\)/);
+  assert.doesNotMatch(aaPage, /const BACK_TO/);
 });
 
 test('resume tailoring is gone from every card, and After applying is not', () => {

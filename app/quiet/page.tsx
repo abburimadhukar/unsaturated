@@ -5,6 +5,7 @@ import { FAMILY_LABELS, FAMILY_ORDER, type Family } from '../../src/taxonomy/fam
 import { SPECIALIZATION_LABELS } from '../../src/taxonomy/specializations.js';
 import { COUNTRY_LABELS } from '../../src/ats/geo.js';
 import { QUIET_DEFAULTS, readFrom, writeTo, type QuietFilters } from '../../src/ui/filter-state.js';
+import { initialShown, savedScrollY, writeRestorable } from '../../src/ui/restore.js';
 import { JobCard } from '../_components/JobCard.js';
 
 /**
@@ -76,6 +77,9 @@ interface Payload {
 }
 
 const PAGE = 50;
+/** Where this page remembers its scroll position and page count. Its own key, so
+ *  the three list pages never read each other's place. */
+const SCROLL_KEY = 'unsaturated.quiet.scroll';
 
 export default function QuietRoles() {
   /**
@@ -89,7 +93,9 @@ export default function QuietRoles() {
       ? QUIET_DEFAULTS
       : readFrom(QUIET_DEFAULTS, window.location.search),
   );
-  const [shown, setShown] = useState(PAGE);
+  // Start at the saved page count when returning to this exact view (same
+  // filters), so "show more" survives the trip to After applying and back.
+  const [shown, setShown] = useState(() => initialShown(SCROLL_KEY, PAGE));
 
   /**
    * The sidebar, collapsed on a phone.
@@ -135,6 +141,9 @@ export default function QuietRoles() {
    * arrival is discarded.
    */
   const seq = useRef(0);
+  /** True until the first load settles, so the scroll is restored once, not on
+   *  every later filter change. */
+  const restoring = useRef(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -158,6 +167,16 @@ export default function QuietRoles() {
       } else {
         setFailed(null);
         setData(body);
+        // Put the reader back where they were, once, after the rows have painted.
+        // A different filter set saved nothing for this view, so savedScrollY is 0
+        // and this does nothing.
+        if (restoring.current) {
+          restoring.current = false;
+          const y = savedScrollY(SCROLL_KEY);
+          if (y > 0) {
+            requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: y })));
+          }
+        }
       }
     } catch {
       if (mine === seq.current) setFailed('Could not reach the server.');
@@ -169,6 +188,20 @@ export default function QuietRoles() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Record the place before leaving — to After applying, or on a refresh — so the
+  // next load can restore it. pagehide and visibilitychange between them cover a
+  // navigation, a tab switch and a mobile app-switch.
+  useEffect(() => {
+    const remember = () =>
+      writeRestorable(SCROLL_KEY, { shown, scrollY: window.scrollY, search: window.location.search });
+    window.addEventListener('pagehide', remember);
+    document.addEventListener('visibilitychange', remember);
+    return () => {
+      window.removeEventListener('pagehide', remember);
+      document.removeEventListener('visibilitychange', remember);
+    };
+  }, [shown]);
 
   const pick = (f: Family) => set('family', f);
 
@@ -198,6 +231,13 @@ export default function QuietRoles() {
     setFilters({ ...QUIET_DEFAULTS, family: filters.family });
     setShown(PAGE);
   };
+
+  // The view to return to from "After applying": this page WITH its filters, so
+  // the family, country and the rest come back too — not a bare /quiet.
+  const backTo = (() => {
+    const qs = writeTo(QUIET_DEFAULTS, filters);
+    return qs ? `/quiet?${qs}` : '/quiet';
+  })();
 
   return (
     <>
@@ -428,7 +468,7 @@ export default function QuietRoles() {
                 <JobCard
                   key={j.key}
                   job={j}
-                  backTo="/quiet"
+                  backTo={backTo}
                   score={j.quietScore}
                   reasons={j.reasons}
                   chips={
