@@ -9,7 +9,9 @@ provider's own page that day. Free tiers change often — recheck before acting.
 > database: a longer stale-while-revalidate, a stale-if-error fallback, and an
 > hourly cache-warm (see [outstanding.md §3](outstanding.md)). That shields
 > visitors but changes nothing here — the origin still times out cold, and the
-> move described below remains the actual cure.
+> move described below remains the actual cure. The ordered, do-it-now steps (with
+> prices re-checked 1 Oct) are in **[step2-database-move.md](step2-database-move.md)**;
+> this file is the research and the why behind them.
 
 ---
 

@@ -11,6 +11,7 @@ Start here.
 | How to start a fresh session on any of it | **[handoff.md](handoff.md)** |
 | Where more job boards can come from | **[corpus-growth.md](corpus-growth.md)** |
 | Where the database should live once it outgrows the free plan | **[database-hosting.md](database-hosting.md)** |
+| The step-by-step for actually moving it (Supabase Pro vs Oracle) | **[step2-database-move.md](step2-database-move.md)** |
 | The raw numbers behind all of the above | **[evidence/](evidence/)** |
 
 ---
