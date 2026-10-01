@@ -61,6 +61,9 @@ export function JobCard({
   reasons,
   score,
   backTo,
+  seen = false,
+  applied = false,
+  onOpen,
 }: {
   job: CardJob;
   /** Family, sector, specialization — whatever the page wants to say. */
@@ -77,17 +80,23 @@ export function JobCard({
    * way out — see BACK_TO — rather than trusted as a URL.
    */
   backTo?: string;
+  /** Dimmed once opened — the main feed's treatment, now shared. */
+  seen?: boolean;
+  /** A green edge and an "applied" chip, same as the main feed. */
+  applied?: boolean;
+  /** Mark this posting opened. Called when either link to it is clicked. */
+  onOpen?: () => void;
 }) {
   const pay = salaryLabel(job);
   const fresh = job.ageDays !== null && job.dated && job.ageDays <= 2;
 
   return (
-    <article className="job">
+    <article className={`job${seen ? ' seen' : ''}${applied ? ' applied' : ''}`}>
       <div className="body">
         <div className="jobhead">
           <div className="title">
             {job.applyUrl ? (
-              <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">
+              <a href={job.applyUrl} target="_blank" rel="noopener noreferrer" onClick={onOpen}>
                 {job.title}
               </a>
             ) : (
@@ -115,6 +124,7 @@ export function JobCard({
 
         <div className="chips">
           {chips}
+          {applied && <span className="chip appliedchip">applied</span>}
           {fresh && <span className="chip fresh">new</span>}
           {pay && <span className="chip pay">{pay}</span>}
           {job.employmentType && <span className="chip">{job.employmentType}</span>}
@@ -144,7 +154,7 @@ export function JobCard({
         */}
         <div className="actions">
           {job.applyUrl && (
-            <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">
+            <a href={job.applyUrl} target="_blank" rel="noopener noreferrer" onClick={onOpen}>
               Open posting ↗
             </a>
           )}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   queryFeedFromDb,
   queryNewestFromDb,
+  queryRowsFromDb,
   facetsFromDb,
   isUnfilteredQuery,
   isFamilyOnlyQuery,
@@ -273,6 +274,29 @@ export async function GET(request: Request) {
     fromDb = newest && typeof fastTotal === 'number'
       ? { jobs: newest.jobs, total: fastTotal, undated: 0, hasMore: newest.hasMore }
       : await queryFeedFromDb(query, offset, limit);
+  }
+
+  // A filtered view whose count timed out used to reach the visitor as a 503.
+  //
+  // feed_page returns the rows AND counts the whole match; on the free tier that
+  // count is what exceeds the 3-second limit for a heavy combination like
+  // family=cloud + country=US. When it fails but the facets came back, serve the
+  // rows alone (feed_rows, no count) and take the total from the facets —
+  // adjacent.core is the core total, exact while adjacent roles are excluded,
+  // which is every view except the explicit `adjacent=include|only`. Those keep
+  // feed_page's own count, so a wrong total is never shown. Sequential, not
+  // parallel: this runs only after feed_page has actually failed, so the common
+  // path fires no extra query at the database it is already straining.
+  if (!fromDb && !query.adjacent && typeof fastTotal === 'number') {
+    const rows = await queryRowsFromDb(query, offset, limit);
+    if (rows) {
+      fromDb = {
+        jobs: rows,
+        total: fastTotal,
+        undated: 0,
+        hasMore: offset + rows.length < fastTotal,
+      };
+    }
   }
   if (fromDb) {
     // Remembered, because the cache header depends on it. Without this the

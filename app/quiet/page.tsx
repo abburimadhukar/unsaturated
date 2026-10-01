@@ -7,6 +7,7 @@ import { COUNTRY_LABELS } from '../../src/ats/geo.js';
 import { QUIET_DEFAULTS, readFrom, writeTo, type QuietFilters } from '../../src/ui/filter-state.js';
 import { initialShown, savedScrollY, writeRestorable } from '../../src/ui/restore.js';
 import { JobCard } from '../_components/JobCard.js';
+import { useJobState } from '../_components/useJobState.js';
 
 /**
  * Quiet Roles — the same work, filed under a title nobody searches.
@@ -109,6 +110,10 @@ export default function QuietRoles() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
+
+  // Seen/applied marking, the same the main feed has: open a posting and its card
+  // dims, so you can tell what you have already looked at.
+  const { seen, applied, markApplied } = useJobState();
 
   /** Family is navigation, so it is not counted as something to clear. */
   const narrowCount = useMemo(
@@ -469,6 +474,9 @@ export default function QuietRoles() {
                   key={j.key}
                   job={j}
                   backTo={backTo}
+                  seen={seen.has(j.key)}
+                  applied={applied.has(j.key)}
+                  onOpen={() => markApplied(j.key)}
                   score={j.quietScore}
                   reasons={j.reasons}
                   chips={

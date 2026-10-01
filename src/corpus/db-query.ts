@@ -138,6 +138,70 @@ export async function queryFeedFromDb(
 }
 
 /**
+ * A filtered page WITHOUT its count — the fallback when feed_page's count times
+ * out.
+ *
+ * feed_page returns the rows AND counts the whole match for the total; on the
+ * free tier that count is the ~3s query that 503s for a heavy filter combination
+ * (measured 1 Oct 2026: ?family=cloud&country=US). feed_rows is feed_page with the
+ * count removed, so it returns the same rows cheaply. The caller takes the total
+ * from the facets, which it already has. Same parameters as feed_page.
+ *
+ * ONE RETRY, AND ONLY FOR A REFUSAL — the same rule as feed_page.
+ */
+export async function queryRowsFromDb(
+  f: FeedQuery,
+  offset: number,
+  limit: number,
+  opts: FacetOptions = {},
+): Promise<FeedJob[] | null> {
+  const attempt = opts.attempt ?? 0;
+  const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const client = opts.client ?? db();
+  let message: string;
+  try {
+    const { data, error } = await client.rpc('feed_rows', {
+      p_cutoff: cutoffIso(),
+      p_in_scope: f.cloudOnly !== false,
+      p_family: orNull(f.family),
+      p_country: orNull(f.country),
+      p_remote: orNull(f.remote),
+      p_seniority: orNull(f.seniority),
+      p_employment: orNull(f.employmentType),
+      p_provider: orNull(f.provider),
+      p_q: orNull(f.q),
+      p_has_salary: f.hasSalary === true,
+      p_min_salary: f.minSalary ?? null,
+      p_within_days: f.postedWithinDays ?? null,
+      p_ai: f.ai === true,
+      p_hide_ghosts: f.hideGhosts === true,
+      p_keep_unknown: f.includeUnknown !== false,
+      p_sort: f.sort ?? 'newest',
+      p_offset: offset,
+      p_limit: limit,
+      p_stack: orNull(f.stack),
+      p_specialization: orNull(f.specialization),
+      p_adjacent: orNull(f.adjacent),
+    });
+    if (!error) {
+      const rows = (data as { rows?: JobRow[] } | null)?.rows;
+      if (!Array.isArray(rows)) return null;
+      return rows.map((r) => toFeedJob(r));
+    }
+    message = error.message;
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err);
+  }
+  if (attempt === 0 && isTransientWriteError(message)) {
+    console.warn(`feed_rows refused, retrying once: ${message}`);
+    await wait(FACET_RETRY_PAUSE_MS);
+    return queryRowsFromDb(f, offset, limit, { ...opts, attempt: 1 });
+  }
+  console.error('feed_rows failed:', message);
+  return null;
+}
+
+/**
  * The default view — no filters, newest first — without counting it.
  *
  * feed_page counts every match (~40,000 rows) to report the total, and for

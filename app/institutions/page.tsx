@@ -8,6 +8,7 @@ import { COUNTRY_LABELS } from '../../src/ats/geo.js';
 import { INST_DEFAULTS, readFrom, writeTo, type InstFilters } from '../../src/ui/filter-state.js';
 import { initialShown, savedScrollY, writeRestorable } from '../../src/ui/restore.js';
 import { JobCard } from '../_components/JobCard.js';
+import { useJobState } from '../_components/useJobState.js';
 
 /**
  * Roles at universities, hospitals, charities and public bodies.
@@ -80,6 +81,9 @@ export default function Institutions() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState<string | null>(null);
+
+  // Seen/applied marking, the same the main feed has: an opened posting dims.
+  const { seen, applied, markApplied } = useJobState();
 
   /** Sector is the page's navigation, so it does not count as a narrowing. */
   const narrowCount = useMemo(
@@ -406,6 +410,9 @@ export default function Institutions() {
                   key={j.key}
                   job={j}
                   backTo={backTo}
+                  seen={seen.has(j.key)}
+                  applied={applied.has(j.key)}
+                  onOpen={() => markApplied(j.key)}
                   chips={
                     <>
                       {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}

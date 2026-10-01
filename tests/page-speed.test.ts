@@ -100,7 +100,7 @@ test('the first feed request is not debounced; later ones are', () => {
 
 // --- the default feed view ---------------------------------------------------
 
-import { queryNewestFromDb } from '../src/corpus/db-query.js';
+import { queryNewestFromDb, queryRowsFromDb } from '../src/corpus/db-query.js';
 
 const row = (key: string) => ({
   key, title: 't', company: 'c', provider: 'greenhouse', location: null, country: null,
@@ -182,6 +182,55 @@ test('the p_family overload of feed_newest adds only the family filter, over the
   // Additive: the column is added if-not-exists and feed_page is still untouched.
   assert.match(sql, /add column if not exists by_family jsonb/);
   assert.doesNotMatch(sql, /function public\.feed_page/);
+});
+
+test('feed_rows is feed_page without the count, same filters', () => {
+  const sql = read('../src/db/migrations/2026-10-01-feed-rows.sql').replace(/--.*$/gm, '');
+  // Same filter and paging as feed_page, so it returns the same rows.
+  for (const cond of [
+    /function public\.feed_rows/,
+    /j\.closed_at is null/,
+    /p_family {5}is null or j\.family {6}= p_family/,
+    /p_country is null/,
+    /j\.title ilike '%' \|\| p_q \|\| '%'/,
+    /order by\s+case when p_sort = 'salary'/,
+    /offset p_offset/,
+    /limit {2}p_limit/,
+  ]) assert.match(sql, cond);
+  // The whole point: no count, so it cannot time out on one.
+  assert.doesNotMatch(sql, /'total', \(select count/);
+  assert.doesNotMatch(sql, /'undated'/);
+  // feed_page itself is not touched.
+  assert.doesNotMatch(sql, /create or replace function public\.feed_page/i);
+});
+
+test('queryRowsFromDb asks feed_rows with the filters and no count', async () => {
+  let asked: Record<string, unknown> = {};
+  const client = {
+    rpc: async (name: string, p: Record<string, unknown>) => {
+      asked = { name, ...p };
+      return { data: { rows: [row('a'), row('b')] }, error: null };
+    },
+  };
+  const got = await queryRowsFromDb({ family: 'cloud', country: 'US' }, 0, 50, { client, wait: noWait });
+  assert.equal(asked.name, 'feed_rows');
+  assert.equal(asked.p_family, 'cloud');
+  assert.equal(asked.p_country, 'US');
+  assert.deepEqual(got?.map((j) => j.key), ['a', 'b']);
+  // A refusal is retried once, then null — the same rule as feed_page.
+  const refused = { rpc: async () => ({ data: null, error: { message: 'canceling statement due to statement timeout' } }) };
+  assert.equal(await queryRowsFromDb({}, 0, 50, { client: refused, wait: noWait }), null);
+});
+
+test('the route falls back to rows-only when feed_page times out on a filtered view', () => {
+  const src = read('../app/api/feed/route.ts');
+  // Only after feed_page has failed (sequential), never alongside it.
+  assert.match(src, /if \(!fromDb && !query\.adjacent && typeof fastTotal === 'number'\)/);
+  assert.match(src, /await queryRowsFromDb\(query, offset, limit\)/);
+  // The total for that fallback comes from the facets, not an invented number.
+  assert.match(src, /total: fastTotal/);
+  // adjacent=include|only is excluded, because adjacent.core is not their total.
+  assert.match(src, /!query\.adjacent/);
 });
 
 test('the family tab passes the family through to feed_newest', async () => {
