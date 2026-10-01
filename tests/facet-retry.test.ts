@@ -205,8 +205,14 @@ test('a degraded answer is cached for seconds, not minutes', () => {
 test('the normal header is still long-lived — the fix must not slow the happy path', () => {
   const m = routeSrc.match(/const CACHE_HEADER\s*=\s*'([^']+)'/);
   assert.ok(m);
+  // Still 60 s FRESH — freshness is the product, so this must not change.
   assert.match(m![1]!, /s-maxage=60/);
-  assert.match(m![1]!, /stale-while-revalidate=300/);
+  // A day of serve-stale-while-revalidating: on a quiet site a view must not fall
+  // out of cache between visits and make the next visitor wait on a cold query.
+  assert.match(m![1]!, /stale-while-revalidate=86400/);
+  // And serve-stale-on-error, so a database timeout (503) returns the last good
+  // copy instead of "job data is temporarily unavailable".
+  assert.match(m![1]!, /stale-if-error=86400/);
 });
 
 test('THE ROUTE PICKS THE HEADER FROM WHETHER THE FACETS ARRIVED', () => {

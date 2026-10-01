@@ -26,7 +26,11 @@ const COUNTRY_FACETS = ['US', 'GB', 'IN', 'CA', 'DE', 'AU', 'NL', 'IE', 'PL', 'S
 
 const PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
-const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
+// 60 s fresh, then a day of serve-stale-while-revalidating and serve-stale-on-
+// error. Same change and reasoning as the main feed's CACHE_HEADER (30 Sep 2026):
+// nobody waits on a cold query, and a database timeout serves the last good copy
+// rather than a 503. Both directives are honoured by Cloudflare's zone cache.
+const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400';
 /** Same reasoning as the main feed's: seconds, not no-store, so a busy database is not stampeded. */
 const DEGRADED_CACHE_HEADER = 'public, s-maxage=5';
 

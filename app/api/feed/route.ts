@@ -55,8 +55,28 @@ const MAX_PAGE_SIZE = 200;
  *
  * The crawler writes hourly, so a minute of staleness costs nothing and turns
  * repeat visits, filter changes and crawler traffic into edge hits.
+ *
+ * Still 60 seconds FRESH — freshness is the product, so this is unchanged. What
+ * changed on 30 Sep 2026 is the two directives after it, both honoured by
+ * Cloudflare's zone cache on the free plan (not the Workers Cache API, which this
+ * site does not use — see open-next.config.ts):
+ *
+ *  - stale-while-revalidate=86400: once the 60 s lapses, a visitor is handed the
+ *    cached copy INSTANTLY while the slow query refreshes in the background. The
+ *    old window was 300 s, so on a quiet site a view untouched for six minutes
+ *    became a hard miss that waited on a cold ~9 s query. A day's window means a
+ *    view fetched even once a day never makes anyone wait for the database.
+ *  - stale-if-error=86400: when the database times out — the 3 s statement limit
+ *    that returns 503 "job data is temporarily unavailable" — the last good copy
+ *    is served instead of the error, for up to a day. A day-old listing beats a
+ *    blank page. It fires only on a 5xx, so the degraded 200 below (empty facets)
+ *    is untouched and still self-heals in five seconds.
+ *
+ * The one case this cannot help is the FIRST request for a filter combination
+ * never cached: there is nothing stale to fall back to, so it still hits the
+ * origin cold. Warming the common views after each crawl is the follow-on.
  */
-const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=300';
+const CACHE_HEADER = 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400';
 
 /**
  * The same response, but only briefly, when the sidebar counts are missing.

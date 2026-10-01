@@ -156,3 +156,37 @@ jobs:
           else
             gh issue create --title 'Crawl is failing' --label crawl-failure --body "$body"
           fi
+
+  # Warm the edge cache once the crawl has written the new data.
+  #
+  # A separate job that NEEDS the crawl, so it runs after all four shards finish
+  # rather than once per shard. `if: always()` because even a run where one shard
+  # failed still refreshed three quarters of the corpus, and the views worth
+  # warming are the common landing pages, not any one shard's boards.
+  #
+  # This is what closes the one gap the cache headers cannot: the first request
+  # for a view that has fallen out of cache hits the database cold. Warming it
+  # here means a real visitor gets the already-cached copy instead. Best-effort —
+  # see scripts/warm-cache.mjs — so it never blocks or fails the crawl.
+  warm:
+    needs: crawl
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Belt and braces: warming runs against the deployed site, so nothing else in
+    # the run can touch each other, but keep one warm from overlapping the next.
+    concurrency:
+      group: warm-cache
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      # The script is plain Node with no dependencies, so no npm ci is needed —
+      # just a runtime with global fetch.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Warm the common views
+        env:
+          # Overridable for a staging host; defaults to the live site.
+          WARM_BASE_URL: ${{ vars.WARM_BASE_URL }}
+        run: npm run warm
