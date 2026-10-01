@@ -108,18 +108,14 @@ test('a one-click draft fills the proof as a marked placeholder, never a fabrica
   }), '');
 });
 
-test('the workspace drafts on "Use this contact", shows the hook, and renders the liveness read', () => {
+test('the workspace drafts on "Use this contact" and shows the hook', () => {
   const ws = readFileSync(new URL('../app/_components/AfterApplyWorkspace.tsx', import.meta.url), 'utf8');
-  const page = readFileSync(new URL('../app/after-apply/page.tsx', import.meta.url), 'utf8');
   // One click builds a draft, gated on the same "I applied" confirmation.
   assert.match(ws, /setDraft\(confirmed/);
   assert.match(ws, /outreachDraft\(\{ contactName: lead\.name/);
   // The hook is shown, preferred over the connection as the opening detail.
   assert.match(ws, /lead\.recentDetail/);
   assert.match(ws, /aahook/);
-  // The liveness banner is rendered from a server-computed prop.
-  assert.match(ws, /aaliveness-\$\{liveness\.tone\}/);
-  assert.match(page, /jobLiveness\(\{/);
 });
 
 test('a contact must have a normal HTTPS source before drafting', () => {

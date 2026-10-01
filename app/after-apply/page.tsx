@@ -2,7 +2,6 @@ import Link from 'next/link';
 
 import { AfterApplyWorkspace } from '../_components/AfterApplyWorkspace.js';
 import { loadJob } from '../../src/after-apply/job-lookup.js';
-import { jobLiveness } from '../../src/after-apply/liveness.js';
 import { safeBackTo } from '../../src/ui/back-link.js';
 
 export const dynamic = 'force-dynamic';
@@ -41,12 +40,5 @@ export default async function AfterApplyPage({
     }}
     scanConfigured={Boolean(process.env.OPENAI_API_KEY?.trim())}
     backTo={back}
-    liveness={jobLiveness({
-      postedAt: found.job.posted_at,
-      firstSeenAt: found.job.first_seen_at,
-      lastSeenAt: found.job.last_seen_at,
-      closedAt: found.job.closed_at,
-      ghostRisk: found.job.ghost_risk,
-    })}
   />;
 }

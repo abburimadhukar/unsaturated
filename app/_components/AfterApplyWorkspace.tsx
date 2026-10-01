@@ -5,7 +5,6 @@ import { useState } from 'react';
 
 import { isPublicSourceUrl, outreachDraft, type ContactType } from '../../src/after-apply/draft.js';
 import type { ContactLead, ResearchReport } from '../../src/after-apply/research.js';
-import type { Liveness } from '../../src/after-apply/liveness.js';
 
 interface JobContext {
   key: string;
@@ -15,13 +14,11 @@ interface JobContext {
   closed: boolean;
 }
 
-export function AfterApplyWorkspace({ job, scanConfigured, backTo, liveness }: {
+export function AfterApplyWorkspace({ job, scanConfigured, backTo }: {
   job: JobContext;
   scanConfigured: boolean;
   /** Already checked against BACK_TO by the page; never a raw query value. */
   backTo?: { href: string; label: string };
-  /** The crawler's "is this role live?" read, computed on the server. */
-  liveness?: Liveness;
 }) {
   const [confirmed, setConfirmed] = useState(false);
   const [report, setReport] = useState<ResearchReport | null>(null);
@@ -100,12 +97,6 @@ export function AfterApplyWorkspace({ job, scanConfigured, backTo, liveness }: {
         {job.applyUrl && <> · <a href={job.applyUrl} target="_blank" rel="noopener noreferrer">Employer posting ↗</a></>}
       </p>
       <p className="aaintro">See relevant people and company context directly, with links to the public evidence. Nothing is sent to anyone and your application is unchanged.</p>
-
-      {liveness && <section className={`aaliveness aaliveness-${liveness.tone}`} aria-label="Is this role live?">
-        <h2>{liveness.headline}</h2>
-        <ul>{liveness.points.map((point, i) => <li key={i}>{point}</li>)}</ul>
-        <p className="aaquiet">Read from our own crawl of the employer’s board — not a guarantee, but the freshest signal we have.</p>
-      </section>}
 
       <section className="aacard">
         <div className="aastep">01 / Confirm</div>
