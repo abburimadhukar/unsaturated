@@ -1,5 +1,13 @@
 # State of play — Unsaturated, 17 September 2026
 
+> **Update, 1 October 2026.** The "`/api/feed` took 9.0 s" line in the verified
+> table below is from 17 Sep. On 1 Oct an edge-cache shield (longer
+> stale-while-revalidate + stale-if-error) and an hourly cache-warm took the
+> common views to ~0.3 s served from Cloudflare's cache and stopped the 503
+> reaching visitors. The origin database is unchanged and still times out cold;
+> this is a shield, not a cure. See [outstanding.md §3](outstanding.md) and
+> [database-hosting.md](database-hosting.md).
+
 Where the project actually is. First written 7 Sep; the headline numbers, the
 platform table and the "verified working" table were re-measured on **17 Sep**
 against the live database and site. Raw output is in

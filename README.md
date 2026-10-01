@@ -2,7 +2,7 @@
 
 A job board that reads jobs **straight from employers**, not from other job sites.
 
-**Live: https://unsaturated-jobs.netlify.app**
+**Live: https://unsaturated-jobs.rarejobs.workers.dev**
 
 ```
 1,437 companies watched   ·   22,500 jobs read every hour
@@ -283,8 +283,8 @@ offers direct public-search links and a review-before-sending outreach draft.
 | | |
 |---|---|
 | GitHub Actions | free and unlimited on a public repo |
-| Supabase | free tier — 500 MB, using a fraction of it |
-| Netlify | free tier |
+| Supabase | free tier — 500 MB, now **close to the ceiling** (see [docs/database-hosting.md](docs/database-hosting.md)) |
+| Cloudflare Workers | free tier — serves the site; the zone cache fronts the read routes |
 
 ### After-applying workspace
 

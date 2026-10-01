@@ -2,7 +2,8 @@
 
 **Re-checked 17 September 2026** against the live database, the live site and
 the last 40 crawl runs. First written 7 September; what was fixed since is in
-the table at the bottom, so nobody re-opens it.
+the table at the bottom, so nobody re-opens it. **§3 updated 1 October 2026**
+with the edge-cache shield shipped that day.
 
 These are not parked. Nobody chose to defer them; they are simply not done.
 Ranked by what they cost. Work that WAS deliberately deferred is in
@@ -94,31 +95,45 @@ same challenge at a much smaller scale.
 
 ---
 
-## 3. `/api/feed` — made faster 17 Sep; watch the failures
+## 3. `/api/feed` — origin still 503s cold; the edge cache now shields it
 
-**Fixed 17 Sep (`fe6de86`, deployed run 35232619646).** Was 1.7–2.9 s uncached,
-with 44 `feed_page` calls a day cancelled by the 3-second limit and shown to
-visitors as a 503.
+**Cache mitigation shipped 1 Oct 2026 (deploy run 36825411996).** The symptom
+the owner reported — pages slow to load and an intermittent "job data is
+temporarily unavailable" — was reproduced live on 30 Sep: the heaviest view,
+`/api/feed?family=cloud&sort=newest`, returned **503 on all three attempts** at
+~6.7 s each, and the family feeds took 6–7 s cold. The underlying cause is
+unchanged from the database analysis: on the free tier the corpus (now ~683k
+rows ever seen, ~104k in scope) does not fit the ~224 MB cache, so a cold count
+over it exceeds the 3-second statement limit. See
+[database-hosting.md](database-hosting.md).
 
-Cause: both database functions copied every matching job in full (~500 bytes a
-row, ~69,000 rows for the counts) before counting, and the route asked for the
-page and the counts one after the other. Now the functions carry only the
-columns they count (output byte-identical on 35 parameter sets; exact rollback
-in `src/db/rollbacks/2026-09-17-feed-narrow.sql`), the two are asked at once,
-and the page is retried once on a refusal.
+What changed is the edge, not the database:
+
+- `CACHE_HEADER` on the three read routes (feed, quiet, institutions) kept its
+  60 s fresh window but extended `stale-while-revalidate` from 300 s to **24 h**
+  and added **`stale-if-error=24h`**. Cloudflare's zone cache honours both on the
+  free plan. A view that has fallen out of cache no longer makes a visitor wait
+  on a cold query, and a database timeout serves the last good copy instead of a
+  503. The degraded (facets-missing) header is deliberately left at 5 s with no
+  SWR, so a wrong answer still self-heals fast.
+- `scripts/warm-cache.mjs` + a `warm` job in `.github/workflows/crawl.yml` fetch
+  the ten common landing views after each hourly crawl, so the first real
+  visitor never draws the cold card.
 
 ```
-                         before           after (25 uncached requests)
-/api/feed?limit=50       1.7 – 2.9 s      0.8 – 1.6 s median, one 5.7 s outlier
-feed_facets, in the DB   1.2 – 1.4 s      0.42 – 0.46 s  (measured side by side)
-feed_page timeouts       44 in 24 h       watch
+/api/feed?family=cloud   before (30 Sep)      after (1 Oct, warmed)
+                         503 × 3, ~6.7 s      200, cf=HIT, ~0.3 s
+family feeds (cold)      6 – 7 s              67 – 105 ms  (cf=HIT)
+quiet / institutions     up to 1.4 s, expiring 25 – 115 ms (cf=HIT)
 ```
 
-**To close this:** the Postgres log shows few or no `feed_page` statement
-timeouts over the next day, especially across crawl hours. Remaining time is
-mostly the round trip between Cloudflare and the US database. Further options,
-not taken: count all facets in one pass (~0.2–0.3 s more), or cache the feed for
-longer than 60 s.
+**This is a shield, not a cure.** The cloud feed's own query still cannot finish
+within 3 s cold at the origin (its facets degraded even on the warm that
+succeeded), so it depends on a cached copy existing. As the corpus grows more
+views will approach that cliff. The real fix is the database move in
+[database-hosting.md](database-hosting.md) — recorded there, still open. Further
+cheap options not taken: count all facets in one pass, or lengthen the 60 s fresh
+window.
 
 ---
 
@@ -188,7 +203,7 @@ Verified 17 Sep, not taken from commit messages.
 | **Crawl shards split one employer's career sites** | Fixed 16 Sep (`1a00f28`): multi-site tenants closed 7,041 postings in one run before, 65 after. |
 | **122 Oracle career sites were exact duplicates** | Retired 16 Sep as "duplicate site of …", every posting ID compared. |
 | **Crawl close-scan timeouts** | Fixed 17 Sep, awaiting proof — §4. |
-| **`/api/feed` 2–9 s, occasional 503** | Faster 17 Sep, failures to be watched — §3. |
+| **`/api/feed` 2–9 s, occasional 503** | Faster 17 Sep; 1 Oct an edge-cache shield (SWR + stale-if-error) and an hourly warm took common views to ~0.3 s `cf=HIT` and stopped the 503 reaching visitors. Origin still 503s cold — §3. |
 
 ---
 

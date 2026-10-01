@@ -4,6 +4,13 @@ Research done 24 September 2026, when the Supabase free plan ran out of room.
 Every number below was measured on the live database or checked against the
 provider's own page that day. Free tiers change often — recheck before acting.
 
+> **Update, 1 October 2026.** The slowness and the "job data is temporarily
+> unavailable" 503s the owner reported were mitigated at the edge, not the
+> database: a longer stale-while-revalidate, a stale-if-error fallback, and an
+> hourly cache-warm (see [outstanding.md §3](outstanding.md)). That shields
+> visitors but changes nothing here — the origin still times out cold, and the
+> move described below remains the actual cure.
+
 ---
 
 ## Why this came up
