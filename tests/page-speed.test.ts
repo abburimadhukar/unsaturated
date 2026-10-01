@@ -139,9 +139,13 @@ test('the default view retries a refusal once, and otherwise hands back null', a
   assert.equal(await queryNewestFromDb(0, 50, { client: missing, wait: noWait }), null);
 });
 
-test('the feed route uses the fast road only for the unfiltered newest view, and falls back', () => {
+test('the feed route takes the fast road for the unfiltered AND the family-only newest views, and falls back', () => {
   const src = read('../app/api/feed/route.ts');
-  assert.match(src, /const fast = query\.sort === 'newest' && isUnfilteredQuery\(query\);/);
+  // The fast road now also covers a bare family tab (isFamilyOnlyQuery).
+  assert.match(src, /const familyFast = isFamilyOnlyQuery\(query\);/);
+  assert.match(src, /const fast = query\.sort === 'newest' && \(isUnfilteredQuery\(query\) \|\| familyFast\);/);
+  // feed_newest is asked for the family on a family tab, and unfiltered otherwise.
+  assert.match(src, /queryNewestFromDb\(offset, limit, \{\}, familyFast \? \(query\.family \?\? null\) : null\)/);
   // The total comes from the counts, and a missing piece falls back to feed_page.
   assert.match(src, /const fastTotal = realFacets\?\.adjacent\?\.core;/);
   assert.match(src, /newest && typeof fastTotal === 'number'[\s\S]{0,160}: await queryFeedFromDb\(query, offset, limit\)/);
@@ -161,4 +165,37 @@ test('feed_newest filters exactly as feed_page does with every parameter at its 
   ]) assert.match(sql, cond);
   // feed_page itself is not touched by this change.
   assert.doesNotMatch(sql, /function public\.feed_page/);
+});
+
+test('the p_family overload of feed_newest adds only the family filter, over the same base', () => {
+  const sql = read('../src/db/migrations/2026-10-01-feed-family-fast.sql').replace(/--.*$/gm, '');
+  // Same base filters as the 3-arg version, so a family tab and the default view
+  // return the same rows but for the family narrowing.
+  for (const cond of [
+    /p_family {2}text/,
+    /j\.closed_at is null/,
+    /\(j\.posted_at >= p_cutoff or \(j\.posted_at is null and j\.first_seen_at >= p_cutoff\)\)/,
+    /not coalesce\(j\.adjacent, false\)/,
+    /p_family is null or j\.family = p_family/,
+    /order by j\.posted_at desc nulls last, j\.key asc/,
+  ]) assert.match(sql, cond);
+  // Additive: the column is added if-not-exists and feed_page is still untouched.
+  assert.match(sql, /add column if not exists by_family jsonb/);
+  assert.doesNotMatch(sql, /function public\.feed_page/);
+});
+
+test('the family tab passes the family through to feed_newest', async () => {
+  let asked: Record<string, unknown> = {};
+  const client = {
+    rpc: async (name: string, p: Record<string, unknown>) => {
+      asked = { name, ...p };
+      return { data: { rows: [row('a')] }, error: null };
+    },
+  };
+  await queryNewestFromDb(0, 50, { client, wait: noWait }, 'cloud');
+  assert.equal(asked.name, 'feed_newest');
+  assert.equal(asked.p_family, 'cloud');
+  // The default view still sends null, not a family.
+  await queryNewestFromDb(0, 50, { client, wait: noWait });
+  assert.equal(asked.p_family, null);
 });

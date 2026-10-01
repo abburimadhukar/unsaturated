@@ -156,6 +156,17 @@ export async function queryNewestFromDb(
   offset: number,
   limit: number,
   opts: FacetOptions = {},
+  /**
+   * Restrict to one family, or null for the unfiltered default view.
+   *
+   * Added so the family tabs can take the same road as the default view: rows
+   * only, no count, with the total coming from the per-family snapshot. feed_page
+   * counts the family's whole match for its total, which is the ~3 s query that
+   * 503s on the free tier for the largest family. A rows-only fetch does not.
+   * The p_family overload of feed_newest is additive — the 3-arg version still
+   * exists — so an old deployment calling it without a family keeps working.
+   */
+  family: string | null = null,
 ): Promise<{ jobs: FeedJob[]; hasMore: boolean } | null> {
   const attempt = opts.attempt ?? 0;
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -166,6 +177,7 @@ export async function queryNewestFromDb(
       p_cutoff: cutoffIso(),
       p_offset: offset,
       p_limit: limit + 1,
+      p_family: family,
     });
     if (!error) {
       const rows = (data as { rows?: JobRow[] } | null)?.rows;
@@ -179,7 +191,7 @@ export async function queryNewestFromDb(
   if (attempt === 0 && isTransientWriteError(message)) {
     console.warn(`feed_newest refused, retrying once: ${message}`);
     await wait(FACET_RETRY_PAUSE_MS);
-    return queryNewestFromDb(offset, limit, { ...opts, attempt: 1 });
+    return queryNewestFromDb(offset, limit, { ...opts, attempt: 1 }, family);
   }
   // Not fatal: the caller asks feed_page instead, which is slower but whole.
   console.error('feed_newest failed:', message);
@@ -264,6 +276,40 @@ export function isUnfilteredQuery(f: FeedQuery): boolean {
 }
 
 /**
+ * The real families, each a tab on the main feed. 'unsorted' is deliberately
+ * excluded: it is a review queue, not a landing page, so it is never pre-counted
+ * and keeps using the live path.
+ *
+ * Shared by the snapshot writer (which counts each one per crawl) and
+ * isFamilyOnlyQuery (which decides when a request may read those counts), so the
+ * two cannot drift apart.
+ */
+export const SNAPSHOT_FAMILIES = ['cloud', 'software', 'data', 'hris'] as const;
+
+/**
+ * True when the ONLY thing narrowed is the family, to one of the real four,
+ * newest first — the family tabs every visitor clicks.
+ *
+ * This is isUnfilteredQuery with the family allowed. It is the second query shape
+ * the per-crawl snapshot can answer: the counts are stored per family, and the
+ * rows come from feed_newest filtered by family, so neither the live count nor
+ * feed_page runs. Any further filter (a country, a search, a specialization)
+ * falls back to the live path exactly as before — a stored per-family number
+ * cannot stand in for a filtered one, the same reason the default snapshot is
+ * default-only.
+ */
+export function isFamilyOnlyQuery(f: FeedQuery): boolean {
+  return (
+    !!f.family && (SNAPSHOT_FAMILIES as readonly string[]).includes(f.family) &&
+    !f.country && !f.remote && !f.seniority && !f.employmentType &&
+    !f.provider && !f.q && !f.stack && !f.specialization && !f.adjacent &&
+    f.hasSalary !== true && f.ai !== true && f.hideGhosts !== true &&
+    f.minSalary === undefined && f.postedWithinDays === undefined &&
+    f.cloudOnly !== false && f.includeUnknown !== false
+  );
+}
+
+/**
  * How stale a stored snapshot may be before it is ignored.
  *
  * A crawl refreshes it every few hours. If crawls have been failing for a day
@@ -278,22 +324,34 @@ export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promi
   const wait = opts.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const client = opts.client ?? db();
 
-  // The stored answer, for the one query shape that can use it.
+  // The stored answer, for the two query shapes that can use it.
   //
-  // Read first and only on the default view. A miss costs one primary-key
-  // lookup on a single-row table and falls through to the live count, so the
-  // worst case is what this path already did.
-  if (attempt === 0 && opts.snapshot !== false && !opts.client && isUnfilteredQuery(f)) {
+  // Read first on the default view and on a family-only view. A miss costs one
+  // primary-key lookup on a single-row table and falls through to the live count,
+  // so the worst case is what this path already did. The default view reads
+  // `facets`; a family tab reads its entry in `by_family`, written per crawl.
+  if (
+    attempt === 0 && opts.snapshot !== false && !opts.client &&
+    (isUnfilteredQuery(f) || isFamilyOnlyQuery(f))
+  ) {
     try {
       const { data, error } = await db()
         .from('facet_snapshot')
-        .select('facets,computed_at')
+        .select('facets,by_family,computed_at')
         .eq('id', true)
         .maybeSingle();
-      const row = data as { facets: Facets; computed_at: string } | null;
-      if (!error && row?.facets) {
+      const row = data as
+        | { facets: Facets; by_family: Record<string, Facets> | null; computed_at: string }
+        | null;
+      if (!error && row) {
         const age = Date.now() - Date.parse(row.computed_at);
-        if (Number.isFinite(age) && age >= 0 && age < SNAPSHOT_MAX_AGE_MS) return row.facets;
+        if (Number.isFinite(age) && age >= 0 && age < SNAPSHOT_MAX_AGE_MS) {
+          if (isUnfilteredQuery(f) && row.facets) return row.facets;
+          // A family tab: use its stored counts if the last crawl computed them;
+          // otherwise fall through to the live count for this one family.
+          const perFamily = f.family && row.by_family ? row.by_family[f.family] : undefined;
+          if (perFamily) return perFamily;
+        }
       }
     } catch {
       // Never fatal, and never retried: this is an optimisation in front of a

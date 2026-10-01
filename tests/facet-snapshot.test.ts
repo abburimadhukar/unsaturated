@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { isUnfilteredQuery } from '../src/corpus/db-query.js';
+import { isUnfilteredQuery, isFamilyOnlyQuery, SNAPSHOT_FAMILIES } from '../src/corpus/db-query.js';
 
 /**
  * The filter counts, computed once per crawl instead of once per page view.
@@ -121,4 +121,47 @@ test('it retries, and waits between attempts rather than hammering', () => {
   // useful response is to let it drain — not to ask again immediately.
   assert.match(snapshot, /const TRIES = \[0, \d+_?\d*, \d+_?\d*\]/);
   assert.match(snapshot, /if \(pause\) await wait\(pause\)/);
+});
+
+// --- the per-family snapshot (1 Oct 2026) -----------------------------------
+
+test('a bare family tab is recognised, and any extra filter opts out', () => {
+  // The second shape the snapshot can answer: only the family narrowed, to one
+  // of the real four, newest first.
+  for (const fam of SNAPSHOT_FAMILIES) {
+    assert.equal(isFamilyOnlyQuery({ family: fam }), true, `${fam} alone should qualify`);
+  }
+  // 'unsorted' is a review queue, never a landing page, so it is never pre-counted.
+  assert.equal(isFamilyOnlyQuery({ family: 'unsorted' }), false);
+  // No family at all is the UNFILTERED shape, not this one.
+  assert.equal(isFamilyOnlyQuery({}), false);
+  // Any further filter alongside the family falls back to the live count — a
+  // stored per-family number cannot stand in for a filtered one.
+  for (const extra of [
+    { country: 'US' }, { remote: 'remote' }, { seniority: 'senior' }, { q: 'engineer' },
+    { specialization: 'backend' }, { adjacent: 'only' }, { cloudOnly: false }, { includeUnknown: false },
+  ]) {
+    assert.equal(
+      isFamilyOnlyQuery({ family: 'cloud', ...extra }),
+      false,
+      `cloud + ${JSON.stringify(extra)} must not use the per-family snapshot`,
+    );
+  }
+});
+
+test('the writer computes and stores a count for each family', () => {
+  // One call per family, through the write client (the 8-second budget), and the
+  // results stored under by_family so a family tab can read them.
+  assert.match(snapshot, /for \(const fam of SNAPSHOT_FAMILIES\)/);
+  assert.match(snapshot, /facetsFromDb\(\{ family: fam \}, \{ snapshot: false, client: dbWrite\(\) \}\)/);
+  assert.match(snapshot, /by_family: byFamily/);
+  // Best-effort and independent: a family that does not come back is left out,
+  // never a thrown error that would fail the crawl.
+  assert.doesNotMatch(snapshot, /throw/);
+});
+
+test('the reader serves a family tab from by_family', () => {
+  assert.match(query, /isFamilyOnlyQuery\(f\)/);
+  assert.match(query, /select\('facets,by_family,computed_at'\)/);
+  assert.match(query, /row\.by_family\[f\.family\]/);
 });

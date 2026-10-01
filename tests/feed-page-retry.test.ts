@@ -94,10 +94,11 @@ test('the route asks for the page and the counts AT THE SAME TIME', () => {
   // ~1 s on 17 Sep. Wired from the source, as the facet-header tests are.
   const route = readFileSync(new URL('../app/api/feed/route.ts', import.meta.url), 'utf8');
   // Since 25 Sep the default view asks feed_newest for its page instead, still
-  // alongside the counts; every other view asks feed_page, alongside them.
+  // alongside the counts; since 1 Oct a bare family tab does too (passing the
+  // family); every other view asks feed_page, alongside them.
   assert.match(
     route,
-    /Promise\.all\(\[\s*fast \? queryNewestFromDb\(offset, limit\) : Promise\.resolve\(null\),\s*fast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
+    /Promise\.all\(\[\s*fast \? queryNewestFromDb\(offset, limit, \{\}, familyFast \? \(query\.family \?\? null\) : null\) : Promise\.resolve\(null\),\s*fast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
   );
   assert.doesNotMatch(route, /await facetsFromDb\(/);
   // The one sequential feed_page call is the fallback when the fast road

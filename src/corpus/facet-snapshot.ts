@@ -1,5 +1,5 @@
 import { dbWrite } from '../db/supabase.js';
-import { facetsFromDb } from './db-query.js';
+import { facetsFromDb, SNAPSHOT_FAMILIES, type Facets } from './db-query.js';
 
 /**
  * Stores the unfiltered filter counts so a page view does not have to compute
@@ -58,10 +58,28 @@ export async function refreshFacetSnapshot(
       return false;
     }
 
+    // The per-family counts, so the family tabs read the snapshot too rather than
+    // running the live count that times out on the free tier for the largest
+    // family. Each family is INDEPENDENT and best-effort: one that does not come
+    // back is left out of the map, and that family alone falls back to the live
+    // count (still shielded by the edge cache). The unfiltered snapshot above is
+    // what the default view needs and is already stored, so a missing family here
+    // never blocks the crawl or the default view.
+    //
+    // Through the write client, for the same reason as the unfiltered count: these
+    // run at the end of a crawl, the busiest moment, and need the 8-second budget
+    // rather than anon's 3.
+    const byFamily: Record<string, Facets> = {};
+    for (const fam of SNAPSHOT_FAMILIES) {
+      const perFamily = await facetsFromDb({ family: fam }, { snapshot: false, client: dbWrite() });
+      if (perFamily) byFamily[fam] = perFamily;
+      else console.warn(`facet snapshot: family ${fam} counts did not come back; left to the live path`);
+    }
+
     const { error } = await dbWrite()
       .from('facet_snapshot')
       .upsert(
-        { id: true, facets, computed_at: new Date().toISOString() },
+        { id: true, facets, by_family: byFamily, computed_at: new Date().toISOString() },
         { onConflict: 'id' },
       );
     if (error) {

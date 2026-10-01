@@ -4,6 +4,7 @@ import {
   queryNewestFromDb,
   facetsFromDb,
   isUnfilteredQuery,
+  isFamilyOnlyQuery,
   type Facets,
   type FeedPage,
 } from '../../../src/corpus/db-query.js';
@@ -251,9 +252,18 @@ export async function GET(request: Request) {
   // checked equal at the same instant — and it comes from the per-crawl
   // snapshot, so the matched figure and the sidebar agree with each other.
   // Anything missing on that road falls back to feed_page, as before.
-  const fast = query.sort === 'newest' && isUnfilteredQuery(query);
+  //
+  // A family tab — only the family narrowed, newest first — takes the SAME road
+  // (1 Oct 2026): feed_newest filtered to that family for the rows, and its
+  // counts from the per-family snapshot, whose `adjacent.core` is that family's
+  // total. This is the view (`family=cloud`) that 503'd on the free tier, because
+  // feed_page counted the family's whole match for its total; the rows-only query
+  // does not. If the per-family counts have not been computed yet it falls back to
+  // the live count and then to feed_page, exactly as before.
+  const familyFast = isFamilyOnlyQuery(query);
+  const fast = query.sort === 'newest' && (isUnfilteredQuery(query) || familyFast);
   const [newest, slowPage, realFacets] = await Promise.all([
-    fast ? queryNewestFromDb(offset, limit) : Promise.resolve(null),
+    fast ? queryNewestFromDb(offset, limit, {}, familyFast ? (query.family ?? null) : null) : Promise.resolve(null),
     fast ? Promise.resolve(null) : queryFeedFromDb(query, offset, limit),
     facetsFromDb(query),
   ]);
