@@ -95,7 +95,7 @@ same challenge at a much smaller scale.
 
 ---
 
-## 3. `/api/feed` — origin still 503s cold; the edge cache now shields it
+## 3. `/api/feed` — 503s fixed at the edge and then at the origin
 
 **Cache mitigation shipped 1 Oct 2026 (deploy run 36825411996).** The symptom
 the owner reported — pages slow to load and an intermittent "job data is
@@ -127,13 +127,36 @@ family feeds (cold)      6 – 7 s              67 – 105 ms  (cf=HIT)
 quiet / institutions     up to 1.4 s, expiring 25 – 115 ms (cf=HIT)
 ```
 
-**This is a shield, not a cure.** The cloud feed's own query still cannot finish
-within 3 s cold at the origin (its facets degraded even on the warm that
-succeeded), so it depends on a cached copy existing. As the corpus grows more
-views will approach that cliff. The real fix is the database move in
-[database-hosting.md](database-hosting.md) — recorded there, still open. Further
-cheap options not taken: count all facets in one pass, or lengthen the 60 s fresh
-window.
+### Origin-side fixes shipped the same day (1 Oct 2026)
+
+The cache was a shield; these address the origin so it does not depend on one.
+
+- **Route A — the family tabs read a per-crawl snapshot** (migration
+  `2026-10-01-feed-family-fast.sql`). The bare family tabs (`?family=cloud`) went
+  through `feed_page`, which counts the family's whole match for its total — the
+  ~3 s query that 503'd. Now a family tab's rows come from `feed_newest(p_family)`
+  (no count) and its counts from `facet_snapshot.by_family`, written per crawl by
+  `refreshFacetSnapshot`. Live: `family=cloud` 503→~0.3 s `cf=HIT`, ~0.5 s cold.
+
+- **A composite index for family+country** (`jobs_family_country_posted_idx`,
+  migration `2026-10-01-feed-filter-index.sql`). A family AND a country together
+  (cloud + US) still 503'd: single-column indexes on each meant a scan of ~16,600
+  cloud rows re-checking country per row. The composite partial index cut the
+  count 6.4 s → 0.7 s and `feed_page(cloud+US)` 6.4 s → 2.6 s. Live, the heavy
+  combos now return 200 in ~1–2 s where they were 503.
+
+- **`feed_rows` fallback** (migration `2026-10-01-feed-rows.sql`) — `feed_page`'s
+  filter logic verbatim with the count removed. When `feed_page`'s count times out
+  but the facets came back, the route serves the rows from `feed_rows` and takes
+  the total from `adjacent.core` (exact while adjacent roles are excluded, so
+  skipped for `adjacent=include|only`). Rows verified byte-identical to feed_page
+  across six filter sets. `feed_page` itself is untouched.
+
+**What remains.** The very heaviest combo (cloud + US) on a cold cache can still
+take ~7 s on the first hit — but it now **succeeds** (no 503) and is ~1–2 s after.
+Making that first cold hit fast is the database move in
+[step2-database-move.md](step2-database-move.md) / [database-hosting.md](database-hosting.md),
+still the real cure as the corpus grows.
 
 ---
 
@@ -203,7 +226,9 @@ Verified 17 Sep, not taken from commit messages.
 | **Crawl shards split one employer's career sites** | Fixed 16 Sep (`1a00f28`): multi-site tenants closed 7,041 postings in one run before, 65 after. |
 | **122 Oracle career sites were exact duplicates** | Retired 16 Sep as "duplicate site of …", every posting ID compared. |
 | **Crawl close-scan timeouts** | Fixed 17 Sep, awaiting proof — §4. |
-| **`/api/feed` 2–9 s, occasional 503** | Faster 17 Sep; 1 Oct an edge-cache shield (SWR + stale-if-error) and an hourly warm took common views to ~0.3 s `cf=HIT` and stopped the 503 reaching visitors. Origin still 503s cold — §3. |
+| **`/api/feed` 2–9 s, occasional 503** | Faster 17 Sep; 1 Oct an edge-cache shield (SWR + stale-if-error) + hourly warm took common views to ~0.3 s `cf=HIT`, THEN origin fixes landed the same day: Route A (family tabs off the live count), a family+country index (count 6.4 s→0.7 s), and a `feed_rows` fallback. Heavy filtered combos now return 200 (~1–2 s) where they were 503. Only the very heaviest cold first-hit is still slow — §3. |
+| **"After applying" lost your place** | Fixed 1 Oct. The back link dropped the filters, so returning reset to the top of an unfiltered list. It now carries path AND filters (validated by `src/ui/back-link.ts`), and Quiet/Institutions gained the main feed's scroll+page memory (`src/ui/restore.ts`). |
+| **No seen/applied marking on Quiet & Institutions** | Fixed 1 Oct. Opening a posting there now dims the card and marks it applied, the same as the main feed — the shared `JobCard` gained the behaviour via `app/_components/useJobState.ts`. The main feed was already correct and was left unchanged. |
 
 ---
 
