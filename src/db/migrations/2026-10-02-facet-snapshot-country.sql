@@ -1,0 +1,44 @@
+-- Stored filter counts for the country-scoped views, so they stop timing out.
+--
+-- WHY
+--
+-- The feed runs two queries for a filtered view: feed_page for the rows and
+-- feed_facets for the sidebar counts. Measured 2 Oct 2026, for a family plus the
+-- US those were:
+--
+--   feed_page('cloud','US')     388 ms
+--   feed_facets('cloud','US')   2,199 ms      (3,876 ms before the index rebuild)
+--   feed_facets('software','US')  2,900 ms
+--
+-- against the 3-SECOND statement timeout the `anon` role carries. Alone the
+-- counts just fit; under any concurrency they do not. Measured with six
+-- requests in flight, the same call took 11,413 ms. Both halves are killed, and
+-- a feed with no rows is the 503 the site reports as "job data is temporarily
+-- unavailable" — which is what a visitor filtering to Cloud + United States was
+-- getting.
+--
+-- Caching did not cover it: the degraded answer carries a short max-age, so a
+-- failure is never cached and every visitor pays the origin again.
+--
+-- WHAT
+--
+-- One nullable jsonb column beside the two snapshots already here. It holds the
+-- counts for the pre-counted countries, keyed "<family>|<country>" with '*' for
+-- the no-family case:
+--
+--   {"*|US": {...}, "cloud|US": {...}, "software|US": {...}, ...}
+--
+-- Written once per crawl by refreshFacetSnapshot, through the write client that
+-- gets 8 seconds rather than anon's 3, and computed by calling the SAME
+-- facetsFromDb the live path calls — a snapshot that disagreed with the live
+-- answer would be worse than no snapshot.
+--
+-- Nullable and best-effort by design. A combination the crawl could not compute
+-- is simply absent from the map, and isCountryScopedQuery falls through to the
+-- live count for that one combination; it is never answered with a neighbouring
+-- one. Until this column exists the writer notices the missing column and stores
+-- the other two snapshots without it, so applying this late costs speed and
+-- never correctness. Safe to re-run.
+
+alter table public.facet_snapshot
+  add column if not exists by_country jsonb;

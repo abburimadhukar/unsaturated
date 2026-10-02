@@ -1,5 +1,11 @@
 import { dbWrite } from '../db/supabase.js';
-import { facetsFromDb, SNAPSHOT_FAMILIES, type Facets } from './db-query.js';
+import {
+  facetsFromDb,
+  countryFacetKey,
+  SNAPSHOT_FAMILIES,
+  SNAPSHOT_COUNTRIES,
+  type Facets,
+} from './db-query.js';
 
 /**
  * Stores the unfiltered filter counts so a page view does not have to compute
@@ -76,12 +82,46 @@ export async function refreshFacetSnapshot(
       else console.warn(`facet snapshot: family ${fam} counts did not come back; left to the live path`);
     }
 
-    const { error } = await dbWrite()
-      .from('facet_snapshot')
-      .upsert(
-        { id: true, facets, by_family: byFamily, computed_at: new Date().toISOString() },
-        { onConflict: 'id' },
+    // The country-scoped counts: the US with no family, and the US with each of
+    // the four. This is the combination that was actually returning 503s — the
+    // live counts for cloud+US measured 2.2s and software+US 2.9s against anon's
+    // 3-second ceiling, so under any concurrency they were killed.
+    //
+    // Independent and best-effort, exactly like the per-family counts above: a
+    // combination that does not come back is left out of the map and falls back
+    // to the live count on its own, and never blocks the crawl or the two
+    // snapshots the default and family views depend on.
+    const byCountry: Record<string, Facets> = {};
+    for (const country of SNAPSHOT_COUNTRIES) {
+      for (const fam of [null, ...SNAPSHOT_FAMILIES]) {
+        const scoped = await facetsFromDb(
+          { ...(fam ? { family: fam } : {}), country },
+          { snapshot: false, client: dbWrite() },
+        );
+        if (scoped) byCountry[countryFacetKey(fam, country)] = scoped;
+        else console.warn(`facet snapshot: ${fam ?? 'all'}+${country} counts did not come back; left to the live path`);
+      }
+    }
+
+    const computedAt = new Date().toISOString();
+    const row = { id: true, facets, by_family: byFamily, by_country: byCountry, computed_at: computedAt };
+    let { error } = await dbWrite().from('facet_snapshot').upsert(row, { onConflict: 'id' });
+
+    // Migrations here are applied by hand, so the code can land before the
+    // column does. Without this, one unknown column would fail the WHOLE upsert
+    // and take the existing `facets` and `by_family` snapshots down with it —
+    // turning an optimisation into an outage for the default view and every
+    // family tab. Narrow on purpose: only this column, only a missing-column
+    // error, and it says so loudly rather than healing in silence.
+    if (error && /column "?by_country"? .*does not exist/i.test(error.message)) {
+      console.error(
+        'facet_snapshot.by_country does not exist yet — storing without the country counts. ' +
+          'Apply src/db/migrations/2026-10-02-facet-snapshot-country.sql to enable them.',
       );
+      ({ error } = await dbWrite()
+        .from('facet_snapshot')
+        .upsert({ id: true, facets, by_family: byFamily, computed_at: computedAt }, { onConflict: 'id' }));
+    }
     if (error) {
       console.warn(`facet snapshot not refreshed: ${error.message}`);
       return false;

@@ -30,11 +30,28 @@ const BASE =
 // which is a review queue and never shown) in src/taxonomy/families.ts.
 const FAMILIES = ['cloud', 'software', 'data', 'hris'];
 
+// The countries warmed alongside the family tabs. Kept in step with
+// SNAPSHOT_COUNTRIES in src/corpus/db-query.ts — the same combinations the crawl
+// pre-counts, warmed here so the edge holds a copy too.
+//
+// These were the views actually returning "job data is temporarily unavailable":
+// a family plus the US ran the rows and the counts together, and under
+// concurrency both were killed by the 3-second limit. The stored counts fix the
+// origin; warming them means a visitor does not wait on the origin at all. A
+// 503 carries a short max-age and is never cached, so without warming every
+// visitor paid for the failure again.
+const COUNTRIES = ['US'];
+
 // The landing views, in the order a visitor is most likely to hit them: the main
-// feed and its family tabs first, then the two secondary pages and their tabs.
+// feed and its family tabs first, then the country-scoped views that were
+// breaking, then the two secondary pages and their tabs.
 const PATHS = [
   '/api/feed',
   ...FAMILIES.map((f) => `/api/feed?family=${f}&sort=newest`),
+  ...COUNTRIES.flatMap((c) => [
+    `/api/feed?country=${c}`,
+    ...FAMILIES.map((f) => `/api/feed?family=${f}&country=${c}`),
+  ]),
   '/api/institutions',
   ...FAMILIES.map((f) => `/api/quiet?family=${f}`),
 ];

@@ -374,6 +374,54 @@ export function isFamilyOnlyQuery(f: FeedQuery): boolean {
 }
 
 /**
+ * The countries worth pre-counting, and the only ones a stored country-scoped
+ * answer may serve.
+ *
+ * One entry, deliberately. The US is 49,031 of 113,289 open postings — four
+ * times the next country — and it is the only one whose counts run close to the
+ * limit: measured 2 Oct 2026, feed_facets took 2.2s for cloud+US and 2.9s for
+ * software+US against anon's 3-SECOND ceiling, while cloud+GB came back in 1.2s.
+ * Pre-counting a country that is already fast would add crawl time and buy
+ * nothing. Adding one here is a one-word change if another country grows into
+ * the same problem.
+ */
+export const SNAPSHOT_COUNTRIES = ['US'] as const;
+
+/**
+ * The key a country-scoped answer is stored under. '*' is the no-family case,
+ * which cannot collide with a family name.
+ */
+export function countryFacetKey(family: string | null | undefined, country: string): string {
+  return `${family ?? '*'}|${country}`;
+}
+
+/**
+ * True when the only things narrowed are the country — to one of the
+ * pre-counted ones — and optionally the family, to one of the real four.
+ *
+ * The third query shape the per-crawl snapshot can answer, and the one that was
+ * actually breaking: a family plus the US ran feed_page (fast, 388ms) and
+ * feed_facets (slow, 2.2s) at the same time, and under any concurrency BOTH
+ * were killed by the 3-second limit, which is a 503 rather than merely missing
+ * counts. Storing the counts removes the slow half entirely.
+ *
+ * Spelled out field by field for the same reason as the two predicates above: a
+ * filter added to feed_facets and not added here would be served counts that
+ * ignore it, and wrong counts are worse than slow ones.
+ */
+export function isCountryScopedQuery(f: FeedQuery): boolean {
+  return (
+    !!f.country && (SNAPSHOT_COUNTRIES as readonly string[]).includes(f.country) &&
+    (!f.family || (SNAPSHOT_FAMILIES as readonly string[]).includes(f.family)) &&
+    !f.remote && !f.seniority && !f.employmentType &&
+    !f.provider && !f.q && !f.stack && !f.specialization && !f.adjacent &&
+    f.hasSalary !== true && f.ai !== true && f.hideGhosts !== true &&
+    f.minSalary === undefined && f.postedWithinDays === undefined &&
+    f.cloudOnly !== false && f.includeUnknown !== false
+  );
+}
+
+/**
  * How stale a stored snapshot may be before it is ignored.
  *
  * A crawl refreshes it every few hours. If crawls have been failing for a day
@@ -396,16 +444,21 @@ export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promi
   // `facets`; a family tab reads its entry in `by_family`, written per crawl.
   if (
     attempt === 0 && opts.snapshot !== false && !opts.client &&
-    (isUnfilteredQuery(f) || isFamilyOnlyQuery(f))
+    (isUnfilteredQuery(f) || isFamilyOnlyQuery(f) || isCountryScopedQuery(f))
   ) {
     try {
       const { data, error } = await db()
         .from('facet_snapshot')
-        .select('facets,by_family,computed_at')
+        .select('facets,by_family,by_country,computed_at')
         .eq('id', true)
         .maybeSingle();
       const row = data as
-        | { facets: Facets; by_family: Record<string, Facets> | null; computed_at: string }
+        | {
+            facets: Facets;
+            by_family: Record<string, Facets> | null;
+            by_country: Record<string, Facets> | null;
+            computed_at: string;
+          }
         | null;
       if (!error && row) {
         const age = Date.now() - Date.parse(row.computed_at);
@@ -413,8 +466,17 @@ export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promi
           if (isUnfilteredQuery(f) && row.facets) return row.facets;
           // A family tab: use its stored counts if the last crawl computed them;
           // otherwise fall through to the live count for this one family.
-          const perFamily = f.family && row.by_family ? row.by_family[f.family] : undefined;
+          const perFamily = isFamilyOnlyQuery(f) && f.family && row.by_family
+            ? row.by_family[f.family]
+            : undefined;
           if (perFamily) return perFamily;
+          // A country-scoped view (US, with or without a family). Same rule: a
+          // combination the last crawl did not manage is left to the live count
+          // rather than answered with a neighbouring one.
+          const perCountry = isCountryScopedQuery(f) && f.country && row.by_country
+            ? row.by_country[countryFacetKey(f.family, f.country)]
+            : undefined;
+          if (perCountry) return perCountry;
         }
       }
     } catch {

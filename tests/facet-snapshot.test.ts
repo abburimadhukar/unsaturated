@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { isUnfilteredQuery, isFamilyOnlyQuery, SNAPSHOT_FAMILIES } from '../src/corpus/db-query.js';
+import {
+  isUnfilteredQuery,
+  isFamilyOnlyQuery,
+  isCountryScopedQuery,
+  countryFacetKey,
+  SNAPSHOT_FAMILIES,
+  SNAPSHOT_COUNTRIES,
+} from '../src/corpus/db-query.js';
 
 /**
  * The filter counts, computed once per crawl instead of once per page view.
@@ -162,6 +169,112 @@ test('the writer computes and stores a count for each family', () => {
 
 test('the reader serves a family tab from by_family', () => {
   assert.match(query, /isFamilyOnlyQuery\(f\)/);
-  assert.match(query, /select\('facets,by_family,computed_at'\)/);
+  assert.match(query, /select\('facets,by_family,by_country,computed_at'\)/);
   assert.match(query, /row\.by_family\[f\.family\]/);
+});
+
+// --- the country-scoped snapshot (2 Oct 2026) -------------------------------
+
+/**
+ * The third shape, and the one that was actually returning 503s.
+ *
+ * A family plus the US ran feed_page (388ms) and feed_facets (2,199ms) at the
+ * same time against anon's 3-second ceiling. Alone the counts just fit; with six
+ * requests in flight the same call measured 11,413ms, both halves were killed,
+ * and a feed with no rows is "job data is temporarily unavailable". The degraded
+ * answer carries a short max-age, so the failure is never cached and every
+ * visitor pays for it again.
+ */
+
+test('a country-scoped view is recognised, with or without a family', () => {
+  assert.equal(isCountryScopedQuery({ country: 'US' }), true);
+  for (const fam of SNAPSHOT_FAMILIES) {
+    assert.equal(isCountryScopedQuery({ family: fam, country: 'US' }), true, `${fam}+US should qualify`);
+  }
+  // Only the pre-counted countries. GB came back in 1.2s and is left live.
+  assert.equal(isCountryScopedQuery({ country: 'GB' }), false);
+  assert.equal(isCountryScopedQuery({ family: 'cloud', country: 'GB' }), false);
+  // 'unsorted' is a review queue and is never pre-counted, here either.
+  assert.equal(isCountryScopedQuery({ family: 'unsorted', country: 'US' }), false);
+  // No country at all is one of the other two shapes, not this one.
+  assert.equal(isCountryScopedQuery({}), false);
+  assert.equal(isCountryScopedQuery({ family: 'cloud' }), false);
+});
+
+test('any extra filter drops a country-scoped view back to the live count', () => {
+  // A stored country number cannot stand in for a further-filtered one.
+  for (const extra of [
+    { remote: 'remote' }, { seniority: 'senior' }, { employmentType: 'permanent' },
+    { provider: 'greenhouse' }, { q: 'engineer' }, { stack: 'python' },
+    { specialization: 'backend' }, { adjacent: 'only' }, { hasSalary: true },
+    { ai: true }, { hideGhosts: true }, { minSalary: 100000 }, { postedWithinDays: 7 },
+    { cloudOnly: false }, { includeUnknown: false },
+  ]) {
+    assert.equal(
+      isCountryScopedQuery({ family: 'cloud', country: 'US', ...extra }),
+      false,
+      `cloud+US + ${JSON.stringify(extra)} must not use the stored counts`,
+    );
+  }
+});
+
+test('every filter feed_facets takes is one the country check knows about', () => {
+  // The same guard as the default view: a filter added to the RPC and not to
+  // isCountryScopedQuery would be served counts that ignore it.
+  const call = /rpc\('feed_facets',\s*\{([\s\S]*?)\n\s*\}\);/.exec(query);
+  assert.ok(call, 'could not find the feed_facets call');
+  const params = [...call[1]!.matchAll(/p_(\w+):/g)].map((m) => m[1]!);
+  const notAFilter = new Set(['cutoff']);
+  const fn = /export function isCountryScopedQuery[\s\S]*?\n\}/.exec(query)?.[0] ?? '';
+  const known: Record<string, string> = {
+    in_scope: 'cloudOnly', keep_unknown: 'includeUnknown', employment: 'employmentType',
+    has_salary: 'hasSalary', min_salary: 'minSalary', within_days: 'postedWithinDays',
+    hide_ghosts: 'hideGhosts',
+  };
+  for (const p of params) {
+    if (notAFilter.has(p)) continue;
+    const field = known[p] ?? p;
+    assert.ok(
+      fn.includes(field),
+      `feed_facets takes p_${p} but isCountryScopedQuery never looks at "${field}"`,
+    );
+  }
+});
+
+test('the stored key cannot collide between a family and no family', () => {
+  assert.equal(countryFacetKey('cloud', 'US'), 'cloud|US');
+  assert.equal(countryFacetKey(null, 'US'), '*|US');
+  assert.equal(countryFacetKey(undefined, 'US'), '*|US');
+  assert.notEqual(countryFacetKey(null, 'US'), countryFacetKey('cloud', 'US'));
+});
+
+test('the writer stores a count for each country, and each family within it', () => {
+  assert.match(snapshot, /for \(const country of SNAPSHOT_COUNTRIES\)/);
+  assert.match(snapshot, /for \(const fam of \[null, \.\.\.SNAPSHOT_FAMILIES\]\)/);
+  // Computed through the same function the live path calls, on the 8-second
+  // budget — a snapshot that disagreed with the live answer is worse than none.
+  assert.match(snapshot, /\{ snapshot: false, client: dbWrite\(\) \}/);
+  assert.match(snapshot, /by_country: byCountry/);
+});
+
+test('a missing by_country column cannot take the other snapshots down with it', () => {
+  // Migrations here are applied by hand, so the code can land before the column.
+  // One unknown column failing the whole upsert would turn an optimisation into
+  // an outage for the default view and every family tab.
+  assert.match(snapshot, /column "\?by_country"\? \.\*does not exist/);
+  assert.match(snapshot, /upsert\(\{ id: true, facets, by_family: byFamily, computed_at: computedAt \}/);
+});
+
+test('the reader serves a country-scoped view from by_country, or falls through', () => {
+  assert.match(query, /isCountryScopedQuery\(f\)/);
+  assert.match(query, /row\.by_country\[countryFacetKey\(f\.family, f\.country\)\]/);
+});
+
+test('the warmer warms exactly the combinations the crawl pre-counts', () => {
+  // If these drift apart the warmer heats a view the origin still computes live.
+  const warmer = strip(readFileSync(new URL('../scripts/warm-cache.mjs', import.meta.url), 'utf8'));
+  for (const c of SNAPSHOT_COUNTRIES) {
+    assert.ok(warmer.includes(`'${c}'`), `the warmer does not warm ${c}`);
+  }
+  assert.match(warmer, /country=\$\{c\}/);
 });
