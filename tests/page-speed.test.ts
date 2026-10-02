@@ -149,7 +149,11 @@ test('the feed route takes the fast road for the unfiltered AND the family-only 
   // The total comes from the counts, and a missing piece falls back to feed_page.
   assert.match(src, /const fastTotal = realFacets\?\.adjacent\?\.core;/);
   assert.match(src, /newest && typeof fastTotal === 'number'[\s\S]{0,160}: await queryFeedFromDb\(query, offset, limit\)/);
-  assert.match(src, /hasMore: fromDb\.hasMore \?\? offset \+ fromDb\.jobs\.length < fromDb\.total/);
+  // Guarded against a null total, which the last-resort rows-only path sets.
+  assert.match(
+    src,
+    /hasMore: fromDb\.hasMore \?\? \(fromDb\.total !== null && offset \+ fromDb\.jobs\.length < fromDb\.total\)/,
+  );
 });
 
 test('feed_newest filters exactly as feed_page does with every parameter at its default', () => {
@@ -231,6 +235,51 @@ test('the route falls back to rows-only when feed_page times out on a filtered v
   assert.match(src, /total: fastTotal/);
   // adjacent=include|only is excluded, because adjacent.core is not their total.
   assert.match(src, /!query\.adjacent/);
+});
+
+/**
+ * THE 503 THAT WAS LEFT ON THE TABLE.
+ *
+ * The fallback above is gated on `typeof fastTotal === 'number'` — it needs the
+ * COUNTS to have survived, because that is where it takes the total from. But
+ * the failure this site actually has is both halves dying together: feed_page
+ * and feed_facets are fired in the same Promise.all and compete for the same
+ * 3-second budget. When both are refused, `fastTotal` is undefined, that gate
+ * never opens, and the visitor gets "job data is temporarily unavailable" —
+ * even though feed_rows, which counts nothing, would have answered.
+ *
+ * So there is a second fallback with NO gate on the facets. The rows are what a
+ * visitor came for; the sidebar numbers are not.
+ */
+test('rows are served even when NOTHING could count them', () => {
+  const src = read('../app/api/feed/route.ts');
+  // Ungated: no facets, no fastTotal, no adjacent check — only "we have no page".
+  assert.match(src, /if \(!fromDb\) \{\s*\n\s*const rows = await queryRowsFromDb\(query, offset, limit \+ 1\);/);
+  // The total is unknown and is SAID to be unknown, never invented as 0.
+  assert.match(src, /total: null,/);
+  assert.doesNotMatch(src, /total: 0,/);
+  // hasMore stays exact without a count, by fetching one row past the page.
+  assert.match(src, /hasMore: rows\.length > limit,/);
+  assert.match(src, /jobs: rows\.slice\(0, limit\),/);
+  // An unknown total is cached as briefly as missing facets are.
+  assert.match(src, /const degraded = facetsMissing \|\| fromDb\.total === null;/);
+  assert.match(src, /cache-control', degraded \? DEGRADED_CACHE_HEADER : CACHE_HEADER/);
+  // ...but it does NOT claim the facets were unavailable, because they may not
+  // have been. The two conditions stay separate.
+  assert.match(src, /const facetsMissing = realFacets === null;/);
+});
+
+test('the page shows an unknown total as unknown, not as zero', () => {
+  const src = read('../app/page.tsx');
+  // The headline figure.
+  assert.match(src, /\{data\?\.matched \?\? '—'\}/);
+  assert.doesNotMatch(src, /\{data\?\.matched \?\? 0\}/);
+  // The type admits it can be absent, so a future caller cannot forget.
+  assert.match(src, /matched: number \| null;/);
+  // "N left" needs a total; the button still works without one.
+  assert.match(src, /data\.matched != null\s*\n?\s*\? `Load more · \$\{data\.matched - jobs\.length\} left`/);
+  // "showing N" is guarded rather than comparing against null.
+  assert.match(src, /data\?\.matched != null && jobs\.length < data\.matched/);
 });
 
 test('the family tab passes the family through to feed_newest', async () => {

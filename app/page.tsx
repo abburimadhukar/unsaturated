@@ -80,7 +80,15 @@ interface Me {
 interface Feed {
   total: number;
   inScope: number;
-  matched: number;
+  /**
+   * How many roles the filters matched, or null when nothing could count them.
+   *
+   * Null is the honest answer for the last-resort path in app/api/feed/route.ts:
+   * when both the page query and the sidebar counts are refused, the rows are
+   * still served and the total is simply not known. Showing 0 there would be an
+   * invented number sitting above a list of jobs.
+   */
+  matched: number | null;
   unknownIncluded: { country: number; seniority: number; remote: number; employmentType: number; postedWithin?: number };
   offset: number;
   limit: number;
@@ -895,7 +903,7 @@ export default function Page() {
           <section>
             <div className="results">
               <span className="count">
-                <b className="tnum">{data?.matched ?? 0}</b> roles
+                <b className="tnum">{data?.matched ?? '—'}</b> roles
                 {filters.family && ` · ${FAMILY_LABELS[filters.family as never] ?? filters.family}`}
                 {filters.specialization &&
                   ` · ${filters.specialization === UNKNOWN_SPECIALIZATION
@@ -920,7 +928,7 @@ export default function Page() {
                     </>
                   );
                 })()}
-                {data && jobs.length < data.matched && (
+                {data?.matched != null && jobs.length < data.matched && (
                   <span className="unk"> · showing {visible.length}</span>
                 )}
               </span>
@@ -1052,7 +1060,14 @@ export default function Page() {
             {!loading && !error && data?.hasMore && (
               <div className="more">
                 <button onClick={() => { void loadMore(); }} disabled={moreBusy}>
-                  {moreBusy ? 'Loading…' : `Load more · ${data.matched - jobs.length} left`}
+                  {/* "N left" needs a total. When nothing could count them the
+                      button still works — hasMore is exact, fetched as one row
+                      beyond the page — so it just loses the number. */}
+                  {moreBusy
+                    ? 'Loading…'
+                    : data.matched != null
+                      ? `Load more · ${data.matched - jobs.length} left`
+                      : 'Load more'}
                 </button>
               </div>
             )}

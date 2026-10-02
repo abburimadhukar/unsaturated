@@ -215,14 +215,19 @@ test('the normal header is still long-lived — the fix must not slow the happy 
   assert.match(m![1]!, /stale-if-error=86400/);
 });
 
-test('THE ROUTE PICKS THE HEADER FROM WHETHER THE FACETS ARRIVED', () => {
+test('THE ROUTE PICKS THE HEADER FROM WHETHER THE ANSWER IS WHOLE', () => {
   // A null from facetsFromDb has to be remembered before the fallback hides it,
   // or the degraded answer gets the full 60+300 seconds.
   assert.match(routeSrc, /facetsMissing\s*=\s*realFacets === null/);
+  // An unknown total is degraded for the same reason — it also means something
+  // was refused — so the header follows BOTH, not just the facets.
+  assert.match(routeSrc, /const degraded = facetsMissing \|\| fromDb\.total === null;/);
   assert.match(
     routeSrc,
-    /cache-control',\s*facetsMissing \? DEGRADED_CACHE_HEADER : CACHE_HEADER/,
-    'the choice must be driven by facetsMissing, not by anything else',
+    /cache-control',\s*degraded \? DEGRADED_CACHE_HEADER : CACHE_HEADER/,
+    'the choice must be driven by `degraded`, not by anything else',
   );
-  assert.match(routeSrc, /x-facets', 'unavailable'/, 'and it is visible in the response');
+  // x-facets keeps following facetsMissing alone: counts can arrive without a
+  // total, and reporting them as unavailable would be false.
+  assert.match(routeSrc, /if \(facetsMissing\) res\.headers\.set\('x-facets', 'unavailable'\)/);
 });

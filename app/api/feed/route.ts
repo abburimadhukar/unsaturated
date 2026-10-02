@@ -269,7 +269,10 @@ export async function GET(request: Request) {
     facetsFromDb(query),
   ]);
   const fastTotal = realFacets?.adjacent?.core;
-  let fromDb: (FeedPage & { hasMore?: boolean }) | null = slowPage;
+  // `total` is nullable here and nowhere else: the last-resort path below serves
+  // the rows when NOTHING could count them, and an unknown total is reported as
+  // unknown rather than as a number nobody measured.
+  let fromDb: (Omit<FeedPage, 'total'> & { total: number | null; hasMore?: boolean }) | null = slowPage;
   if (fast) {
     fromDb = newest && typeof fastTotal === 'number'
       ? { jobs: newest.jobs, total: fastTotal, undated: 0, hasMore: newest.hasMore }
@@ -298,11 +301,47 @@ export async function GET(request: Request) {
       };
     }
   }
+
+  // LAST RESORT: the rows with no total at all.
+  //
+  // The fallback above can only run when the COUNTS survived, because it takes
+  // the total from them. The failure this site actually has is both halves
+  // dying together: feed_page and feed_facets are fired at the same instant and
+  // compete for the same 3-second budget, so under load neither finishes. That
+  // left `fromDb` null and `fastTotal` undefined, the gate above never opened,
+  // and the visitor got "job data is temporarily unavailable" — while the one
+  // query that would have answered, feed_rows, was never even asked. Measured
+  // 2 Oct 2026: feed_page 388 ms against feed_facets ~1,000 ms, and every
+  // feed_facets call touches the same 52,979 buffers whatever is filtered.
+  //
+  // So ask it. Rows are what a visitor came for; the sidebar numbers are not.
+  // No gate on the facets and none on `adjacent`, because nothing here is taken
+  // from either — the total is genuinely unknown and is sent as null rather
+  // than as a number nobody counted, and the page renders the jobs with "—"
+  // where the figure goes. One row more than the page is fetched so `hasMore`
+  // stays exact without counting anything.
+  if (!fromDb) {
+    const rows = await queryRowsFromDb(query, offset, limit + 1);
+    if (rows) {
+      fromDb = {
+        jobs: rows.slice(0, limit),
+        total: null,
+        undated: 0,
+        hasMore: rows.length > limit,
+      };
+    }
+  }
   if (fromDb) {
     // Remembered, because the cache header depends on it. Without this the
     // degraded answer was indistinguishable from a real one by the time the
     // header was set, and got the full 60+300 seconds.
     const facetsMissing = realFacets === null;
+    // An unknown total is degraded too, and for the same reason: it means
+    // something was refused, so the answer must not sit in the cache for a
+    // minute plus a day of stale. Kept apart from `facetsMissing`, which is what
+    // the x-facets header reports — a served page with counts and no total is a
+    // real combination, and saying the facets were unavailable would be false.
+    const degraded = facetsMissing || fromDb.total === null;
     const facets = realFacets ?? {
       family: {}, country: {}, remote: {}, provider: {}, seniority: {}, adjacent: {},
       stack: {}, specialization: {}, countryUnknown: 0, inScope: 0,
@@ -316,7 +355,7 @@ export async function GET(request: Request) {
       offset,
       limit,
       shown: fromDb.jobs.length,
-      hasMore: fromDb.hasMore ?? offset + fromDb.jobs.length < fromDb.total,
+      hasMore: fromDb.hasMore ?? (fromDb.total !== null && offset + fromDb.jobs.length < fromDb.total),
       maxAgeDays: MAX_AGE_DAYS,
       // The last crawl, not this request. Stamping now() made the header read
       // "updated just now" however old the corpus actually was.
@@ -326,7 +365,7 @@ export async function GET(request: Request) {
       facets,
       jobs: fromDb.jobs,
     });
-    res.headers.set('cache-control', facetsMissing ? DEGRADED_CACHE_HEADER : CACHE_HEADER);
+    res.headers.set('cache-control', degraded ? DEGRADED_CACHE_HEADER : CACHE_HEADER);
     // So this is visible in a response rather than only in a Worker log.
     if (facetsMissing) res.headers.set('x-facets', 'unavailable');
     return res;
