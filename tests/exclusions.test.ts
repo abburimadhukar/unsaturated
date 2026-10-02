@@ -187,3 +187,98 @@ test('keyset values travel as their own parameters, not inside an or() list', ()
   // would break the filter; as separate eq/gt parameters they are just values.
   assert.doesNotMatch(cli, /\.or\(/);
 });
+
+// ---------------------------------------------------------------------------
+// Two speeds: never miss a title, stop rewriting the ones we have
+// ---------------------------------------------------------------------------
+
+/**
+ * `record_exclusions` was 16% of ALL database time — more write traffic than
+ * the corpus it diagnoses (16,841,852 updates against jobs' 15,557,011 over 34
+ * days) — for a table nothing under app/ reads.
+ *
+ * The obvious fix, writing the whole tally once a day, was WRONG and these
+ * tests exist mostly to stop it coming back. 98% of the cost is re-writing
+ * rows that already exist (16.8M updates against 394k inserts), but the value
+ * is in the rare ones: 5,251 of 232,505 pairs have been seen exactly once, and
+ * a rule with a bug in it usually drops an uncommon title. Writing one crawl in
+ * five would have missed about four in five of those — weakening the only
+ * instrument that catches a broken rule, right when a new family is added.
+ *
+ * So: new titles on EVERY crawl, the expensive counter pass once a day.
+ */
+const costSql = readFileSync(
+  new URL('../src/db/migrations/2026-10-02-exclusions-cost-and-grant.sql', import.meta.url),
+  'utf8',
+);
+const costBody = costSql.replace(/^\s*--.*$/gm, ' ');
+
+test('A TITLE NEVER SEEN BEFORE IS RECORDED ON EVERY CRAWL', () => {
+  // The cheap branch must still INSERT. If this becomes a no-op the rare
+  // titles — the whole point of the table — are lost.
+  assert.match(costBody, /on conflict \(reason, title\) do nothing/);
+  assert.match(costBody, /inserted as \(/);
+  // And it must be reached when the window is shut, not skipped entirely.
+  assert.doesNotMatch(costBody, /elsif[^\n]*then\s*\n\s*return 0;/);
+});
+
+test('the expensive counter pass runs once a day, not once a crawl', () => {
+  assert.match(costBody, /create table if not exists public\.exclusions_run/);
+  assert.match(costBody, /v_now - v_started >= interval '20 hours'/);
+  assert.match(costBody, /v_now - v_started <= interval '30 minutes'/);
+  // Both branches exist and are chosen by one flag.
+  assert.match(costBody, /v_full\s+boolean := false/);
+  assert.match(costBody, /if v_full then/);
+  assert.match(costBody, /on conflict \(reason, title\) do update/);
+});
+
+test('an empty call cannot burn the window the full pass needs', () => {
+  const guard = costBody.indexOf('jsonb_array_length(p_rows) = 0');
+  const marker = costBody.indexOf('select window_started_at into v_started');
+  assert.ok(guard > -1 && marker > -1, 'both the guard and the marker read exist');
+  assert.ok(guard < marker, 'the empty-input guard runs before the window is touched');
+});
+
+test('THE WRITE RPC IS TAKEN BACK OFF THE PUBLIC INTERNET', () => {
+  // anon could still execute this on 2 Oct 2026 — SECURITY DEFINER, reachable
+  // with the publishable key that ships in the site's JavaScript, writing
+  // unbounded rows into 21% of a 500 MB database.
+  assert.match(
+    costBody,
+    /revoke execute on function public\.record_exclusions\(jsonb\) from public, anon, authenticated;/,
+  );
+  // The crawler must keep working.
+  assert.match(costBody, /grant execute on function public\.record_exclusions\(jsonb\) to service_role;/);
+});
+
+test('the migration replaces the function rather than dropping it', () => {
+  // DROP + CREATE resets the ACL to PUBLIC, which is the most likely way the
+  // 2026-09-24 revoke was lost. CREATE OR REPLACE keeps the grants.
+  assert.match(costBody, /create or replace function public\.record_exclusions/);
+  assert.doesNotMatch(costBody, /drop function[^\n]*record_exclusions/i);
+});
+
+test('NOTHING IS DELETED AND NOTHING IS DROPPED', () => {
+  assert.doesNotMatch(costBody, /drop table/i);
+  assert.doesNotMatch(costBody, /delete from/i);
+  assert.doesNotMatch(costBody, /truncate/i);
+});
+
+test('the new marker table is not reachable over PostgREST', () => {
+  assert.match(costBody, /alter table public\.exclusions_run enable row level security/);
+  assert.doesNotMatch(costBody, /create policy[^\n]*exclusions_run/i);
+});
+
+test('every column the report reads is still written', () => {
+  // src/cli/exclusions.ts selects reason,title,n,sample_company,last_seen_at.
+  // The cheap branch relies on column defaults for the timestamps, so it must
+  // still supply the other four.
+  for (const cond of [
+    /insert into public\.exclusions as e \(reason, title, n, sample_company\)[\s\S]{0,200}do update/,
+    /insert into public\.exclusions as e \(reason, title, n, sample_company\)[\s\S]{0,200}do nothing/,
+    /n\s*=\s*e\.n \+ excluded\.n/,
+    /last_seen_at = now\(\)/,
+    /sample_company = coalesce\(e\.sample_company, excluded\.sample_company\)/,
+  ]) assert.match(costBody, cond);
+  assert.match(cliSource, /const COLUMNS = 'reason,title,n,sample_company,last_seen_at'/);
+});

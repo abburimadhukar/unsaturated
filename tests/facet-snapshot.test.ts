@@ -106,10 +106,76 @@ test('refreshing the snapshot can never fail a crawl', () => {
   assert.match(snapshot, /console\.warn\(/);
 });
 
-test('only one shard refreshes it', () => {
-  // Four shards computing the same global counts would be three repeats of the
-  // most expensive read in the database.
-  assert.match(cli, /if \(!shard \|\| shard\.index === 0\) await refreshFacetSnapshot\(\)/);
+/**
+ * THE COUNTS ARE WRITTEN AFTER THE WHOLE CRAWL, NOT DURING IT.
+ *
+ * They used to be written by shard 0 the moment it finished, while shards 1-3
+ * kept crawling and writing for minutes afterwards — asking for the most
+ * expensive read in the database, cold, while three jobs hammered it. A cold
+ * feed_facets is ~13 s against the write client's 8-second budget.
+ *
+ * Measured 2 Oct 2026: attempt 1 failed on EVERY recent crawl, the 13:10 run
+ * failed all three, and the counts had gone seven and a half hours unwritten.
+ * Invisible, because nothing read them until isDefaultShapeQuery landed.
+ */
+test('the crawl no longer writes the counts itself', () => {
+  // `cli` has its comments stripped, so this is the code, not the explanation.
+  assert.doesNotMatch(cli, /refreshFacetSnapshot/);
+  assert.doesNotMatch(cli, /shard\.index === 0\) await refreshFacetSnapshot/);
+  // The raw file, to check it says where they went rather than leaving the
+  // next reader to wonder why the call vanished.
+  const raw = readFileSync(new URL('../src/cli/crawl-db.ts', import.meta.url), 'utf8');
+  assert.match(raw, /snapshot:facets/);
+});
+
+test('the counts job runs after every shard, and warming runs after it', () => {
+  const wf = readFileSync(new URL('../.github/workflows/crawl.yml', import.meta.url), 'utf8');
+  // Its own job, depending on the whole crawl matrix.
+  assert.match(wf, /^ {2}counts:\s*\n\s*needs: crawl\s*\n\s*if: always\(\)/m);
+  assert.match(wf, /run: npm run snapshot:facets/);
+  // It needs the write key, or dbWrite falls back to the publishable one and
+  // RLS refuses the upsert.
+  assert.match(wf, /SUPABASE_SECRET_KEY: \$\{\{ secrets\.SUPABASE_SECRET_KEY \}\}/);
+  // Warming must come AFTER the counts, or it caches the slow live answer.
+  assert.match(wf, /needs: \[crawl, counts\]/);
+});
+
+/**
+ * crawl.yml fires SIX TIMES AN HOUR — GitHub drops most scheduled runs, so the
+ * cron over-declares and `crawl:db` exits in seconds on five of the six. The
+ * crawl job therefore succeeds six times an hour, and a `needs: crawl` job
+ * with no guard of its own would run the whole 20-query pass every time: six
+ * an hour against the ~5 a day it needs, which is MORE load than the bug this
+ * was written to fix.
+ */
+test('the counts job skips when no crawl has happened since the last count', () => {
+  const entry = readFileSync(new URL('../src/cli/facet-counts.ts', import.meta.url), 'utf8');
+  assert.match(entry, /async function crawlSinceLastCount\(\)/);
+  assert.match(entry, /if \(!\(await crawlSinceLastCount\(\)\)\) return;/);
+  // The exact comparison, not a timer: shards finish at different moments and
+  // max(finished_at) is the whole crawl's end.
+  assert.match(entry, /crawl_runs/);
+  assert.match(entry, /facet_snapshot/);
+  assert.match(entry, /if \(crawled <= counted\)/);
+  // Fails OPEN — counting when we need not is waste, skipping when we must is
+  // a stale site.
+  assert.match(entry, /\/\/ Cannot tell — count rather than skip\./);
+  // And a manual override, like the crawl's own --force.
+  assert.match(entry, /--force/);
+});
+
+test('the counts command exists and reports failure loudly', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  assert.equal(pkg.scripts['snapshot:facets'], 'tsx src/cli/facet-counts.ts');
+
+  const entry = readFileSync(new URL('../src/cli/facet-counts.ts', import.meta.url), 'utf8');
+  // Silence for seven hours is the bug being fixed, so a failure must be red.
+  assert.match(entry, /process\.exitCode = 1/);
+  assert.match(entry, /filter counts NOT stored/);
+  // And it refuses to report success when it has no key to write with.
+  assert.match(entry, /if \(!canWrite\(\)\)/);
 });
 
 test('the refresh uses the write client, not the publishable one', () => {

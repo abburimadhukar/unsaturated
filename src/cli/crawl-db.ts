@@ -13,7 +13,6 @@ function argOf(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 import { writeFeed } from '../corpus/db-feed.js';
-import { refreshFacetSnapshot } from '../corpus/facet-snapshot.js';
 import { recordCrawlOutcomes } from '../corpus/board-store.js';
 import { tallyExclusions, recordExclusions } from '../corpus/exclusions.js';
 import { config } from '../config.js';
@@ -102,10 +101,23 @@ async function main(): Promise<void> {
   const dropped = feed.jobs.length - roles;
   const tallied = await recordExclusions(tally);
 
-  // The filter counts, worked out once here instead of on every page view.
-  // One shard, like the purge — four shards computing the same global counts
-  // would be three repeats of the most expensive read in the database.
-  if (!shard || shard.index === 0) await refreshFacetSnapshot();
+  // THE FILTER COUNTS ARE NOT WRITTEN HERE ANY MORE.
+  //
+  // They used to be, guarded by `shard.index === 0`, right at this point. That
+  // is the wrong moment: shards 1-3 are still crawling and writing for several
+  // minutes after shard 0 finishes, and the crawl has just flushed the corpus
+  // out of a 224 MB cache — so the most expensive read in the database was
+  // being asked for, cold, while three jobs hammered it. A cold feed_facets is
+  // ~13 s against the write client's 8-second budget, and it lost.
+  //
+  // Measured 2 Oct 2026: the first attempt failed on EVERY recent crawl, the
+  // 13:10 run failed all three, and the counts had not been rewritten for seven
+  // and a half hours. It was invisible because nothing read them until
+  // isDefaultShapeQuery landed.
+  //
+  // They are now `npm run snapshot:facets`, run by the `counts` job in
+  // crawl.yml with `needs: crawl` — after every shard has finished and the
+  // database has gone quiet. See src/cli/facet-counts.ts.
 
   // What the crawl learned about the boards themselves. Until this call existed,
   // last_crawled_at was NULL on all 12,479 boards and no board could ever retire

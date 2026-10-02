@@ -157,6 +157,54 @@ jobs:
             gh issue create --title 'Crawl is failing' --label crawl-failure --body "$body"
           fi
 
+  # Store the filter counts, once EVERY shard has finished.
+  #
+  # This ran inside the crawl until 2 Oct 2026, on shard 0, the moment that one
+  # shard finished — while shards 1-3 kept crawling and writing for minutes
+  # afterwards, against a database whose cache the crawl had just flushed. A
+  # cold feed_facets is ~13 s and the write client gets 8, so it lost:
+  #
+  #   13:35:30  facet snapshot attempt 1 of 3 did not come back
+  #   13:36:08  facet snapshot attempt 2 of 3 did not come back
+  #   13:36:48  facet snapshot attempt 3 of 3 did not come back
+  #
+  # The first attempt failed on every recent crawl and the counts had gone seven
+  # and a half hours unwritten. It was invisible because nothing read them until
+  # the stored shapes were made to match what a browser actually sends.
+  #
+  # `needs: crawl` is the whole fix — the same pattern the warm job below has
+  # always used. By the time this runs the shards are done and the database is
+  # quiet. `if: always()` because a run where one shard failed still refreshed
+  # most of the corpus, and counts over three quarters of it beat none.
+  #
+  # This job going red is a REAL signal and is meant to be noticed: the site now
+  # depends on these numbers rather than merely preferring them. It cannot fail
+  # the crawl — the jobs are already stored by the time this starts — and the
+  # site falls back to counting live, so a failure is visible without being an
+  # outage.
+  counts:
+    needs: crawl
+    if: always()
+    runs-on: ubuntu-latest
+    # Twenty computations, each capped at the write client's 8 s with one retry,
+    # plus npm ci. Comfortably inside this.
+    timeout-minutes: 15
+    concurrency:
+      group: facet-counts
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Store the filter counts
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run snapshot:facets
+
   # Warm the edge cache once the crawl has written the new data.
   #
   # A separate job that NEEDS the crawl, so it runs after all four shards finish
@@ -169,7 +217,11 @@ jobs:
   # here means a real visitor gets the already-cached copy instead. Best-effort —
   # see scripts/warm-cache.mjs — so it never blocks or fails the crawl.
   warm:
-    needs: crawl
+    # AFTER the counts, not just after the crawl. Warming a view whose counts
+    # have not been stored yet makes the origin compute them live and caches the
+    # slow answer — the opposite of the point. `if: always()` still applies, so
+    # a counts job that failed does not stop the warming.
+    needs: [crawl, counts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
