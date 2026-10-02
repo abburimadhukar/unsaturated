@@ -6,6 +6,7 @@ import {
   facetsFromDb,
   isUnfilteredQuery,
   isFamilyOnlyQuery,
+  isDefaultShapeQuery,
   type Facets,
   type FeedPage,
 } from '../../../src/corpus/db-query.js';
@@ -263,9 +264,27 @@ export async function GET(request: Request) {
   // the live count and then to feed_page, exactly as before.
   const familyFast = isFamilyOnlyQuery(query);
   const fast = query.sort === 'newest' && (isUnfilteredQuery(query) || familyFast);
-  const [newest, slowPage, realFacets] = await Promise.all([
+
+  // The views a browser ACTUALLY asks for take the same road, one step along.
+  //
+  // Every real request carries hideGhosts=1 and country=US, because both are
+  // FILTER_DEFAULTS and the feed page sends its whole filter state — so the
+  // landing view and the four tabs match isDefaultShapeQuery, never the two
+  // above. feed_newest cannot serve them: it knows only about family. feed_rows
+  // can, because it takes the full filter set and simply does not count.
+  //
+  // This matters for more than speed. Taking the rows from feed_page means the
+  // headline total is counted LIVE while the sidebar counts come from the
+  // per-crawl snapshot, and the two can disagree whenever the snapshot is
+  // behind. Reading both from the same stored answer keeps the number above the
+  // list and the numbers beside it consistent with each other.
+  const shapeFast = isDefaultShapeQuery(query);
+
+  const [newest, shapeRows, slowPage, realFacets] = await Promise.all([
     fast ? queryNewestFromDb(offset, limit, {}, familyFast ? (query.family ?? null) : null) : Promise.resolve(null),
-    fast ? Promise.resolve(null) : queryFeedFromDb(query, offset, limit),
+    // One row past the page, so hasMore stays exact without counting anything.
+    shapeFast ? queryRowsFromDb(query, offset, limit + 1) : Promise.resolve(null),
+    fast || shapeFast ? Promise.resolve(null) : queryFeedFromDb(query, offset, limit),
     facetsFromDb(query),
   ]);
   const fastTotal = realFacets?.adjacent?.core;
@@ -276,6 +295,18 @@ export async function GET(request: Request) {
   if (fast) {
     fromDb = newest && typeof fastTotal === 'number'
       ? { jobs: newest.jobs, total: fastTotal, undated: 0, hasMore: newest.hasMore }
+      : await queryFeedFromDb(query, offset, limit);
+  } else if (shapeFast) {
+    // Same rule as the fast road above: the rows are live, the total comes from
+    // the counts, and anything missing falls back to feed_page rather than
+    // showing a number nobody computed.
+    fromDb = shapeRows && typeof fastTotal === 'number'
+      ? {
+          jobs: shapeRows.slice(0, limit),
+          total: fastTotal,
+          undated: 0,
+          hasMore: shapeRows.length > limit,
+        }
       : await queryFeedFromDb(query, offset, limit);
   }
 

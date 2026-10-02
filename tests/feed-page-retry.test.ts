@@ -95,15 +95,22 @@ test('the route asks for the page and the counts AT THE SAME TIME', () => {
   const route = readFileSync(new URL('../app/api/feed/route.ts', import.meta.url), 'utf8');
   // Since 25 Sep the default view asks feed_newest for its page instead, still
   // alongside the counts; since 1 Oct a bare family tab does too (passing the
-  // family); every other view asks feed_page, alongside them.
+  // family). Since 2 Oct the views a browser ACTUALLY sends — hideGhosts=1 and
+  // country=US, both FILTER_DEFAULTS — take a third road through feed_rows,
+  // which accepts the whole filter set and does not count, so their total can
+  // come from the same stored counts the sidebar uses instead of from a live
+  // feed_page count that could disagree with them. Every other view still asks
+  // feed_page. All of them run alongside the counts, never after.
   assert.match(
     route,
-    /Promise\.all\(\[\s*fast \? queryNewestFromDb\(offset, limit, \{\}, familyFast \? \(query\.family \?\? null\) : null\) : Promise\.resolve\(null\),\s*fast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
+    /Promise\.all\(\[\s*fast \? queryNewestFromDb\(offset, limit, \{\}, familyFast \? \(query\.family \?\? null\) : null\) : Promise\.resolve\(null\),\s*\/\/[^\n]*\n\s*shapeFast \? queryRowsFromDb\(query, offset, limit \+ 1\) : Promise\.resolve\(null\),\s*fast \|\| shapeFast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\),\s*facetsFromDb\(query\),\s*\]\)/,
   );
   assert.doesNotMatch(route, /await facetsFromDb\(/);
-  // The one sequential feed_page call is the fallback when the fast road
-  // fails — never the normal path.
+  // Two sequential feed_page calls, and both are fallbacks for a road that
+  // failed — never the normal path. Each is guarded by the same condition.
   const sequential = route.match(/await queryFeedFromDb\(/g) ?? [];
-  assert.equal(sequential.length, 1);
-  assert.match(route, /typeof fastTotal === 'number'[\s\S]{0,160}: await queryFeedFromDb\(/);
+  assert.equal(sequential.length, 2);
+  for (const _ of sequential) {
+    assert.match(route, /typeof fastTotal === 'number'[\s\S]{0,200}: await queryFeedFromDb\(/);
+  }
 });

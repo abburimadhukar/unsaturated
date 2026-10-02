@@ -396,6 +396,57 @@ export function countryFacetKey(family: string | null | undefined, country: stri
 }
 
 /**
+ * The key for a shape that includes the ghost filter — three parts, so it can
+ * never collide with the two-part keys countryFacetKey writes.
+ *
+ * '*' stands in for "not narrowed" on either axis, and the suffix records which
+ * way `hideGhosts` was set when the counts were COMPUTED. That suffix is the
+ * whole point: a number counted with ghosts included is a different number from
+ * one counted with them hidden, and serving one for the other would be a wrong
+ * count rather than a slow one.
+ */
+export function shapeFacetKey(
+  family: string | null | undefined,
+  country: string | null | undefined,
+  hideGhosts: boolean,
+): string {
+  return `${family ?? '*'}|${country ?? '*'}|${hideGhosts ? 'g1' : 'g0'}`;
+}
+
+/**
+ * THE SHAPES THE UI ACTUALLY ASKS FOR.
+ *
+ * The three predicates above all require `hideGhosts !== true`, and every one of
+ * them was unreachable in production because of it. FILTER_DEFAULTS sets
+ * `hideGhosts: true` and app/page.tsx `paramsFor` serialises the whole filter
+ * state, defaults included — so every real request carries `hideGhosts=1` and
+ * matched none of them. Measured 2 Oct 2026: 0-7 reads of facet_snapshot an hour
+ * against 30-95 live feed_facets calls, which is the warm script on the bare URL
+ * and nothing else. The stored counts were dead code for visitors.
+ *
+ * `country: 'US'` is a default too, so the view everyone lands on is the US one
+ * and clearing the country is a single click — both are covered here.
+ *
+ * This is the same filter list as the predicates above with the ghost condition
+ * INVERTED: it matches only when ghosts are hidden, because that is the variant
+ * the crawl stores under a g1 key. A request with ghosts shown still falls to
+ * `isUnfilteredQuery` and friends, which read the g0 numbers in `facets` and
+ * `by_family`. Neither set is ever served for the other.
+ */
+export function isDefaultShapeQuery(f: FeedQuery): boolean {
+  return (
+    f.hideGhosts === true &&
+    (!f.family || (SNAPSHOT_FAMILIES as readonly string[]).includes(f.family)) &&
+    (!f.country || (SNAPSHOT_COUNTRIES as readonly string[]).includes(f.country)) &&
+    !f.remote && !f.seniority && !f.employmentType &&
+    !f.provider && !f.q && !f.stack && !f.specialization && !f.adjacent &&
+    f.hasSalary !== true && f.ai !== true &&
+    f.minSalary === undefined && f.postedWithinDays === undefined &&
+    f.cloudOnly !== false && f.includeUnknown !== false
+  );
+}
+
+/**
  * True when the only things narrowed are the country — to one of the
  * pre-counted ones — and optionally the family, to one of the real four.
  *
@@ -444,7 +495,7 @@ export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promi
   // `facets`; a family tab reads its entry in `by_family`, written per crawl.
   if (
     attempt === 0 && opts.snapshot !== false && !opts.client &&
-    (isUnfilteredQuery(f) || isFamilyOnlyQuery(f) || isCountryScopedQuery(f))
+    (isUnfilteredQuery(f) || isFamilyOnlyQuery(f) || isCountryScopedQuery(f) || isDefaultShapeQuery(f))
   ) {
     try {
       const { data, error } = await db()
@@ -477,6 +528,15 @@ export async function facetsFromDb(f: FeedQuery, opts: FacetOptions = {}): Promi
             ? row.by_country[countryFacetKey(f.family, f.country)]
             : undefined;
           if (perCountry) return perCountry;
+          // The shapes the UI actually sends — ghosts hidden, optionally a
+          // family, optionally a pre-counted country. Stored under a three-part
+          // key in the same map, so this needed no new column. Same rule again:
+          // a combination the last crawl did not manage is left to the live
+          // count rather than answered with a neighbouring one.
+          const perShape = isDefaultShapeQuery(f) && row.by_country
+            ? row.by_country[shapeFacetKey(f.family, f.country, true)]
+            : undefined;
+          if (perShape) return perShape;
         }
       }
     } catch {

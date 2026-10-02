@@ -6,7 +6,9 @@ import {
   isUnfilteredQuery,
   isFamilyOnlyQuery,
   isCountryScopedQuery,
+  isDefaultShapeQuery,
   countryFacetKey,
+  shapeFacetKey,
   SNAPSHOT_FAMILIES,
   SNAPSHOT_COUNTRIES,
 } from '../src/corpus/db-query.js';
@@ -276,5 +278,101 @@ test('the warmer warms exactly the combinations the crawl pre-counts', () => {
   for (const c of SNAPSHOT_COUNTRIES) {
     assert.ok(warmer.includes(`'${c}'`), `the warmer does not warm ${c}`);
   }
-  assert.match(warmer, /country=\$\{c\}/);
+  // The warmer now builds feed URLs through a helper that spells them the way
+  // the browser does — defaults and `limit` included — rather than by
+  // interpolating a bare `country=`. See the warm-list test in
+  // page-speed.test.ts, which rebuilds the expected strings from
+  // FILTER_DEFAULTS. Here we only check the country still reaches that helper.
+  assert.match(warmer, /country=\$\{country\}/);
+  assert.match(warmer, /feed\(\{ country: 'US' \}\)/);
+});
+
+// ---------------------------------------------------------------------------
+// The shapes the UI actually sends
+// ---------------------------------------------------------------------------
+
+/**
+ * Every predicate above requires `hideGhosts !== true`, and FILTER_DEFAULTS
+ * sets `hideGhosts: true` — so for as long as the snapshot has existed, no
+ * visitor could reach it. isDefaultShapeQuery covers that state.
+ *
+ * The danger in fixing it is serving the WRONG number: a count taken with
+ * ghosts included is not the same count as one taken with them hidden. These
+ * tests exist mostly to prove the two sets can never answer for each other.
+ */
+
+test('a ghosts-hidden key can never collide with a ghosts-shown one', () => {
+  // Two parts versus three.
+  assert.equal(countryFacetKey('cloud', 'US'), 'cloud|US');
+  assert.equal(shapeFacetKey('cloud', 'US', true), 'cloud|US|g1');
+  assert.notEqual(shapeFacetKey('cloud', 'US', true), countryFacetKey('cloud', 'US'));
+  // And the two ghost settings are distinct keys.
+  assert.notEqual(shapeFacetKey('cloud', 'US', true), shapeFacetKey('cloud', 'US', false));
+  // '*' marks "not narrowed" on either axis.
+  assert.equal(shapeFacetKey(null, null, true), '*|*|g1');
+  assert.equal(shapeFacetKey(null, 'US', true), '*|US|g1');
+  assert.equal(shapeFacetKey('cloud', null, true), 'cloud|*|g1');
+});
+
+test('isDefaultShapeQuery matches only ghosts-hidden views, and only known ones', () => {
+  const base = { hideGhosts: true as const };
+  assert.equal(isDefaultShapeQuery(base), true);
+  assert.equal(isDefaultShapeQuery({ ...base, country: 'US' }), true);
+  assert.equal(isDefaultShapeQuery({ ...base, family: 'cloud', country: 'US' }), true);
+
+  // Ghosts shown is the OTHER set's business.
+  assert.equal(isDefaultShapeQuery({ hideGhosts: false }), false);
+  assert.equal(isDefaultShapeQuery({}), false);
+
+  // A country or family we do not pre-count falls through to the live path.
+  assert.equal(isDefaultShapeQuery({ ...base, country: 'GB' }), false);
+  assert.equal(isDefaultShapeQuery({ ...base, family: 'unsorted' }), false);
+
+  // Any further narrowing falls through — a stored number cannot stand in.
+  for (const extra of [
+    { remote: 'fully_remote' }, { seniority: 'senior' }, { employmentType: 'full_time' },
+    { provider: 'greenhouse' }, { q: 'engineer' }, { stack: 'python' },
+    { specialization: 'devops_sre' }, { adjacent: 'include' },
+    { hasSalary: true }, { ai: true }, { minSalary: 100000 }, { postedWithinDays: 7 },
+    { cloudOnly: false }, { includeUnknown: false },
+  ]) {
+    assert.equal(
+      isDefaultShapeQuery({ ...base, ...extra }), false,
+      `${JSON.stringify(extra)} must fall through to the live count`,
+    );
+  }
+});
+
+test('every feed_facets parameter is accounted for by isDefaultShapeQuery', () => {
+  // The same guard the other predicates carry: a filter added to feed_facets and
+  // not added here would be served counts that ignore it.
+  const params = [...query.matchAll(/p_(\w+):/g)].map((m) => m[1]);
+  const known = new Set([
+    'cutoff', 'in_scope', 'hide_ghosts', 'family', 'country', 'remote', 'seniority',
+    'employment', 'provider', 'q', 'has_salary', 'min_salary', 'within_days', 'ai',
+    'keep_unknown', 'stack', 'specialization', 'adjacent',
+    'sort', 'offset', 'limit', 'rows',
+  ]);
+  for (const p of params) {
+    assert.ok(known.has(p!), `feed_facets gained p_${p} — add it to isDefaultShapeQuery`);
+  }
+});
+
+test('the writer stores the ghosts-hidden grid, computed and not derived', () => {
+  // Both axes, including the country-cleared views.
+  assert.match(snapshot, /for \(const country of \[null, \.\.\.SNAPSHOT_COUNTRIES\]\)/);
+  assert.match(snapshot, /for \(const fam of \[null, \.\.\.SNAPSHOT_FAMILIES\]\)/);
+  // hideGhosts: true must reach facetsFromDb, or the stored number is the wrong
+  // one under a key that claims otherwise.
+  assert.match(snapshot, /hideGhosts: true/);
+  assert.match(snapshot, /byCountry\[shapeFacetKey\(fam, country, true\)\] = shaped/);
+  // Through the write client, for the 8-second budget rather than anon's 3.
+  assert.match(snapshot, /\{ snapshot: false, client: dbWrite\(\) \}/);
+});
+
+test('the reader serves a default-shape view from its own key', () => {
+  assert.match(query, /isDefaultShapeQuery\(f\)/);
+  assert.match(query, /row\.by_country\[shapeFacetKey\(f\.family, f\.country, true\)\]/);
+  // And it is one of the shapes that opens the snapshot read at all.
+  assert.match(query, /isCountryScopedQuery\(f\) \|\| isDefaultShapeQuery\(f\)/);
 });

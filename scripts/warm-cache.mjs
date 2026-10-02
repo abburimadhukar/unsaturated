@@ -30,28 +30,57 @@ const BASE =
 // which is a review queue and never shown) in src/taxonomy/families.ts.
 const FAMILIES = ['cloud', 'software', 'data', 'hris'];
 
-// The countries warmed alongside the family tabs. Kept in step with
-// SNAPSHOT_COUNTRIES in src/corpus/db-query.ts — the same combinations the crawl
-// pre-counts, warmed here so the edge holds a copy too.
-//
-// These were the views actually returning "job data is temporarily unavailable":
-// a family plus the US ran the rows and the counts together, and under
-// concurrency both were killed by the 3-second limit. The stored counts fix the
-// origin; warming them means a visitor does not wait on the origin at all. A
-// 503 carries a short max-age and is never cached, so without warming every
-// visitor paid for the failure again.
-const COUNTRIES = ['US'];
+/**
+ * THE QUERY STRING THE FEED PAGE ACTUALLY SENDS.
+ *
+ * This file used to warm `/api/feed` and `/api/feed?family=cloud&country=US`.
+ * A browser never asks for either, so for as long as this script has existed it
+ * has been warming cache entries nobody reads — measured 2 Oct 2026, the real
+ * landing request was a MISS every time while the warmed URL beside it was a
+ * HIT.
+ *
+ * The cause is that the feed page serialises its WHOLE filter state, defaults
+ * included (app/page.tsx `paramsFor`), while Quiet and Institutions use
+ * `writeTo`, which omits anything still at its default. So those two were warmed
+ * correctly and the feed never was.
+ *
+ * Four FILTER_DEFAULTS survive `paramsFor` on a view nobody has touched:
+ *
+ *   country: 'US'   cloudOnly: true   hideGhosts: true   sort: 'newest'
+ *
+ * and `load()` appends `limit=50`. ORDER MATTERS — Cloudflare keys on the exact
+ * query string, and `paramsFor` emits in Object.entries order of
+ * FILTER_DEFAULTS, which is why `family` comes before `country` and the booleans
+ * come after both. tests/page-speed.test.ts rebuilds these strings from
+ * FILTER_DEFAULTS itself and fails if the two ever drift again.
+ */
+const TAIL = 'cloudOnly=1&hideGhosts=1&sort=newest&limit=50';
 
-// The landing views, in the order a visitor is most likely to hit them: the main
-// feed and its family tabs first, then the country-scoped views that were
-// breaking, then the two secondary pages and their tabs.
+/** One feed view, spelled exactly as the browser spells it. */
+const feed = ({ family, country }) =>
+  '/api/feed?' +
+  [family && `family=${family}`, country && `country=${country}`, TAIL]
+    .filter(Boolean)
+    .join('&');
+
+// The landing views, in the order a visitor is most likely to hit them.
+//
+// `country: 'US'` is a DEFAULT, not a choice — so the view every visitor lands
+// on is the US one, and "All roles" clears the family while leaving the country
+// alone. Both the US views and the country-cleared ones are warmed, because
+// clearing the country is a single click from the landing page.
+//
+// Deliberately the same number of views as before (15). Every one of these is a
+// cold origin query against a database that has just finished a crawl, so this
+// list buys correctness, not volume; more combinations are worth adding only
+// once these are confirmed landing as HITs.
 const PATHS = [
-  '/api/feed',
-  ...FAMILIES.map((f) => `/api/feed?family=${f}&sort=newest`),
-  ...COUNTRIES.flatMap((c) => [
-    `/api/feed?country=${c}`,
-    ...FAMILIES.map((f) => `/api/feed?family=${f}&country=${c}`),
-  ]),
+  feed({ country: 'US' }),
+  ...FAMILIES.map((f) => feed({ family: f, country: 'US' })),
+  feed({}),
+  ...FAMILIES.map((f) => feed({ family: f })),
+  // Quiet and Institutions build their URLs with `writeTo`, which drops
+  // defaults — so these two are already spelled the way the browser sends them.
   '/api/institutions',
   ...FAMILIES.map((f) => `/api/quiet?family=${f}`),
 ];

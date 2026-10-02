@@ -2,6 +2,7 @@ import { dbWrite } from '../db/supabase.js';
 import {
   facetsFromDb,
   countryFacetKey,
+  shapeFacetKey,
   SNAPSHOT_FAMILIES,
   SNAPSHOT_COUNTRIES,
   type Facets,
@@ -100,6 +101,42 @@ export async function refreshFacetSnapshot(
         );
         if (scoped) byCountry[countryFacetKey(fam, country)] = scoped;
         else console.warn(`facet snapshot: ${fam ?? 'all'}+${country} counts did not come back; left to the live path`);
+      }
+    }
+
+    // THE SHAPES A BROWSER ACTUALLY ASKS FOR.
+    //
+    // Everything above is computed with ghosts INCLUDED, because that is what
+    // facetsFromDb({}) means. No visitor ever asks for that: FILTER_DEFAULTS
+    // sets `hideGhosts: true` and the feed page sends its whole filter state, so
+    // every real request carries hideGhosts=1 and matched none of the stored
+    // shapes. Measured 2 Oct 2026, that was 0-7 reads of this table an hour
+    // against 30-95 live feed_facets calls — the snapshot was dead code for
+    // visitors and every page view paid for the live count.
+    //
+    // So the same grid is stored a second time with ghosts HIDDEN, under a
+    // three-part key that cannot collide with the two-part ones above. Computed,
+    // not derived: a ghost-hidden count is a different number and must come from
+    // a query that actually applied the filter.
+    //
+    // `country: 'US'` is a default too, so both the US views and the
+    // country-cleared ones are stored — clearing the country is one click.
+    //
+    // Independent and best-effort like everything else here: a combination that
+    // does not come back is left out and falls back to the live count on its
+    // own, and never blocks the crawl or the snapshots above.
+    for (const country of [null, ...SNAPSHOT_COUNTRIES]) {
+      for (const fam of [null, ...SNAPSHOT_FAMILIES]) {
+        const shaped = await facetsFromDb(
+          { ...(fam ? { family: fam } : {}), ...(country ? { country } : {}), hideGhosts: true },
+          { snapshot: false, client: dbWrite() },
+        );
+        if (shaped) byCountry[shapeFacetKey(fam, country, true)] = shaped;
+        else {
+          console.warn(
+            `facet snapshot: ${fam ?? 'all'}+${country ?? 'anywhere'} (ghosts hidden) counts did not come back; left to the live path`,
+          );
+        }
       }
     }
 

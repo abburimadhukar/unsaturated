@@ -297,3 +297,135 @@ test('the family tab passes the family through to feed_newest', async () => {
   await queryNewestFromDb(0, 50, { client, wait: noWait });
   assert.equal(asked.p_family, null);
 });
+
+/**
+ * THE WARMER MUST SPELL URLS THE WAY THE BROWSER SPELLS THEM.
+ *
+ * scripts/warm-cache.mjs warmed `/api/feed` and `/api/feed?family=cloud&country=US`
+ * for weeks. The browser asks for neither. The feed page serialises its WHOLE
+ * filter state, defaults included (app/page.tsx `paramsFor`), so a visitor who
+ * has touched nothing still sends country, cloudOnly, hideGhosts, sort and
+ * limit. Cloudflare keys on the exact query string, so every warmed entry was
+ * one no visitor would ever read — measured 2 Oct 2026, the real landing URL
+ * was a MISS while the warmed one beside it was a HIT.
+ *
+ * This rebuilds the expected strings FROM FILTER_DEFAULTS rather than hardcoding
+ * them, so if a default changes — or a new one is added — this fails instead of
+ * silently orphaning the warm list again.
+ */
+/** The non-family part of a default feed URL, as both the browser and the warmer spell it. */
+const TAIL_EXPECTED = 'cloudOnly=1&hideGhosts=1&sort=newest&limit=50';
+
+test('the warm list matches the URLs the feed page actually requests', async () => {
+  const { FILTER_DEFAULTS } = await import('../src/ui/filter-state.js');
+  const warm = read('../scripts/warm-cache.mjs');
+
+  // Exactly `paramsFor` in app/page.tsx, for a view nobody has touched.
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(FILTER_DEFAULTS)) {
+    if (k === 'includeUnknown' || k === 'hideSeen' || k === 'minFit' || k === 'onlyApplied') continue;
+    if (k === 'sort' && v === 'fit') continue;
+    if (v === '' || v === false) continue;
+    p.set(k, v === true ? '1' : String(v));
+  }
+  const landing = `${p.toString()}&limit=50`;
+
+  // The defaults that survive must be the ones the warmer hardcodes as TAIL,
+  // plus the country. If a default is added or flipped, this is where it shows.
+  assert.equal(
+    landing,
+    `country=US&${TAIL_EXPECTED}`,
+    'FILTER_DEFAULTS changed — update TAIL in scripts/warm-cache.mjs to match',
+  );
+  // No regex metacharacters in a query string of this shape, so it embeds as-is.
+  assert.ok(warm.includes(`const TAIL = '${TAIL_EXPECTED}';`), 'warm-cache.mjs TAIL must match');
+
+  // A family tab, built the same way: `family` is serialised BEFORE `country`,
+  // because that is their order in FILTER_DEFAULTS and Cloudflare keys on the
+  // exact string. Getting this backwards would orphan the four tabs again.
+  const withFamily = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...FILTER_DEFAULTS, family: 'cloud' })) {
+    if (k === 'includeUnknown' || k === 'hideSeen' || k === 'minFit' || k === 'onlyApplied') continue;
+    if (v === '' || v === false) continue;
+    withFamily.set(k, v === true ? '1' : String(v));
+  }
+  assert.equal(
+    `${withFamily.toString()}&limit=50`,
+    `family=cloud&country=US&${TAIL_EXPECTED}`,
+    'family must be serialised before country',
+  );
+
+  // The warmer must not still be warming the bare URLs nobody asks for.
+  assert.doesNotMatch(warm, /'\/api\/feed',/, 'bare /api/feed is not a URL the browser sends');
+  assert.doesNotMatch(warm, /\/api\/feed\?family=\$\{f\}&sort=newest/);
+});
+
+/**
+ * The snapshot shapes have to be reachable by a real request.
+ *
+ * isUnfilteredQuery / isFamilyOnlyQuery / isCountryScopedQuery all require
+ * `hideGhosts !== true`, but FILTER_DEFAULTS sets `hideGhosts: true` and
+ * `paramsFor` sends it on every request — so no visitor can ever reach the
+ * stored counts, and every page view runs the live feed_facets instead. That is
+ * why production shows 0-7 facet_snapshot reads an hour against 30-95
+ * feed_facets calls.
+ *
+ * FIXED by isDefaultShapeQuery, which matches that state exactly. This test is
+ * the regression guard: it derives the query from FILTER_DEFAULTS rather than
+ * hardcoding it, so changing a default that makes the landing view unreachable
+ * again fails here.
+ */
+test('THE DEFAULT UI STATE REACHES THE SNAPSHOT', async () => {
+  const { FILTER_DEFAULTS } = await import('../src/ui/filter-state.js');
+  const {
+    isUnfilteredQuery, isFamilyOnlyQuery, isCountryScopedQuery, isDefaultShapeQuery,
+  } = await import('../src/corpus/db-query.js');
+
+  // The query app/api/feed/route.ts builds from an untouched UI.
+  const asRouteSeesIt = {
+    cloudOnly: true,
+    hideGhosts: FILTER_DEFAULTS.hideGhosts === true,
+    country: FILTER_DEFAULTS.country || undefined,
+    sort: 'newest' as const,
+  };
+
+  // The landing view, each family tab, and the country-cleared versions.
+  assert.equal(isDefaultShapeQuery(asRouteSeesIt), true, 'the landing view must be stored');
+  for (const family of ['cloud', 'software', 'data', 'hris']) {
+    assert.equal(isDefaultShapeQuery({ ...asRouteSeesIt, family }), true, `${family} tab`);
+    assert.equal(
+      isDefaultShapeQuery({ ...asRouteSeesIt, family, country: undefined }), true,
+      `${family} tab, country cleared`,
+    );
+  }
+
+  // The older three still require ghosts shown, and still do not match — they
+  // serve the g0 numbers and must never answer a g1 request.
+  assert.equal(isUnfilteredQuery(asRouteSeesIt), false);
+  assert.equal(isFamilyOnlyQuery({ ...asRouteSeesIt, family: 'cloud' }), false);
+  assert.equal(isCountryScopedQuery(asRouteSeesIt), false);
+});
+
+/**
+ * The headline total and the sidebar counts must come from the same place.
+ *
+ * The default views match isDefaultShapeQuery, so their counts come from the
+ * per-crawl snapshot. If the ROWS came from feed_page, its own live count would
+ * become the headline "N roles" while the sidebar showed stored numbers — two
+ * figures from two different moments, side by side, disagreeing whenever the
+ * snapshot was behind. feed_rows takes the full filter set and does not count,
+ * so the total can come from the same stored answer the sidebar does.
+ */
+test('the default views take their total from the same counts as the sidebar', () => {
+  const src = read('../app/api/feed/route.ts');
+  assert.match(src, /const shapeFast = isDefaultShapeQuery\(query\);/);
+  // Rows via feed_rows, one past the page so hasMore needs no count.
+  assert.match(src, /shapeFast \? queryRowsFromDb\(query, offset, limit \+ 1\)/);
+  // feed_page is skipped for these views, not run alongside.
+  assert.match(src, /fast \|\| shapeFast \? Promise\.resolve\(null\) : queryFeedFromDb\(query, offset, limit\)/);
+  // The total is the counts' own figure, never an invented one.
+  assert.match(src, /total: fastTotal,/);
+  assert.match(src, /hasMore: shapeRows\.length > limit,/);
+  // And a missing piece falls back to feed_page rather than guessing.
+  assert.match(src, /: await queryFeedFromDb\(query, offset, limit\);/);
+});
