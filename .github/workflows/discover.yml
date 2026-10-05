@@ -117,10 +117,15 @@ jobs:
     # it also carries the 600-board re-verification below: 50 + 50 + 10 is 110
     # minutes of checking alone, before either index has been read.
     #
+    # Raised to 240 on 5 Oct 2026, when a third verify-and-store pass was added:
+    # the open-dataset seed (kalil0321/ats-scrapers). It is capped at 1,500 a run
+    # — 25 minutes — so the greenhouse worst case becomes 50 + 50 + 10 + 25 = 135,
+    # still comfortably inside this.
+    #
     # In practice a run is a fraction of this. The ceiling exists so that a run
     # is never killed part-way through writing, which would leave the registry
     # holding a partial harvest and no record of where it stopped.
-    timeout-minutes: 180
+    timeout-minutes: 240
     permissions:
       contents: read
       issues: write
@@ -185,6 +190,61 @@ jobs:
           npm run harvest:ia -- \
             --provider ${{ matrix.provider }} \
             --verify ${{ inputs.verify || '3000' }}
+
+      # Hacker News "Who is hiring?" — exact board tokens from apply links, one
+      # verify request each rather than the fifteen the slug-prober needs.
+      #
+      # On the LEVER shard only, and that is deliberate: Lever is excluded from
+      # Common Crawl (CCBot is disallowed) and from the Internet Archive, so both
+      # harvest steps above do nothing on this shard — it has the whole budget
+      # free, and HN is the best source of exact Lever tokens there is. Pinning it
+      # to one shard also stops a cross-provider channel running once per vendor.
+      #
+      # continue-on-error like the Archive step: HN is a new channel, and a
+      # failure here must not take this shard's (empty) Lever harvest red.
+      - name: Harvest boards from Hacker News hiring threads
+        if: matrix.provider == 'lever'
+        continue-on-error: true
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: npm run harvest:hn -- --store db --verify ${{ inputs.verify || '3000' }}
+
+      # Careers-page detection over the built-in university/health-system list.
+      # Reads the ATS token straight off an employer's own /careers page, which
+      # finds the arbitrary-named Workday and iCIMS boards no slug rule and no URL
+      # index can reach (Ohio State is osu / OSUCareers).
+      #
+      # On the TEAMTAILOR shard only, for the same reason the HN step is pinned to
+      # one: it spans every provider, so it must run once, not once per vendor.
+      - name: Detect ATS boards from careers pages
+        if: matrix.provider == 'teamtailor'
+        continue-on-error: true
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: npm run detect -- --store db --verify ${{ inputs.verify || '3000' }}
+
+      # Second open dataset (kalil0321/ats-scrapers, MIT) — the ~19,000-company
+      # catch-up that then keeps itself topped up. Per provider, like the Common
+      # Crawl harvest above: each shard pulls its own vendor's net-new companies,
+      # so the backlog drains across the shards and across weeks rather than in
+      # one oversized run. Verified and stored exactly as the other harvests are,
+      # with source 'opendata'; the hourly crawl reads the jobs afterwards.
+      #
+      # Capped at 1,500 a run on purpose — the backlog is large and the point is
+      # to drain it steadily inside the time ceiling, not to verify twenty
+      # thousand boards in one sitting. continue-on-error so a dataset or network
+      # hiccup cannot fail a shard whose Common Crawl harvest already succeeded.
+      - name: Seed new boards from the open ATS dataset
+        continue-on-error: true
+        env:
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+        run: npm run dataset:diff -- --provider ${{ matrix.provider }} --verify 1500
 
       # Re-checks registered boards so genuinely closed ones drop out instead of
       # failing every crawl forever. A board is retired only after several

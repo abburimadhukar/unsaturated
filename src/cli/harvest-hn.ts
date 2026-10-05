@@ -1,18 +1,26 @@
 /**
  * Harvests ATS boards from Hacker News "Who is hiring?" threads.
  *
- *   npm run harvest:hn                 # last 24 monthly threads
+ *   npm run harvest:hn                   # last 24 threads -> discovered-boards.json
  *   npm run harvest:hn -- --months 6
- *   npm run harvest:hn -- --dry-run    # report without writing
+ *   npm run harvest:hn -- --dry-run      # report without writing
+ *   npm run harvest:hn -- --store db     # verify against the live APIs, store in Supabase
  *
- * Results are MERGED into discovered-boards.json; existing entries are never
- * overwritten, so a re-run only ever adds.
+ * Two destinations. The default MERGES into discovered-boards.json; existing
+ * entries are never overwritten, so a re-run only ever adds. `--store db` instead
+ * runs the same verify-and-store path the Common Crawl harvest uses and writes to
+ * the `boards` registry with source 'hn' — which is what wires HN into the weekly
+ * discovery. The file path once was the registry; it is now only an offline
+ * fallback, so a harvest that writes only to it never reaches the crawl.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { harvestHiringThreads } from '../discovery/hn.js';
 import { importBoards } from '../discovery/import.js';
+import { verifyAndStore } from '../discovery/store-verified.js';
+import { config } from '../config.js';
 import type { BoardRef } from '../ats/types.js';
+import type { OpenBoard } from '../discovery/opendata.js';
 
 interface StoredBoard {
   provider: string;
@@ -28,9 +36,58 @@ function arg(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
+/** "duck-duck-go" -> "Duck Duck Go". A placeholder until verification names it. */
+function prettifyToken(token: string): string {
+  return token
+    .replace(/[._-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length <= 3 ? w.toUpperCase() : w[0]!.toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+/**
+ * The DB path: harvest exact tokens from the threads, then verify and store them
+ * in the registry exactly as the Common Crawl harvest does. verifyAndStore does
+ * its own "already registered" filtering against the live table, so there is no
+ * file to read or merge here.
+ */
+async function storeToDb(months: number, dryRun: boolean, verifyCap: number, delayMs: number): Promise<void> {
+  console.log(`Scanning up to ${months} monthly HN hiring threads…`);
+  const harvested = await harvestHiringThreads(months, (thread, found, total) => {
+    console.log(`  ${thread.padEnd(42).slice(0, 42)} +${String(found).padStart(3)}  (${total} unique)`);
+  });
+  console.log(`\n${harvested.length} unique boards linked in those threads\n`);
+
+  const candidates: OpenBoard[] = harvested.map((h) => ({
+    provider: h.board.provider,
+    token: h.board.token,
+    company: prettifyToken(h.board.token),
+    ...(h.board.extra ? { extra: h.board.extra } : {}),
+  }));
+
+  await verifyAndStore({
+    candidates,
+    source: 'hn',
+    verifyCap,
+    delayMs,
+    dryRun,
+    userAgent: config.userAgent,
+  });
+}
+
 async function main(): Promise<void> {
   const months = Number.parseInt(arg('months') ?? '24', 10);
   const dryRun = process.argv.includes('--dry-run');
+
+  if (arg('store') === 'db') {
+    const verifyCap = Number.parseInt(arg('verify') ?? '3000', 10);
+    const delayMs = Number.parseInt(arg('delay') ?? '1000', 10);
+    await storeToDb(months, dryRun, verifyCap, delayMs);
+    return;
+  }
 
   const existing = new Map<string, StoredBoard>();
   if (existsSync(OUT)) {
