@@ -177,9 +177,11 @@ function customRow(pair = { match: '', answer: '' }) {
   row.style.marginBottom = '6px';
   row.innerHTML = `
     <div><input class="custom-match" placeholder="words in the question, e.g. MT4"></div>
-    <div><input class="custom-answer" placeholder="your answer"></div>`;
+    <div><input class="custom-answer" placeholder="your answer"></div>
+    <div style="flex:0 0 auto"><button type="button" class="remove">Remove</button></div>`;
   row.querySelector('.custom-match').value = pair.match ?? '';
   row.querySelector('.custom-answer').value = pair.answer ?? '';
+  row.querySelector('.remove').onclick = () => row.remove();
   return row;
 }
 

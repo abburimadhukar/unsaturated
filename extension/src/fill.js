@@ -325,8 +325,6 @@ export async function setCombobox(el, value, { wait = 450, choose = null } = {})
   // shut and matched nothing, while pressing the control first filtered the list
   // down to one option. react-select listens for mousedown, so the whole press
   // has to be acted out — pointerdown, mousedown, mouseup, click, button 0.
-  press(control);
-  await sleep(200);
   // Some menus open only on the box itself, or only from the keyboard:
   // Workable's is a READ-ONLY input that listens for a click or ArrowDown on
   // itself, and its list does not exist until it opens.
@@ -335,23 +333,31 @@ export async function setCombobox(el, value, { wait = 450, choose = null } = {})
   // empty — its options arrive after typing — and pressing it a second time
   // because "no options yet" closed it again: every location failed.
   const shut = () => el.getAttribute('aria-expanded') !== 'true' && !optionsFor(el).length;
+  // WAIT FOR IT TO OPEN, don't just fire another press. Eightfold builds its
+  // list over the network as the menu opens — a UL[role=listbox] of 254
+  // options, ~0.5–0.8 s after the press (measured live, 3 October 2026). The old
+  // ladder waited 200 ms, saw it still shut, and fired more presses that closed
+  // it again, so every one of its menus came back empty. This polls instead, and
+  // returns the instant the menu is open — a react-select that opens at once
+  // costs nothing, and a slow one is given the time it needs.
+  const openWait = async (ms) => { for (let w = 0; w < ms && shut(); w += 100) await sleep(100); };
+  press(control);
+  await openWait(900);
   if (shut()) {
     press(el);
-    await sleep(200);
+    await openWait(700);
   }
   // THE BOX'S OWN WRAPPER. Eightfold listens for the press on the little group
   // around the input, not on the input and not on the outer block the search
-  // above settles for — so its Country, Salutation and work-authorisation
-  // menus never opened at all, and each was reported as a page that would not
-  // keep the value. Measured 20 Sep 2026: pressing that wrapper opens them.
+  // above settles for. Measured 20 Sep 2026: pressing that wrapper opens them.
   if (shut() && el.parentElement && el.parentElement !== control) {
     press(el.parentElement);
-    await sleep(250);
+    await openWait(700);
   }
   if (shut()) {
     el.focus?.();
     el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true }));
-    await sleep(250);
+    await openWait(500);
   }
 
   const type = (text) => {
@@ -608,7 +614,14 @@ function optionsFor(el) {
     const wrapper = el.closest('[class*="select"], [class*="combobox"], [class*="autocomplete"]') || el.parentElement;
     if (wrapper) listed.push(...wrapper.querySelectorAll('[role="option"], [role="gridcell"], .select__option, li[id*="option"]'));
   }
-  const shown = listed.filter((o) => o.getClientRects().length > 0);
+  // Drop any option that WRAPS another. Eightfold renders each option as
+  // <li role="presentation"><button role="option">…</button></li>, and the
+  // OPTION selector matches both the <li> and the <button> — so the list came
+  // back doubled (508 for 254 countries) and the press landed on the <li>, which
+  // Eightfold ignores, so nothing was ever chosen. Keeping only the innermost
+  // leaves the real button; a flat list (most vendors) is unchanged.
+  const dedupe = (list) => list.filter((o) => !list.some((x) => x !== o && o.contains(x)));
+  const shown = dedupe(listed.filter((o) => o.getClientRects().length > 0));
   if (shown.length) return shown;
   // LAST RESORT: a menu drawn elsewhere in the page. Rippling renders its list
   // in a layer at the end of <body>, tied to the box by nothing at all. It is
@@ -617,7 +630,7 @@ function optionsFor(el) {
   // visible option".
   if (el.getAttribute('aria-expanded') === 'true') {
     const lists = roots.flatMap((r) => [...r.querySelectorAll('[role="listbox"]')]).filter((l) => l.getClientRects().length > 0);
-    if (lists.length === 1) return [...lists[0].querySelectorAll('[role="option"]')].filter((o) => o.getClientRects().length > 0);
+    if (lists.length === 1) return dedupe([...lists[0].querySelectorAll('[role="option"]')].filter((o) => o.getClientRects().length > 0));
   }
   return [];
 }
@@ -662,7 +675,16 @@ function bestOption(el, typed, wanted) {
   // "I don't wish to answer" and "I don’t wish to answer" are the same words;
   // forms use both apostrophes and a saved answer will only ever have one.
   const flat = (v) => String(v).replace(/[‘’ʼ]/g, "'").trim().toLowerCase();
-  const text = (o) => flat(textOf(o));
+  // A leading flag emoji and dial code hid the real name: Eightfold's options
+  // read "🇺🇸 (+1) United States of America", so a saved "United States" could
+  // not match it exactly and a loose word match took "United States Minor
+  // Outlying Islands" (which also contains "united states") instead. Stripping a
+  // leading flag and "(+1)" lets the exact name win. Harmless on plain options.
+  const strip = (s) => s
+    .replace(/^(?:[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}☀-➿️‍\s]+)/u, '')
+    .replace(/^\(\s*\+?\d[\d\s-]*\)\s*/, '')
+    .trim();
+  const text = (o) => flat(strip(textOf(o)));
   const want = flat(wanted);
   const head = flat(typed);
   // A saved "Prefer not to say" has to find "I don't wish to answer" on
@@ -873,9 +895,14 @@ export async function applyPlan(plan, { resumeFile, coverLetterFile } = {}) {
           else if (picked.reason) item.reasonOverride = picked.reason;
         }
       } else if (item.key === 'location' || item.key === 'city') {
-        // Place boxes are often an autocomplete WITHOUT role="combobox" (Lever).
-        // Try to pick a real suggestion; fall back to plain text, narrower first.
-        const picked = await setCombobox(el, item.value);
+        // Place boxes are often an autocomplete WITHOUT role="combobox" (Lever),
+        // so a location is always probed as a menu. But a plain CITY text box
+        // (Eightfold's "q_city") is not a menu: running the combobox dance on it
+        // wastes the open poll and then clears the box before the fallback. So a
+        // city is only probed as a menu when it looks like one.
+        const menuish = item.field.role === 'combobox' || el.getAttribute('aria-autocomplete')
+          || el.getAttribute('aria-haspopup') || el.getAttribute('aria-controls') || looksLikeMenu(el);
+        const picked = (item.key === 'location' || menuish) ? await setCombobox(el, item.value) : { ok: false };
         if (picked.ok) {
           ok = true;
           item.committed = picked.shown;

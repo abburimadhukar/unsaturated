@@ -7,7 +7,7 @@ import { describeField, planFill, matchField, isHoneypot } from '../extension/sr
 // @ts-ignore
 import { shapeFor, parseDay, valueLanded } from '../extension/src/fill.js';
 // @ts-ignore
-import { pickOption, bandFor, degreeWords } from '../extension/src/answers.js';
+import { pickOption, bandFor, degreeWords, degreeAtLeastAnswer, experienceIsSpecific, meaningOf } from '../extension/src/answers.js';
 
 /**
  * The gaps found on 19 September 2026 by auditing live forms end to end
@@ -118,6 +118,153 @@ test('"10+ years of experience?" is worked out from the saved years — but not 
   assert.equal(ask('Do you have 5+ years of professional experience?').fills[0]?.field.el.value, 'y');
   assert.equal(ask('Do you have 10+ years experience?').fills[0]?.field.el.value, 'n');
   assert.equal(ask('Do you have 5+ years of experience in Salesforce?').fills.length, 0);
+});
+
+test('RECRUITEE: a Yes/No "do you have a degree in X?" is worked out from the saved qualification', () => {
+  // These used to route to the education / years TEXT fields and then fail on a
+  // Yes/No menu with "matches none of the options" (audited 3 October 2026).
+  const ask = (q: string, answers: any) => {
+    const dom = new JSDOM(`<fieldset><legend>${q}</legend>
+      <label><input type="radio" name="x" value="y">Yes</label><label><input type="radio" name="x" value="n">No</label></fieldset>`);
+    const fields = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+    return planFill(fields, { ...PROFILE, answers });
+  };
+  const edu = { education: 'Bachelor of Science in Computer Science' };
+  assert.equal(ask("Do you have a Bachelor's Degree in Computer Science or related field?", edu).fills[0]?.field.el.value, 'y');
+  assert.equal(ask('Do you have a degree?', edu).fills[0]?.field.el.value, 'y', 'any saved degree answers a generic "do you have a degree?"');
+  assert.equal(ask("Do you have a Master's degree?", edu).fills[0]?.field.el.value, 'n', 'a level they do not hold is a factual No');
+  // A subject we cannot confirm from the saved education is left, not guessed.
+  const other = ask("Do you have a Bachelor's degree in Nursing?", edu);
+  assert.equal(other.fills.length, 0);
+  // The derivation itself, unit level.
+  assert.equal(degreeAtLeastAnswer('Bachelor of Science in Computer Science', 'Do you have a PhD in Biology?'), 'No');
+  assert.equal(degreeAtLeastAnswer('', 'Do you have a bachelor degree?'), '', 'no qualification saved → nothing is guessed');
+});
+
+test('RECRUITEE: "at least N years of experience" is derived, but a specific tool is left honestly', () => {
+  const ask = (q: string) => {
+    const dom = new JSDOM(`<fieldset><legend>${q}</legend>
+      <label><input type="radio" name="x" value="y">Yes</label><label><input type="radio" name="x" value="n">No</label></fieldset>`);
+    const fields = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+    return planFill(fields, { ...PROFILE, answers: { yearsExperience: '7' } });
+  };
+  assert.equal(ask('Do you have at least 5 years of experience in Software Development?').fills[0]?.field.el.value, 'y');
+  assert.equal(ask('Do you have at least 10 years of experience in the field?').fills[0]?.field.el.value, 'n');
+  const tool = ask('Do you have at least 3 years of work experience in React.js?');
+  assert.equal(tool.fills.length, 0, 'tool-specific experience is not claimed from a total');
+  assert.match(tool.skipped[0]!.reason, /specific skill/, 'and it says so rather than "matches none of the options"');
+  assert.equal(experienceIsSpecific('5 years of experience in software development'), false);
+  assert.equal(experienceIsSpecific('3 years of experience with GraphQL'), true);
+});
+
+test('RECRUITEE: "how many years do you have using React?" is left, not filled with the total', () => {
+  const ask = (label: string) => {
+    const dom = new JSDOM(`<label for="q">${label}</label><input id="q" type="number">`);
+    const d = describeField(dom.window.document.getElementById('q'), { visible: true });
+    return planFill([d], { ...PROFILE, answers: { yearsExperience: '7' } });
+  };
+  // A general years box is still filled from the saved total.
+  assert.equal(ask('How many years of professional experience do you have?').fills[0]?.value, '7');
+  // A tool-specific one is left — a total cannot vouch for one tool.
+  for (const q of ['How many years of professional experience do you have using React.js?',
+    'How many years of work experience do you have with Test Driven Development?']) {
+    const plan = ask(q);
+    assert.equal(plan.fills.length, 0, q);
+    assert.match(plan.skipped[0]!.reason, /specific skill/, q);
+  }
+});
+
+test('PERSONIO (German): a question is recognised by its English field name when the label is not English', () => {
+  const dom = new JSDOM(`<label for="field-salary_expectations">Gehaltsvorstellung*</label><input id="field-salary_expectations">
+    <label for="field-available_from">Verfügbar ab*</label><input id="field-available_from">
+    <label for="rand">Beschreibung</label><input id="rand" name="yPLgVcjvlUP">`);
+  const fields = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+  const plan = planFill(fields, { ...PROFILE, answers: { salaryExpectation: '120000', earliestStart: '1 November 2026' } });
+  const byKey = Object.fromEntries(plan.fills.map((f: any) => [f.key, f.field.id]));
+  assert.equal(byKey.salaryExpectation, 'field-salary_expectations', 'German salary label not matched via field name');
+  assert.equal(byKey.earliestStart, 'field-available_from', 'German availability label not matched via field name');
+  // A random Rippling-style token must not be force-matched to anything.
+  assert.ok(!plan.fills.some((f: any) => f.field.id === 'rand'), 'a random field name produced a false match');
+});
+
+test('a localized yes/no group is recognised by its field name and answered by meaning', () => {
+  const dom = new JSDOM(`<fieldset><legend>Benötigen Sie Visa-Sponsoring?*</legend>
+    <label><input type="radio" name="needs_sponsorship" value="Ja">Ja</label>
+    <label><input type="radio" name="needs_sponsorship" value="Nein">Nein</label></fieldset>`);
+  const fields = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+  const plan = planFill(fields, { ...PROFILE, answers: { needsSponsorship: 'No' } });
+  assert.equal(plan.fills[0]?.key, 'needsSponsorship', 'German sponsorship group not recognised by field name');
+  assert.equal(plan.fills[0]?.field.el.value, 'Nein', 'saved "No" did not choose the German "Nein"');
+});
+
+test('localized yes/no is read by meaning, without misreading English words', () => {
+  const yes = ['Ja', 'Oui', 'Sí', 'Sim', 'Kyllä'];
+  const no = ['Nein', 'Non', 'Nee', 'Não', 'Nej', 'Ei'];
+  for (const w of yes) assert.equal(meaningOf(w), 'yes', w);
+  for (const w of no) assert.equal(meaningOf(w), 'no', w);
+  // Must NOT be misread.
+  for (const w of ['Non-compete agreement', 'Japan', 'either', 'single', 'simple', 'Eindhoven']) {
+    assert.notEqual(meaningOf(w), 'yes', `${w} wrongly read as yes`);
+    assert.notEqual(meaningOf(w), 'no', `${w} wrongly read as no`);
+  }
+});
+
+test('SUCCESSFACTORS: a mm/dd/yyyy "Date of Birth" box takes the whole date, not just the day', () => {
+  const dom = new JSDOM(`<label for="dob">Date of Birth</label><input id="dob" placeholder="mm/dd/yyyy">`);
+  const d = describeField(dom.window.document.getElementById('dob'), { visible: true });
+  const plan = planFill([d], { ...PROFILE, dateOfBirth: '1990-04-12' });
+  assert.equal(plan.fills[0]?.key, 'dateOfBirth');
+  assert.equal(plan.fills[0]?.value, '1990-04-12', 'a mm/dd/yyyy box was treated as day-only');
+  // A genuine single-part box still fills its part.
+  const day = new JSDOM(`<label for="x">Birthday (dd)</label><input id="x" name="dob_day">`);
+  const dd = describeField(day.window.document.getElementById('x'), { visible: true });
+  assert.equal(planFill([dd], { ...PROFILE, dateOfBirth: '1990-04-12' }).fills[0]?.value, '12');
+});
+
+test('VISA: work-authorization status and US-citizen questions route correctly', () => {
+  const one = (label: string, id = 'q') => {
+    const dom = new JSDOM(`<label for="${id}">${label}</label><input id="${id}">`);
+    return describeField(dom.window.document.getElementById(id), { visible: true });
+  };
+  // "which best describes…" and "visa status" → workAuthStatus, filled from the saved status.
+  assert.equal(planFill([one('Which best describes your work authorization?')], { ...PROFILE, answers: { workAuthStatus: 'F-1 STEM OPT' } }).fills[0]?.key, 'workAuthStatus');
+  const p = planFill([one('What is your current visa status?')], { ...PROFILE, answers: { workAuthStatus: 'F-1 OPT' } });
+  assert.equal(p.fills[0]?.key, 'workAuthStatus');
+  assert.equal(p.fills[0]?.value, 'F-1 OPT');
+  // Plain "authorized to work" is still the yes/no, not the status box.
+  assert.equal(planFill([one('Are you legally authorized to work in the United States?')], { ...PROFILE, answers: { workAuthorised: 'Yes' } }).fills[0]?.key, 'workAuthorised');
+  // "citizen or permanent resident" yes/no → citizenOrPR; "citizenship" → nationality.
+  const dom = new JSDOM(`<fieldset><legend>Are you a U.S. citizen or permanent resident?</legend>
+    <label><input type="radio" name="cit" value="Yes">Yes</label><label><input type="radio" name="cit" value="No">No</label></fieldset>`);
+  const g = [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+  const pc = planFill(g, { ...PROFILE, answers: { citizenOrPR: 'No' } });
+  assert.equal(pc.fills[0]?.key, 'citizenOrPR');
+  assert.equal(pc.fills[0]?.field.el.value, 'No');
+  assert.equal(planFill([one('What is your citizenship?')], { ...PROFILE, answers: { nationality: 'Indian' } }).fills[0]?.key, 'nationality');
+});
+
+test('a custom answer matches across punctuation and word order, contiguous wins', () => {
+  const profile = { ...PROFILE, customAnswers: [{ match: 'fixed-term contract', answer: 'Yes, acceptable' }, { match: 'MT4', answer: 'Yes, 3 years' }] };
+  const ask = (label: string) => {
+    const dom = new JSDOM(`<label for="q">${label}</label><input id="q">`);
+    return planFill([describeField(dom.window.document.getElementById('q'), { visible: true })], profile);
+  };
+  assert.equal(ask('This is a fixed term contract role — is that acceptable?').fills[0]?.value, 'Yes, acceptable');
+  assert.equal(ask('Do you have experience with MT4/MT5?').fills[0]?.value, 'Yes, 3 years');
+  // A phrase whose words are not all present must not match.
+  assert.equal(ask('What is your favourite contract type?').fills.length, 0);
+});
+
+test('worked-out answers are flagged "inferred"; copied answers are not', () => {
+  const group = (legend: string) => {
+    const dom = new JSDOM(`<fieldset><legend>${legend}</legend>
+      <label><input type="radio" name="x" value="Yes">Yes</label><label><input type="radio" name="x" value="No">No</label></fieldset>`);
+    return [...dom.window.document.querySelectorAll('input')].map((el: any) => describeField(el, { visible: true }));
+  };
+  // Derived Yes/No (worked out from saved years) → inferred.
+  assert.equal(planFill(group('Do you have at least 5 years of experience in software development?'), { ...PROFILE, answers: { yearsExperience: '7' } }).fills[0]?.inferred, true);
+  // A plain saved answer is copied, not inferred.
+  assert.ok(!planFill(group('Will you now or in the future require visa sponsorship?'), { ...PROFILE, answers: { needsSponsorship: 'No' } }).fills[0]?.inferred);
 });
 
 test('BAMBOOHR: a hidden <select> behind its menu button is a field, not a trap', () => {

@@ -40,7 +40,7 @@ once and it is filled everywhere it is asked, however the employer words it:
 
 | | |
 |---|---|
-| Work eligibility | authorised to work, visa sponsorship, the combined "eligible *without* sponsorship", work-authorisation details, nationality, over 18 |
+| Work eligibility | authorised to work, visa sponsorship, the combined "eligible *without* sponsorship", **work-authorisation / visa status** (F-1 OPT, STEM-OPT, H-1B, Green Card…), **US citizen or permanent resident**, work-authorisation details, nationality, over 18 |
 | Logistics | notice period, earliest start, relocation, relocation assistance, preferred location, remote/hybrid, commuting, travel, time zone |
 | Money | salary expectation, current salary (blank unless you choose to give it) |
 | Experience | years of experience, highest qualification, English level (A1–C2), languages |
@@ -53,8 +53,21 @@ Greenhouse's "I don't wish to answer", Ashby's "I prefer not to answer" and
 Rippling's "Choose not to disclose"; a saved "Bachelor of Science" is a menu's
 "Bachelor's Degree".
 
+**Worked out from what you saved.** Some Yes/No questions are not stored but
+followed from a fact, the way "eligible without sponsorship" follows from the two
+answers above it. "Do you have a Bachelor's degree in Computer Science?" is
+answered from your highest qualification; "Do you have at least 5 years of
+experience in software development?" from your years. A level you do not hold is a
+plain "No". What a total cannot vouch for is left for you, and says why: "3 years
+with React?" or a "how many years using React.js" box asks about one tool, not
+your career, so the number is yours to put in.
+
 **Your own question/answer pairs**, for what no list can predict — "Do you have
 experience with MT4?". A few words from the question, and the answer to give.
+Punctuation and word order do not matter — a saved "fixed-term contract" matches
+"this is a fixed term contract role" — and a longer, more specific pair always
+wins. Manage them (add, edit, **remove**) under *Your own questions* in Options,
+or save one on the spot with *Remember what I typed*.
 
 **Job-site accounts.** Workday, UKG and Oracle make you create an account first.
 Save one password under *Job-site accounts* in options and it is filled — with
@@ -79,11 +92,23 @@ like any other choice. A ladder of ranges — "1+ years / 3+ years / 5+ years /
 7+ years" — takes the highest rung your answer reaches; two overlapping ranges
 with your answer on the edge are left for you.
 
+**A label in another language.** A question is read first by its visible words,
+then — only if those match nothing — by the field's own name, which vendors keep
+in English on a localized form. So Personio's German "Gehaltsvorstellung" and
+"Verfügbar ab" are still matched through `field-salary_expectations` and
+`field-available_from`. An English form is never affected, because its label is
+always tried first.
+
 ## On the form
 
-The panel lists what was filled (your saved answers apart, for a second look),
-what failed and **why** — "your answer "Yes" matches none of the options (S Pass,
-EP, …)" rather than a shrug — and what it left for you. Then:
+The panel lists what was filled, and keeps what it **worked out** apart from what
+it **copied**. A value reasoned to — a Yes/No followed from your other answers
+("at least 5 years of experience?"), a country it replaced — appears under
+**"Worked out — please check"** with a one-line count, so you know exactly what to
+look over before an answer goes out in your name. Below that are your saved
+answers and your details, then what failed and **why** — "your answer "Yes"
+matches none of the options (S Pass, EP, …)" rather than a shrug — and what it
+left for you. Then:
 
 - **Remember what I typed** — answer a question it did not know, press this, and
   the next form that asks gets it filled. A missing detail ("Preferred first name")
@@ -119,7 +144,7 @@ works (in 0.2.0 the second press silently did nothing).
 ## Try it
 
 1. `chrome://extensions` → **Developer mode** → **Load unpacked** → choose this
-   `extension/` folder. (Already loaded? Press **Reload** — it should say 0.5.0. Your saved details are kept.)
+   `extension/` folder. (Already loaded? Press **Reload** — it should say 0.5.1. Your saved details are kept.)
 2. **Options** → choose your résumé → check the yellow boxes → answer the questions
    → **Save**.
 3. Open a job application and press the toolbar button (or Alt+Shift+F).
@@ -154,16 +179,75 @@ not the profile's (`scripts/audit-ext.mjs`):
 | Eightfold | 9 | 4 | name, email, phone, city, postcode and nationality go in; its Country, Country code, Salutation and work-authorisation menus do not — see below |
 | UKG | — | — | its form is behind an account, so there is nothing to fill without creating one |
 
-**Eightfold, still open.** Its menus build their option list only while open,
-and the press that opens one by hand does not open it while the form is still
-settling after "Apply" — so those four are reported as "the page did not keep
-the value" and left for the person. Three attempts at it (scrolling to the box,
-pressing the wrapper the list listens on, retrying later) did not fix it, and
-the two that only made the form slower were taken out again.
+**Eightfold, then open** (fixed 3 October 2026 — see the next section). Its menus
+build their option list only while open, and the press that opens one by hand did
+not open it while the form was still settling after "Apply" — so those four were
+reported as "the page did not keep the value" and left for the person.
 
 Earlier, on 19 September, with the same harness: Greenhouse 15, Breezy 16,
 Workable 14 (2 failed — menus whose options the answer is not), Personio 13,
 Teamtailor 6, Lever 6, Workday create-account 3.
+
+## Measured again, 3 October 2026 (live, headless)
+
+The same harness, the same test profile, through 0.5.1:
+
+| Vendor | Filled | Failed | Left for you |
+|---|---:|---:|---|
+| Rippling | 17 | 0 | one SMS consent (and the CV, already uploaded) |
+| Teamtailor | 6 | 0 | the cover letter and a consent |
+| Recruitee (a Dutch form) | 4 | 0 | an optional cover letter and an SMS consent |
+| Eightfold | 13 | 0 | nothing — Country/Region, Country code, Salutation and work authorisation now fill |
+
+**Eightfold, fixed.** It had been the one open vendor (9 filled, 4 failed). Probed
+at the source, three things were wrong, each fixed in `src/fill.js`:
+
+- Its menu builds its list over the network as it opens — a `<ul role="listbox">`
+  of 254 options, ~0.5–0.8 s after the press. The open sequence waited a flat
+  200 ms, saw it still shut, and fired more presses that closed it again. It now
+  **polls** for the menu to open and returns the instant it does, so a slow menu
+  gets its time and a fast react-select pays nothing.
+- Each option is `<li role="presentation"><button role="option">`, and the option
+  selector matched both — so the list came back **doubled** (508 for 254) and the
+  press landed on the `<li>`, which Eightfold ignores. Only the innermost node is
+  kept now.
+- Options read "🇺🇸 (+1) United States of America", so a saved "United States"
+  matched none exactly and a loose word match took "United States **Minor Outlying
+  Islands**". A leading flag and dial code are **stripped** before matching, so
+  the real name wins.
+
+Rippling (17/0), Teamtailor (6/0) and Recruitee (4/0) were re-measured unchanged
+after these changes.
+
+**Then again on ten fresh live postings** drawn straight from the crawl database
+(one open job per vendor): Greenhouse 19/1, Lever 20/2, BambooHR 18/0, Breezy
+18/0, SmartRecruiters 19/0, Recruitee 12/0, Personio (German) 8/0, Workable 6/0,
+Ashby 4/0.
+
+Two needed a closer look first. SmartRecruiters' one-click flow sits behind a
+DataDome CAPTCHA that blocks a headless browser (its page was a captcha iframe,
+no form); in an ordinary window it loads and fills 19/0 — both jobs, the school,
+and "I currently work here". The German Personio form reads its labels in German:
+"Verfügbar ab" and "Gehaltsvorstellung" matched nothing until the matcher learned
+to fall back to a field's own English NAME (`field-available_from`,
+`field-salary_expectations`), which vendors keep in English even on a localized
+form. It now fills 8/0. English forms are unchanged — the visible label is always
+tried first.
+
+**SuccessFactors, newly reached.** An Eightfold posting redirected to its real
+application on `career50.sapsf.com`, a host the manifest did not list — so nothing
+was filled. Adding `*.sapsf.com` turned that into **17 filled, 2 failed** (account
+email and password, name, phone, country code, full address, salary, start date),
+the two being a "how did you hear" and a "work permit status" whose lists hold
+none of the saved answer. It also showed a date-of-birth box with the placeholder
+"mm/dd/yyyy" being read as day-only (a saved 1990-04-12 went in as "12"); a box
+whose placeholder is a whole-date shape now takes the whole date.
+
+**Fixed this build.** Recruitee asks "Do you have a Bachelor's degree in X?" and
+"at least 5 years of experience in software development?" as Yes/No, and "how many
+years … using React.js" as a number. These used to fail with "matches none of the
+options" or fill a total that over-claimed one tool; they are now worked out from
+your qualification and years, or left for you with the reason why.
 
 ## Checking it still works
 

@@ -25,7 +25,7 @@
  * real forms in tests/extension-matcher.test.ts.
  */
 
-import { ANSWER_FIELDS, matchAnswer, choiceWords, answerField, pickOption } from './answers.js';
+import { ANSWER_FIELDS, matchAnswer, choiceWords, answerField, pickOption, experienceIsSpecific } from './answers.js';
 
 /** The facts we are willing to fill without anyone approving them per job. */
 export const FACT_KEYS = [
@@ -133,7 +133,7 @@ const RULES = [
   { key: 'graduationYear', token: /^(graduation[_-]?(year|date)|gradyear|grad[_-]?year)$/i, label: /\b(graduation|grad) (year|date)\b|\byear of graduation\b|\bexpected graduation\b|\bdate of graduation\b/i },
   // A plain "Skills" box. Not a skills PICKER: typing a whole list into a menu
   // commits nothing, so those are left for the person (textOnly).
-  { key: 'skills', textOnly: true, token: /^(skills?|key[_-]?skills)$/i, label: /^(key |technical )?skills?\b/i, not: /years|level|rate|describe|how/i },
+  { key: 'skills', textOnly: true, token: /^(skills?|key[_-]?skills|special[_-]?skills)$/i, label: /^(key |technical |special |relevant )?skills?\b/i, not: /years|level|rate|describe|how/i },
   { key: 'address', auto: ['street-address', 'address-line1'], token: /^(address|street[_-]?address|streetaddress|address_?line_?1|address1|streetaddress\.value)$/i, label: /^(street( address| and (house )?number| name)?|address( line)?( ?1)?|home address|mailing address|residential address|stra(ss|ß)e)\b/i, not: /e-?mail|city|country|postal|zip|state|line ?2|\bapt\b|suite/i },
   { key: 'address2', auto: ['address-line2'], token: /^(address[_-]?line[_-]?2|address2|addressline2|street[_-]?address[_-]?2|apt|suite|unit)$/i, label: /\baddress (line )?2\b|^(apartment|apt\.?|suite|unit|flat)\b/i, not: /e-?mail|line 1|line ?3|business unit/i },
   { key: 'county', token: /^(county|county\.value)$/i, label: /^county\b/i },
@@ -562,6 +562,21 @@ function isDateBox(d) {
   return /\b(date|mm\s*\/\s*yyyy|yyyy-mm|month|dd\/mm)\b/i.test(`${d.label} ${d.placeholder}`) && !/\bbirth\b|\bavailab/i.test(`${d.label} ${d.placeholder}`);
 }
 
+/**
+ * A field's own name as words: `field-salary_expectations` → "field salary
+ * expectations", `availableFrom` → "available from". Vendors keep these in
+ * English even on a localized form (Personio's German "Gehaltsvorstellung" is
+ * still named `field-salary_expectations`), so they are a second chance to
+ * recognise a question whose visible label is in another language.
+ */
+function fieldNameWords(d) {
+  return `${d.id} ${d.name} ${d.data || ''}`
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_\-.[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** `candidate.phone`, `urls[LinkedIn]`, `streetAddress.value` → their words. */
 function tokensOf(s) {
   const parts = String(s).split(/[\s.\[\]]+/).filter(Boolean);
@@ -602,7 +617,10 @@ export function planFill(descriptors, profile) {
   for (const group of groups) {
     for (const member of group.members) grouped.add(member);
     const custom = matchCustom(group.question, profile);
-    const field = custom ? null : matchAnswer(group.question);
+    // The question's words first, then the group's own English field name, so a
+    // localized yes/no (German "Benötigen Sie ein Visum?" named needs_sponsorship)
+    // is recognised. English groups are unchanged — the words are tried first.
+    const field = custom ? null : (matchAnswer(group.question) || matchAnswer(fieldNameWords(group.members[0])));
     if (!field && !custom) {
       const fact = factForGroup(group.question, profile);
       if (fact) {
@@ -615,9 +633,16 @@ export function planFill(descriptors, profile) {
       skipped.push({ field: group.members[0], reason: 'not recognised', question: group.question, members: group.members });
       continue;
     }
+    if (field && typeof field.leaveIf === 'function') {
+      const leave = field.leaveIf(group.question);
+      if (leave) {
+        skipped.push({ field: group.members[0], reason: leave, question: group.question, members: group.members, answerKey: field.key });
+        continue;
+      }
+    }
     const saved = custom ? custom.answer : savedAnswerFor(field, answers, group.question);
     if (!saved) {
-      skipped.push({ field: group.members[0], reason: `no saved answer for "${field.label}"`, question: group.question, members: group.members, answerKey: field.key });
+      skipped.push({ field: group.members[0], reason: custom ? 'no saved answer' : blankAnswerReason(field), question: group.question, members: group.members, answerKey: field?.key });
       continue;
     }
     if (group.members.some((m) => isChecked(m.el))) {
@@ -657,6 +682,7 @@ export function planFill(descriptors, profile) {
         why: custom ? `your answer for "${custom.match}"` : 'your saved answer',
         choice: true,
         question: group.question,
+        inferred: Boolean(field && field.derived),
       });
     }
   }
@@ -670,14 +696,14 @@ export function planFill(descriptors, profile) {
     if (d.buttons) {
       const question = d.label;
       const custom = matchCustom(question, profile);
-      const field = custom ? null : matchAnswer(question);
+      const field = custom ? null : (matchAnswer(question) || matchAnswer(fieldNameWords(d)));
       if (!field && !custom) {
         if (d.required) skipped.push({ field: d, reason: 'not recognised', question });
         continue;
       }
       const saved = custom ? custom.answer : savedAnswerFor(field, answers, question);
       if (!saved) {
-        skipped.push({ field: d, reason: `no saved answer for "${field.label}"`, question, answerKey: field.key });
+        skipped.push({ field: d, reason: custom ? 'no saved answer' : blankAnswerReason(field), question, answerKey: field?.key });
         continue;
       }
       if (d.buttons.some((b) => b.getAttribute('aria-pressed') === 'true')) {
@@ -689,7 +715,7 @@ export function planFill(descriptors, profile) {
         skipped.push({ field: d, reason: `your answer "${saved}" is neither Yes nor No`, question });
         continue;
       }
-      fills.push({ field: d, key: custom ? 'custom' : field.key, value: saved, why: custom ? `your answer for "${custom.match}"` : 'your saved answer', choice: true, button: d.buttons[i], question });
+      fills.push({ field: d, key: custom ? 'custom' : field.key, value: saved, why: custom ? `your answer for "${custom.match}"` : 'your saved answer', choice: true, button: d.buttons[i], question, inferred: Boolean(field && field.derived) });
       continue;
     }
 
@@ -718,18 +744,26 @@ export function planFill(descriptors, profile) {
           fills.push({ field: d, key: 'custom', value: custom.answer, why: `your answer for "${custom.match}"` });
           continue;
         }
-        const field = matchAnswer(questionText(d));
+        // The visible label first, so English forms are unchanged; then the
+        // field's own English name, so a localized label (German, French…) whose
+        // semantic name still reads "salary_expectations" is recognised.
+        const field = matchAnswer(questionText(d)) || matchAnswer(fieldNameWords(d));
         if (field) {
+          const leave = typeof field.leaveIf === 'function' ? field.leaveIf(questionText(d)) : '';
+          if (leave) {
+            skipped.push({ field: d, reason: leave, answerKey: field.key });
+            continue;
+          }
           const saved = savedAnswerFor(field, answers, questionText(d));
           if (!saved) {
-            skipped.push({ field: d, reason: `no saved answer for "${field.label}"`, answerKey: field.key });
+            skipped.push({ field: d, reason: blankAnswerReason(field), answerKey: field.key });
             continue;
           }
           if (d.hasValue && !isSitePrefill(d)) {
             skipped.push({ field: d, reason: alreadyReason(d) });
             continue;
           }
-          fills.push({ field: d, key: field.key, value: saved, why: 'your saved answer', ...(field.key === 'ethnicity' && answers.hispanicLatino ? { alt: answers.hispanicLatino } : {}) });
+          fills.push({ field: d, key: field.key, value: saved, why: 'your saved answer', inferred: Boolean(field.derived), ...(field.key === 'ethnicity' && answers.hispanicLatino ? { alt: answers.hispanicLatino } : {}) });
           continue;
         }
       }
@@ -815,7 +849,7 @@ export function planFill(descriptors, profile) {
       continue;
     }
     if (replaces) {
-      fills.push({ field: d, key: m.key, value, why: `${m.why}; replaced the site's "${replaces}"` });
+      fills.push({ field: d, key: m.key, value, why: `${m.why}; replaced the site's "${replaces}"`, inferred: true });
       continue;
     }
     if (m.key === 'phone' && codePickerBeside(descriptors)) {
@@ -857,9 +891,19 @@ function factForGroup(question, profile) {
 /** "Year", "Month" or "Day" when a date-of-birth box is only that part. */
 function birthPart(d) {
   const words = `${d.label} ${d.placeholder} ${d.id} ${d.name}`;
-  if (/(^|[^a-z])(day|dd)([^a-z]|$)/i.test(words) && !/(month|year)/i.test(d.label)) return 'day';
-  if (/(^|[^a-z])(month|mm)([^a-z]|$)/i.test(words) && !/year/i.test(d.label)) return 'month';
-  if (/(^|[^a-z])(year|yyyy)([^a-z]|$)/i.test(words)) return 'year';
+  // A WHOLE-DATE box, not a part. SuccessFactors' "Date of Birth" carries the
+  // placeholder "mm/dd/yyyy"; the "dd" in it used to make this a day-only box,
+  // so a saved 1990-04-12 went in as "12" (measured live 3 October 2026). A
+  // shape with two or more parts wants the entire date.
+  if (/\b(mm|dd)\s*[\/.\-]\s*(dd|mm)\s*[\/.\-]\s*(yy|yyyy)\b/i.test(words)) return null;
+  const has = (re) => re.test(words);
+  const day = /(^|[^a-z])(day|dd)([^a-z]|$)/i;
+  const month = /(^|[^a-z])(month|mm)([^a-z]|$)/i;
+  const year = /(^|[^a-z])(year|yyyy)([^a-z]|$)/i;
+  // Only when exactly one part is named — never when another part is present too.
+  if (has(day) && !has(month) && !has(year)) return 'day';
+  if (has(month) && !has(day) && !has(year)) return 'month';
+  if (has(year) && !has(day) && !has(month)) return 'year';
   return null;
 }
 
@@ -888,17 +932,30 @@ function birthValue(part, profile) {
  */
 export function matchCustom(text, profile) {
   const pairs = (profile || {}).customAnswers || [];
-  const haystack = String(text ?? '').toLowerCase();
-  if (!haystack.trim()) return null;
+  // Punctuation is flattened on both sides, so a saved "fixed-term contract"
+  // matches an employer's "fixed term contract role" (hyphen vs space). A
+  // contiguous match always beats a scattered one.
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const hay = norm(text);
+  if (!hay) return null;
+  const hayWords = new Set(hay.split(' ').filter(Boolean));
   let best = null;
   for (const pair of pairs) {
-    const needle = String(pair?.match ?? '').trim().toLowerCase();
+    const needle = norm(pair?.match);
     const answer = String(pair?.answer ?? '').trim();
     if (!needle || !answer) continue;
-    if (!haystack.includes(needle)) continue;
-    if (!best || needle.length > best.match.length) best = { match: pair.match, answer };
+    let score = 0;
+    if (hay.includes(needle)) {
+      score = 1000 + needle.length;            // contiguous: strongest
+    } else {
+      // Every significant word present, in any order — only for a phrase of two
+      // or more real words, so a single stray word never triggers a match.
+      const words = needle.split(' ').filter((w) => w.length >= 2);
+      if (words.length >= 2 && words.every((w) => hayWords.has(w))) score = needle.length;
+    }
+    if (score && (!best || score > best.score)) best = { match: pair.match, answer, score };
   }
-  return best;
+  return best ? { match: best.match, answer: best.answer } : null;
 }
 
 
@@ -911,6 +968,18 @@ export function matchCustom(text, profile) {
 function savedAnswerFor(field, answers, question = '') {
   if (typeof field.derive === 'function') return field.derive(answers, question);
   return answers[field.key];
+}
+
+/**
+ * Why a question that mapped to a saved answer is still left empty. A derived
+ * field that returns nothing is not "no saved answer" — it is a thing that
+ * cannot be worked out from what was saved (a tool-specific "5 years with
+ * React", a qualification we cannot confirm), and saying so is the honest word
+ * for the panel rather than blaming the page with "matches none of the options".
+ */
+function blankAnswerReason(field) {
+  if (field && field.derived) return field.blankReason || 'can’t be worked out from your saved answers — answer it yourself';
+  return field ? `no saved answer for "${field.label}"` : 'no saved answer';
 }
 
 /** An option's own words: "Yes", "No", "I am legally authorised…". */

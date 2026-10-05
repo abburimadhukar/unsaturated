@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unsaturated — application autofill",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Reads your résumé, then fills your details and saved answers into employer application forms. You always press submit.",
   "permissions": [
     "storage",
@@ -30,6 +30,8 @@
     "https://*.taleo.net/*",
     "https://*.successfactors.com/*",
     "https://*.successfactors.eu/*",
+    "https://*.sapsf.com/*",
+    "https://*.sapsf.eu/*",
     "https://*.ultipro.com/*",
     "https://*.ukg.com/*",
     "https://*.dayforcehcm.com/*",

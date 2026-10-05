@@ -76,11 +76,35 @@ export const ANSWER_FIELDS = [
     help: 'Free text for "provide details of your current work authorisation", visa type, expiry.',
     re: /\b(visa|work authori[sz]ation|work permit|immigration)\b.*\b(details|status|type|expiry|explain|describe)\b|\bdetails of your\b.*\b(work|visa)\b/i,
   },
+  // THE QUESTION THAT DECIDES A VISA APPLICANT'S APPLICATION. F-1/OPT/STEM-OPT
+  // applicants are asked their status in dozens of shapes — a "which best
+  // describes your work authorization?" menu, a "what is your visa status?" box,
+  // "are you on OPT/CPT?". One saved value ("F-1 STEM OPT") answers the box and
+  // picks the closest option on the menu. Before workAuthorised, so "work
+  // authorization STATUS" is this and not the yes/no "authorised to work".
+  {
+    key: 'workAuthStatus',
+    type: 'text',
+    label: 'Your work-authorisation / visa status',
+    help: 'e.g. "U.S. Citizen", "Green Card", "H-1B", "F-1 OPT", "F-1 STEM OPT". Fills a status box, and picks the closest option on a "which best describes your work authorization" menu.',
+    re: /\b(work (authori[sz]ation|eligibility|permit)|employment eligibility|immigration|visa|residency) status\b|\bwhich (of the following )?best describes your (work authori[sz]ation|employment eligibility|work eligibility|immigration status|current status|status)\b|\bcurrent (work authori[sz]ation|visa|immigration) status\b|\bare you (currently )?(on|holding|under) (an? )?(f-?1|opt|cpt|stem|h-?1b|student visa|work visa)\b|\bwhat is your (work authori[sz]ation|visa|immigration|employment) status\b/i,
+  },
   {
     key: 'nationality',
     type: 'text',
     label: 'Nationality / citizenship',
     re: /\bnationalit(y|ies)\b|\bcitizenship\b|\bcountry of citizenship\b/i,
+  },
+  // "Are you a U.S. citizen or permanent resident?" is a yes/no of its own,
+  // distinct from "authorised to work" — and for an F-1/OPT applicant the honest
+  // answer is usually "No". Before nationality so it is not read as a country.
+  {
+    key: 'citizenOrPR',
+    type: 'choice',
+    label: 'Are you a U.S. citizen or permanent resident?',
+    help: 'A separate question from "authorised to work". For F-1 / OPT applicants this is usually "No".',
+    re: /\bcitizen or (lawful |legal )?permanent resident\b|\b(u\.?\s?s\.?|united states) (citizen|national)\b|\bare you (a |an )?citizen\b|\bu\.?\s?s\.? person\b|\bpermanent resident\b/i,
+    not: /\bcitizenship\b|\bcountry of\b|\bwhich country\b|\bnationalit/i,
   },
   {
     key: 'over18',
@@ -162,12 +186,39 @@ export const ANSWER_FIELDS = [
     type: 'choice',
     derived: true,
     label: 'At least N years of experience? (worked out from your years of experience)',
-    re: /\b(do|have|are) you\b[^?]*?\b\d+\s*\+?\s*(or more |plus )?(years|yrs)\b[^?]*?\bexperience\s*(\?|$)/i,
+    blankReason: 'this asks about experience in a specific skill, which your total years cannot vouch for — answer it yourself',
+    // Recruitee asks "Do you have at least 5 years of experience IN software
+    // development?". The trailing scope used to break the old anchor
+    // (…experience\s*(\?|$)), so the question fell through to the plain years
+    // field and was thrown at a Yes/No menu it could never match. The scope is
+    // allowed now; derive() decides whether it is general or a specific tool.
+    re: /\b(do|have|are|did)\s+you\b[^?]*?\b\d+\s*\+?\s*(or more|plus)?\s*(years|yrs)\b[^?]*?\bexperience\b/i,
     derive(answers = {}, question = '') {
       const have = parseFloat(String(answers.yearsExperience || '').replace(/[^\d.]/g, ''));
-      const need = parseFloat((/(\d+)\s*\+?\s*(or more |plus )?(years|yrs)/i.exec(question) || [])[1]);
+      const need = parseFloat((/(\d+)\s*\+?\s*(or more|plus)?\s*(years|yrs)/i.exec(question) || [])[1]);
       if (!Number.isFinite(have) || !Number.isFinite(need)) return '';
+      // A total answers GENERAL experience ("…5 years?", "…in software
+      // development?") but never a claim about one tool ("…in React") — that is
+      // left for the person. See blankReason.
+      if (experienceIsSpecific(question)) return '';
       return have >= need ? 'Yes' : 'No';
+    },
+  },
+  // "Do you have a Bachelor's Degree in Computer Science (or related field)?" is
+  // a Yes/No, not a request for the degree's name — so it is worked out from the
+  // highest qualification saved in options, the same way years are. A level the
+  // person does not hold is a factual "No"; a subject we cannot confirm from
+  // their saved education is left for them rather than guessed.
+  {
+    key: 'degreeAtLeast',
+    type: 'choice',
+    derived: true,
+    label: 'Do you hold this degree? (worked out from your highest qualification)',
+    blankReason: 'this asks about a specific qualification we cannot confirm from your profile — answer it yourself',
+    re: /\b(do|have|are|did)\s+you\b[^?]*\b(bachelor\w*|master\w*|doctor\w*|ph\.?\s?d|associate\w*|undergraduate|post-?graduate|high school diploma|degree|diploma|graduated?)\b/i,
+    not: /\bwhich\b|\bwhat\b|\bhighest\b|\blevel of\b|\blist\b|\bname of\b|\b\d+\s*\+?\s*(years|yrs)\b|visa|sponsor|authoris|authoriz/i,
+    derive(answers = {}, question = '') {
+      return degreeAtLeastAnswer(answers.education, question);
     },
   },
   {
@@ -176,6 +227,12 @@ export const ANSWER_FIELDS = [
     label: 'Years of relevant experience',
     help: 'A single number. Employers ask this constantly.',
     re: /\b(years|yrs)\b.*\bexperience\b|\bexperience\b.*\b(years|yrs)\b|\bhow many years\b/i,
+    // "How many years of experience do you have using React Native?" asks about
+    // one tool; the saved total cannot answer it, so it is left for the person
+    // rather than filled with a number that over-claims.
+    leaveIf(question = '') {
+      return experienceIsSpecific(question) ? 'this asks about years with a specific skill — put the number in yourself' : '';
+    },
   },
   {
     key: 'education',
@@ -474,8 +531,16 @@ export function meaningOf(value) {
   const v = plainWords(value);
   if (!v) return null;
   if (/\b(prefer not|rather not|decline|do not wish|do not want to (answer|disclose|say|identify|self)|not to (answer|say|disclose|self)|choose not|wish not|no answer|not disclos\w*|undisclosed|self-? ?identify)\b/.test(v)) return 'decline';
+  // Localized "no" first. `non` is guarded so French "Non" is a no but English
+  // "non-compete" and "none" are not misread (no hyphen or letter may follow).
   if (/^(no|none|not|never|n)\b|\b(i am not|i do not|do not have|have not|not a (protected )?veteran|am not a)\b/.test(v)) return 'no';
+  if (/^(nein|nee|neen|n[aã]o|nej|ei)(?![a-z])/.test(v) || /^non(?![-a-z])/.test(v)) return 'no';
   if (/^(yes|y)\b|\b(i am|i have|i identify as (a |one )|i do)\b/.test(v)) return 'yes';
+  // Localized "yes": German ja, French oui, Spanish/Italian sí/si, Portuguese
+  // sim, Finnish kyllä. A "no letter follows" lookahead (not \b, which fails
+  // after accented letters like í/ä) keeps it from firing inside "single",
+  // "simple", "Japan" or "either".
+  if (/^(ja|oui|s[ií]|sim|kyll[aä])(?![a-z])/.test(v)) return 'yes';
   return null;
 }
 
@@ -628,6 +693,65 @@ export function isYes(value) {
 }
 
 /**
+ * "…years of experience IN/WITH <something specific>" — a named tool or skill,
+ * not experience in general. A total years count can answer "5 years of
+ * experience?" and "…in software development?"; it cannot vouch for "…in React"
+ * or "…using React Native", so those are left for the person.
+ *
+ * The scope is read as the first "in|with|using <X>" clause (so it also catches
+ * "…experience do you have using React Native"). A scope counts as GENERAL only
+ * when it BEGINS with a general word — "software development", "the field",
+ * "professional". Merely containing one is not enough: "Test Driven Development"
+ * holds "development" but is a specific skill. Unsure means specific, so a total
+ * is never claimed for something it cannot vouch for.
+ */
+const GENERAL_SCOPE = /^(the |your |this |a |an |our )?(overall|total|combined|cumulative|professional|relevant|related|general|full[- ]?time|part[- ]?time|paid|hands[- ]?on|work|working|software (development|engineering|design)|software|engineering|programming|coding|development|industry|field|sector|role|position|area|domain|space|workforce)s?\b/i;
+export function experienceIsSpecific(question) {
+  const m = /\b(?:in|with|using)\s+([A-Za-z][\w.+#/ -]{1,40})/i.exec(String(question || '').split('?')[0]);
+  if (!m) return false;                 // "…5 years of experience?" — general
+  return !GENERAL_SCOPE.test(m[1].trim());
+}
+
+/** A qualification's level as a rank: higher is more advanced, 0 is unknown. */
+const DEGREE_LEVELS = [
+  { rank: 5, re: /\b(doctor\w*|ph\.?\s?d|d\.?phil|dphil)\b/i },
+  { rank: 4, re: /\b(master\w*|m\.?\s?sc|m\.?\s?a\b|m\.?\s?tech|m\.?\s?eng|m\.?phil|m\.?com|mca|mba|ll\.?m|post-?grad\w*)\b/i },
+  { rank: 3, re: /\b(bachelor\w*|b\.?\s?sc|b\.?\s?a\b|b\.?\s?tech|b\.?\s?eng|b\.?e\.?\b|b\.?com|bca|bba|ll\.?b|under-?grad\w*)\b/i },
+  { rank: 2, re: /\b(associate\w*|foundation)\b/i },
+  { rank: 1, re: /\b(high school|secondary|ged)\b/i },
+];
+function degreeRank(text) {
+  const s = String(text || '');
+  for (const l of DEGREE_LEVELS) if (l.re.test(s)) return l.rank;
+  return 0;
+}
+
+/**
+ * Yes/No to "Do you have a <level> degree [in <subject>]?", from the highest
+ * qualification saved in options. '' (leave it) when we cannot be sure:
+ *   - no qualification is saved, so nothing to compare;
+ *   - a subject is named and the saved education does not mention it.
+ * A level the person plainly does not hold is a factual 'No'.
+ */
+export function degreeAtLeastAnswer(education, question) {
+  const have = degreeRank(education);
+  if (!have) return '';
+  let need = degreeRank(question);
+  if (!need) need = /\b(degree|diploma|graduat)\b/i.test(String(question || '')) ? 3 : 0;
+  if (!need) return '';
+  if (have < need) return 'No';
+  const subject = (/\b(?:in|of)\s+([a-z][a-z .,&/'’-]{2,50})/i.exec(String(question || '').split('?')[0]) || [])[1];
+  if (subject) {
+    const stop = new Set(['related', 'field', 'fields', 'similar', 'degree', 'diploma', 'study', 'studies', 'subject',
+      'subjects', 'area', 'areas', 'discipline', 'disciplines', 'your', 'higher', 'equivalent', 'relevant', 'with']);
+    const words = subject.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 3 && !stop.has(w));
+    const edu = String(education || '').toLowerCase();
+    if (words.length && !words.some((w) => edu.includes(w))) return '';
+  }
+  return 'Yes';
+}
+
+/**
  * Which saved answer a question is asking for, if any.
  *
  * Order matters: sponsorship is checked before work authorisation, because
@@ -635,11 +759,11 @@ export function isYes(value) {
  * one of them is the question.
  */
 const ORDER = [
-  'authorisedWithoutSponsorship', 'needsSponsorship', 'visaDetails', 'workAuthorised', 'nationality', 'over18',
+  'authorisedWithoutSponsorship', 'needsSponsorship', 'workAuthStatus', 'visaDetails', 'workAuthorised', 'citizenOrPR', 'nationality', 'over18',
   'wasReferred', 'referredBy', 'appliedBefore', 'workedHereBefore', 'relativeAtCompany', 'mayContactEmployer', 'futureOpportunities', 'currentlyEmployed', 'currentSalary', 'yearOfBirth',
   'howDidYouHear', 'noticePeriod', 'earliestStart', 'commutable', 'willingToTravel',
   'relocationAssistance', 'willingToRelocate', 'preferredLocation', 'workPreference', 'salaryExpectation', 'yearsAtLeast', 'yearsExperience',
-  'education', 'englishLevel', 'languages', 'nonCompete', 'backgroundCheck', 'driversLicense', 'securityClearance', 'timezone',
+  'degreeAtLeast', 'education', 'englishLevel', 'languages', 'nonCompete', 'backgroundCheck', 'driversLicense', 'securityClearance', 'timezone',
   'communities', 'hispanicLatino', 'sexualOrientation', 'transgender', 'lgbtq',
   'gender', 'pronouns', 'ethnicity', 'veteranStatus', 'disabilityStatus',
 ];

@@ -87,12 +87,15 @@ export async function launch({ headless = process.env.HEADLESS ? 'new' : false }
 
 export const setProfile = (sw, profile) => sw.evaluate((p) => chrome.storage.local.set({ profile: p }), profile);
 
-/** Clicks the first link or button whose words contain one of `texts`. */
+/** Clicks the first link or button whose words contain one of `texts`.
+ * The non-exact match is case-insensitive, so one lowercase entry ("bewerben")
+ * catches "Bewerben", "Jetzt bewerben" and "Auf diese Stelle bewerben" alike. */
 export async function clickText(page, texts, { exact = false } = {}) {
+  const LOWER = "'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'";
   for (const t of texts) {
     const xp = exact
       ? `xpath/.//*[self::a or self::button or self::ukg-button][normalize-space(.)="${t}"]`
-      : `xpath/.//*[self::a or self::button or self::ukg-button][contains(normalize-space(.), "${t}")]`;
+      : `xpath/.//*[self::a or self::button or self::ukg-button][contains(translate(normalize-space(.), ${LOWER}), "${t.toLowerCase()}")]`;
     for (const el of await page.$$(xp)) {
       const shown = await el.evaluate((e) => e.getClientRects().length > 0).catch(() => false);
       if (!shown) continue;
@@ -122,7 +125,18 @@ export async function dismissCookies(page) {
   return hit;
 }
 
-export const OPENERS = ['Apply for this job', 'Apply for this position', 'Apply to this job', 'Apply Now', 'Apply now', 'Apply Manually', "I'm interested", 'Apply'];
+export const OPENERS = [
+  'Apply for this job', 'Apply for this position', 'Apply to this job', 'Apply Now', 'Apply now', 'Apply Manually', "I'm interested", 'Apply',
+  // Localized apply buttons so non-English boards (Personio.de etc.) are reached
+  // too. Matched case-insensitively and by substring, so each root word covers
+  // its variants ("bewerben" → "Jetzt bewerben", "Auf diese Stelle bewerben").
+  'bewerben',                              // German
+  'postuler', 'candidater',                // French
+  'postular', 'solicitar', 'aplicar',      // Spanish / Portuguese
+  'candidatura', 'invia candidatura',      // Italian
+  'solliciteren',                          // Dutch
+  'ansøg', 'ansök', 'søk', 'hae',          // Danish / Swedish / Norwegian / Finnish
+];
 
 /** Presses the extension on the newest tab, the way the toolbar button does. */
 export async function press(sw) {

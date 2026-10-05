@@ -216,6 +216,7 @@
         .ok { color: #1a7f37; }
         .why { color: #777; }
         .note { margin-top: 10px; padding: 8px; background: #fff8ec; border: 1px solid #f0dcb8; border-radius: 6px; }
+        .worked { margin-top: 8px; padding: 6px 8px; background: #eef5ff; border: 1px solid #cfe0f5; border-radius: 6px; font-size: 12px; color: #26466d; }
         .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
         .btn { border: 1px solid #ccc; background: #fafafa; border-radius: 6px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
         .btn.primary { background: #e4572e; border-color: #e4572e; color: #fff; }
@@ -263,12 +264,19 @@
     const earlier = 0;
     const label = (f, s) => esc((s?.question || f?.label || f?.placeholder || f?.name || f?.id || 'field').slice(0, 70));
     const li = (items, fn) => items.map(fn).join('');
-    const fromYou = done.filter((d) => /your saved|your answer for|your saved cover letter/.test(d.why) || d.choice);
-    const details = done.filter((d) => !fromYou.includes(d));
+    // WORKED OUT vs COPIED. A value the extension reasoned to — a Yes/No derived
+    // from your other answers, a country it replaced — is held apart from a value
+    // it copied straight from your profile, so you know exactly what to check
+    // before submitting an answer given in your name.
+    const inferred = done.filter((d) => d.inferred);
+    const fromYou = done.filter((d) => !d.inferred && (/your saved|your answer for|your saved cover letter/.test(d.why) || d.choice));
+    const details = done.filter((d) => !d.inferred && !fromYou.includes(d));
 
     body.innerHTML = `
       <div><strong>${done.length}</strong> filled · <strong>${failed.length}</strong> failed ·
            <strong>${needs.length}</strong> left for you${earlier ? ` <span class="why">(+${earlier} on earlier pages)</span>` : ''}</div>
+      ${inferred.length ? `<div class="worked">${inferred.length} answer${inferred.length === 1 ? ' was' : 's were'} <strong>worked out</strong> from what you saved — check ${inferred.length === 1 ? 'it' : 'them'} below.</div>` : ''}
+      ${inferred.length ? `<h4>Worked out — please check</h4><ul>${li(inferred, (d) => `<li class="ok">${label(d.field, d)} → <strong>${esc(String(d.committed ?? d.value).slice(0, 40))}</strong> <span class="why">(${esc(d.why)})</span></li>`)}</ul>` : ''}
       ${fromYou.length ? `<h4>Your saved answers — check these</h4><ul>${li(fromYou, (d) => `<li class="ok">${label(d.field, d)} → <strong>${esc(String(d.committed ?? d.value).slice(0, 40))}</strong></li>`)}</ul>` : ''}
       ${details.length ? `<h4>Your details</h4><ul>${li(details, (d) => `<li class="ok">${KEY_NAMES[d.key] ? `${esc(KEY_NAMES[d.key])}${d.committed ? ` → <strong>${esc(d.committed)}</strong>` : ''}` : label(d.field)} <span class="why">(${esc(d.why)})</span></li>`)}</ul>` : ''}
       ${failed.length ? `<h4>Could not fill</h4><ul>${li(failed, (d) => `<li>${label(d.field)} — ${esc(d.reason)}</li>`)}</ul>` : ''}
@@ -302,6 +310,10 @@
         || (s.reason === 'not recognised' && /\?|[*✱]/.test(s.question || ''))
         || /cover letter/i.test(s.reason)
         || ['narrative', 'consent'].includes(s.reason)
+        // A question we deliberately left because it cannot be worked out from
+        // the profile (a tool-specific "3 years with React", a qualification we
+        // cannot confirm) is still the person's to answer — so it is shown.
+        || /answer it yourself|worked out/i.test(s.reason)
         || /no saved answer|matches none of the options|already/.test(s.reason))
       .slice(0, 16);
   }
@@ -606,6 +618,41 @@
       return result.done.length + result.failed.length + result.skipped.length;
     };
 
+    /**
+     * A menu that failed because it was not ready, tried again once the form has
+     * settled. Eightfold builds a menu's options over the network as it opens,
+     * and the press that opens one does not open it while the form is still
+     * settling after "Apply" — so Country/Region, Country code, Salutation and
+     * work authorisation all came back "the page did not keep the value" and,
+     * once marked seen, were never looked at again (measured 3 October 2026).
+     *
+     * This re-attempts ONLY such fields: a combobox or menu that failed with that
+     * exact timing reason, is still on the page, and is still empty. A form where
+     * every menu filled first time has nothing in state.failed, so this costs it
+     * nothing — and a menu that failed because the answer is not one of its
+     * options (reason "matches none …") is never retried, because a second try
+     * would not change that.
+     */
+    const retryStalledMenus = async () => {
+      const retryable = state.failed.filter((f) => f
+        && f.reason === 'the page did not keep the value'
+        && f.field?.el?.isConnected
+        && (f.field.role === 'combobox' || f.field.tag === 'select' || f.key === 'country' || f.key === 'phoneCountry')
+        && (f.retries || 0) < 3
+        && !filler.currentAnswer(f.field.el));
+      let fixed = 0;
+      for (const f of retryable) {
+        f.retries = (f.retries || 0) + 1;
+        const r = await filler.applyPlan({ fills: [f], skipped: [] }, files);
+        if (r.done.length) {
+          state.done.push(...r.done);
+          state.failed = state.failed.filter((x) => x !== f);
+          fixed++;
+        }
+      }
+      return fixed;
+    };
+
     // Work history and education blocks first, each from its own entry, so the
     // general pass below does not fill every block with the first job.
     for (const block of await historyBlocks(state.profile)) {
@@ -645,6 +692,7 @@
     // nothing new.
     await new Promise((r) => setTimeout(r, 2500));
     await pass();
+    await retryStalledMenus();
     // Tracked only where something was filled, so a frame with no form in it
     // (an embedded video, a cookie banner) does not become an "application".
     if (state.done.length) await track(state).catch(() => {});
@@ -659,6 +707,7 @@
       state.watching = true;
       const started = Date.now();
       let rounds = 0;
+      let busy = false;
       const observer = new MutationObserver(() => {
         const w = window[WATCH_KEY];
         if (!w) return;
@@ -668,11 +717,21 @@
             handlers.stop();
             return;
           }
-          const before = state.done.length;
-          if (await pass()) {
-            rounds++;
-            render(root, state, handlers);
-            if (state.done.length > before) track(state).catch(() => {});
+          // Retrying a menu re-opens it, which mutates the DOM and would wake the
+          // watcher again mid-run: one pass at a time, so two never press at once.
+          if (busy) return;
+          busy = true;
+          try {
+            const before = state.done.length;
+            const grew = await pass();
+            const fixed = await retryStalledMenus();
+            if (grew || fixed) {
+              rounds++;
+              render(root, state, handlers);
+              if (state.done.length > before) track(state).catch(() => {});
+            }
+          } finally {
+            busy = false;
           }
         }, 1200);
       });

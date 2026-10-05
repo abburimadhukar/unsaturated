@@ -424,10 +424,11 @@ test('A COMBINED QUESTION IS NOT ANSWERED BACKWARDS', () => {
   assert.equal(ask({ workAuthorised: 'Yes', needsSponsorship: 'No' }).fills[0]!.value, 'Yes');
   assert.equal(ask({ workAuthorised: 'Yes', needsSponsorship: 'Yes' }).fills[0]!.value, 'No');
   assert.equal(ask({ workAuthorised: 'No', needsSponsorship: 'Yes' }).fills[0]!.value, 'No');
-  // Neither half known: nothing is guessed.
+  // Neither half known: nothing is guessed. A derived question that cannot be
+  // worked out says so, rather than blaming a missing saved answer.
   const partial = ask({ workAuthorised: 'Yes' });
   assert.equal(partial.fills.length, 0);
-  assert.match(partial.skipped[0]!.reason, /no saved answer/);
+  assert.match(partial.skipped[0]!.reason, /worked out|no saved answer/);
 });
 
 test('the plain sponsorship question still gets the sponsorship answer', () => {
