@@ -29,7 +29,10 @@ on:
         description: 'Crawl even if the corpus was refreshed in the last 45 minutes'
         type: boolean
         default: false
-      # A MEASUREMENT, not a setting to leave turned up.
+      # How finely to split the crawl. Eight is the scheduled default as of
+      # 5 Oct 2026 (see the matrix note below); this input now exists mainly to
+      # fall back to four by hand. The reasoning that kept it cautious still holds
+      # and is worth keeping:
       #
       # Workable and iCIMS are refused by Cloudflare from Actions runners — 796
       # and 82 refusals in one run on 22 September — and the crawler reads a 429
@@ -41,11 +44,12 @@ on:
       # only a run can answer: if the block follows the IP, each runner gets its
       # own budget and the refusals per runner halve; if it follows the Azure
       # range every runner shares, eight shards is eight times the pressure and
-      # makes it worse. Run it once, compare the refusal counts, then decide.
+      # makes it worse. The 5 Oct run is one data point that it completes; if
+      # Workable/iCIMS coverage drops, compare refusal counts at 8 vs 4.
       shards:
         description: 'How many shards to split the crawl across'
         type: choice
-        default: '4'
+        default: '8'
         options: ['4', '8']
 
 jobs:
@@ -65,17 +69,25 @@ jobs:
     # three and leave three quarters of the corpus unrefreshed.
     strategy:
       fail-fast: false
-      # Four by default, because seeding pushed the registry from 1,481 boards
-      # to 11,991 and a single process stopped finishing: three consecutive runs
-      # were killed at the timeout having done the work and written nothing. One
-      # shard was right at 1,481 — four would have been 32 simultaneous
-      # connections to the same vendors for no gain.
+      # Eight by default since 5 Oct 2026. Four was right while the registry was
+      # ~12k-41k boards (seeding had pushed it from 1,481 to 11,991 and a single
+      # process stopped finishing). The open-dataset catch-up on 5 Oct pushed it
+      # past 51k, beyond the ~46k a four-shard run clears inside the 40-minute
+      # ceiling, so a four-shard scheduled run would now start timing out — and a
+      # timed-out run writes nothing. A manual eight-shard run that day finished
+      # green and warmed the cache, so eight is the cadence now, not a by-hand
+      # one-off.
       #
-      # The scheduled run always takes the default, because `inputs` is empty on
-      # a schedule. So the eight-shard measurement described above can be run by
-      # hand without becoming the cadence by accident.
+      # Honest caveat: eight shards is more parallel pressure on the
+      # Cloudflare-gated vendors (Workable, iCIMS). That one green run proves the
+      # run completed, not that their refusal counts held — watch those, and
+      # remember the real cure for crawl time is the database move (Step 2 in
+      # docs/), not more shards.
+      #
+      # The scheduled run always takes the default, because `inputs` is empty on a
+      # schedule; a by-hand run can still pass shards=4 to fall back.
       matrix:
-        shard: ${{ fromJSON(inputs.shards == '8' && '[0,1,2,3,4,5,6,7]' || '[0,1,2,3]') }}
+        shard: ${{ fromJSON(inputs.shards == '4' && '[0,1,2,3]' || '[0,1,2,3,4,5,6,7]') }}
     # Per shard, so the four run alongside each other but a slow shard is never
     # overlapped by the next run's copy of itself. `matrix` is only in scope at
     # job level — a workflow-level group referencing it silently resolves to
@@ -117,7 +129,7 @@ jobs:
           # jobs for resume matching, which was removed on 25 Sep 2026 — and the
           # fallback was the deploy token, which can edit Workers: more power than
           # an hourly crawl should hold for a feature it no longer has.
-        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of ${{ inputs.shards || '4' }} ${{ inputs.force && '--force' || '' }}
+        run: npm run crawl:db -- --shard ${{ matrix.shard }} --of ${{ inputs.shards || '8' }} ${{ inputs.force && '--force' || '' }}
 
       # No Supabase key means the crawl cannot store anything, and there is no
       # deploy fallback: this workflow must never publish the site. Fail loudly

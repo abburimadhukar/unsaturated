@@ -3,6 +3,33 @@
 Working notes. Everything here was measured, not guessed, and the numbers are
 kept so nobody has to re-measure them.
 
+**Update, 5 October 2026 — three new discovery channels shipped; the figures
+below are stale.** Measured against the live database today: **51,283 active
+boards, 119,867 open jobs** (this file was written at 26,912 / 65,205). What
+changed since 15 Sep:
+
+- **iCIMS was built.** §6 frames it as the undecided "first HTML scraper"
+  question; it is decided and done, and iCIMS is now the #2 provider by open
+  jobs.
+- **Disk is no longer the constraint.** Removing the job/resume vectors on
+  25 Sep freed ~70 MB (DB ~210 MB of 500), so the binding limit is the crawl
+  clock again — the hourly crawl now runs **8 shards** (see crawl.yml), because
+  the corpus passed the ~46k-board headroom a four-shard run clears in 40 min.
+- **Common Crawl is current again** (CC-MAIN-2026-39) but still only advances
+  monthly, which is why the Internet Archive and the channels below matter
+  between drops.
+- **Three dormant channels were wired into discovery.** All three had been
+  writing to `discovered-boards.json`, which the crawl no longer reads, so they
+  had added nothing to the registry: Hacker News (`harvest:hn --store db`,
+  source `hn`), careers-page detection (`detect --store db`, source `careers`),
+  and a **second open dataset** — kalil0321/ats-scrapers (MIT) via
+  `dataset:diff`, seeded per provider in discover.yml (source `opendata`). The
+  dataset catch-up added ~10k companies on 5 Oct and keeps draining 1,500 a
+  provider each week. See `src/discovery/store-verified.ts` and `datasets.ts`.
+
+Everything below, from 15 Sep, is kept for the record — read it knowing iCIMS is
+done and the disk and Common-Crawl notes have moved on.
+
 **Re-measured 15 September 2026.** The previous version of this file was written
 on 6–7 September, before the Common Crawl throttling fix had been observed and
 before anything below had been verified against a live vendor. Two of its
