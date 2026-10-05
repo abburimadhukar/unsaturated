@@ -168,6 +168,16 @@ const RULES = [
 // browser.", which lands inside every label that has an icon beside it.
 const clean = (s) => (s || '').replace(/SVGs not supported by this browser\.?/gi, ' ').replace(/\s+/g, ' ').replace(/^[\s|]+|[\s|]+$/g, '').trim();
 
+// Text controls that a loose <label> could belong to. Radios and checkboxes are
+// left out on purpose: a fieldset of options shares ONE question legitimately
+// (handled by questionFor), so counting them would wrongly trip the guard below.
+const LABELABLE = 'input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=reset]):not([type=radio]):not([type=checkbox]), select, textarea';
+
+/** How many fillable text controls sit inside a block — the field itself counts. */
+function labelableCount(node) {
+  return node && node.querySelectorAll ? node.querySelectorAll(LABELABLE).length : 0;
+}
+
 /** The visible words for a field, however the vendor chose to attach them. */
 export function labelTextFor(el, doc = el.ownerDocument) {
   // A field inside a web component (SmartRecruiters' <spl-input>) has its
@@ -207,6 +217,15 @@ export function labelTextFor(el, doc = el.ownerDocument) {
   if (bits.length === 0) {
     let p = el.parentElement;
     for (let hops = 0; p && hops < 3 && bits.length === 0; hops++, p = p.parentElement) {
+      // Only trust a label found by climbing when this block holds exactly one
+      // text control — our field. A wrapper around several fields (Workday and
+      // Greenhouse lay out group rows this way) has one <label> that belongs to a
+      // sibling box, and attributing it here types a value into the wrong field.
+      // A larger ancestor only ever holds more, so stop climbing once a block is
+      // shared. textBefore() already applies this rule to the words-above path;
+      // this closes the same hole on the <label>/heading path, matching the guard
+      // ritsth and JobMatchAI both carry.
+      if (labelableCount(p) > 1) break;
       // Headings only for a box with no words of its own: a section heading
       // ("Experience") above Breezy's "Company" box hid its placeholder.
       const l = p.querySelector(el.getAttribute('placeholder') ? 'label, legend' : 'label, legend, h1, h2, h3, h4, h5');
