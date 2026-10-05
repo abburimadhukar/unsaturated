@@ -586,16 +586,19 @@ test('a tenant never straddles two shards, whatever the count', () => {
   }
 });
 
-test('the scheduled crawl cannot inherit a hand-started shard count', () => {
-  // `inputs` is empty on a schedule, so the expression has to fall back to four
-  // on its own. A measurement run at eight must never become the cadence.
+test('the scheduled crawl splits into its default shard count consistently', () => {
+  // `inputs` is empty on a schedule, so the matrix AND the --of argument must
+  // each fall back to the same number on their own — if they disagree a run
+  // skips boards or crawls them twice. Eight is the default since 5 Oct 2026
+  // (the corpus outgrew a four-shard run's 40-minute budget); a by-hand run can
+  // pass shards=4 and both still agree.
   const wf = readFileSync(new URL('../.github/workflows/crawl.yml', import.meta.url), 'utf8');
-  assert.match(wf, /shard: \$\{\{ fromJSON\(inputs\.shards == '8' && '\[0,1,2,3,4,5,6,7\]' \|\| '\[0,1,2,3\]'\) \}\}/);
-  assert.match(wf, /--of \$\{\{ inputs\.shards \|\| '4' \}\}/);
-  assert.match(wf, /default: '4'/);
+  assert.match(wf, /shard: \$\{\{ fromJSON\(inputs\.shards == '4' && '\[0,1,2,3\]' \|\| '\[0,1,2,3,4,5,6,7\]'\) \}\}/);
+  assert.match(wf, /--of \$\{\{ inputs\.shards \|\| '8' \}\}/);
+  assert.match(wf, /default: '8'/);
   // The matrix and the --of argument have to agree, or a run would either skip
   // boards or crawl them twice.
-  assert.doesNotMatch(wf, /--of 4\b/, 'the shard count is hard-coded again');
+  assert.doesNotMatch(wf, /--of 8\b/, 'the shard count is hard-coded again');
 });
 
 test('a run out of time writes what it read instead of being killed', () => {

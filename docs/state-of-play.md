@@ -8,6 +8,15 @@
 > this is a shield, not a cure. See [outstanding.md §3](outstanding.md) and
 > [database-hosting.md](database-hosting.md).
 
+> **Update, 5 October 2026.** The headline numbers below are from 17 Sep and are
+> now well out of date: the live corpus is **51,283 active boards / 119,867 open
+> postings**. Three previously-dormant discovery channels were wired in and
+> shipped today — Hacker News, careers-page detection, and the kalil0321 open
+> dataset (`dataset:diff`) — each writing to the registry with its own `source`;
+> see [corpus-growth.md](corpus-growth.md). The hourly crawl now defaults to
+> **8 shards**, because the corpus passed the ~46k-board headroom of a four-shard
+> run.
+
 Where the project actually is. First written 7 Sep; the headline numbers, the
 platform table and the "verified working" table were re-measured on **17 Sep**
 against the live database and site. Raw output is in
