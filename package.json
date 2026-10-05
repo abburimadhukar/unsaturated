@@ -25,6 +25,7 @@
     "boards:verify": "tsx src/cli/boards-verify.ts",
     "harvest:cc": "tsx src/cli/harvest-cc.ts",
     "harvest:ia": "tsx src/cli/harvest-ia.ts",
+    "dataset:diff": "tsx src/cli/dataset-diff.ts",
     "oracle:names": "tsx src/cli/oracle-names.ts",
     "icims:names": "tsx src/cli/icims-names.ts",
     "oracle:aliases": "tsx src/cli/oracle-aliases.ts",

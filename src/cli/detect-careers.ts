@@ -2,18 +2,24 @@
  * Reads company careers pages to find their ATS, instead of guessing a slug.
  *
  *   npm run detect -- --file domains.txt
- *   npm run detect -- --universities
+ *   npm run detect                       # the built-in university/health list
  *   npm run detect -- --dry-run
+ *   npm run detect -- --store db         # verify against the live APIs, store in Supabase
  *
  * Finds boards the slug-prober structurally cannot: Ohio State's Workday tenant
- * is "osu" with a site called "OSUCareers", which no naming rule reaches.
- * Results merge into discovered-boards.json; existing entries are never
- * overwritten.
+ * is "osu" with a site called "OSUCareers", which no naming rule reaches. The
+ * default MERGES into discovered-boards.json; `--store db` instead verifies and
+ * writes to the `boards` registry with source 'careers', which is what wires this
+ * channel into the weekly discovery — the file is now only an offline fallback
+ * the crawl does not read.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { detectMany } from '../discovery/careers.js';
 import { UNIVERSITY_DOMAINS } from '../discovery/universities.js';
+import { verifyAndStore } from '../discovery/store-verified.js';
+import { config } from '../config.js';
+import type { OpenBoard } from '../discovery/opendata.js';
 
 interface StoredBoard {
   provider: string;
@@ -53,6 +59,40 @@ async function main(): Promise<void> {
     domains = UNIVERSITY_DOMAINS;
   }
   if (limit > 0) domains = domains.slice(0, limit);
+
+  if (arg('store') === 'db') {
+    const verifyCap = Number.parseInt(arg('verify') ?? '3000', 10);
+    const delayMs = Number.parseInt(arg('delay') ?? '1000', 10);
+    console.log(`Reading ${domains.length} careers pages…\n`);
+    const results = await detectMany(domains, 6, (done, total, found) => {
+      if (done % 10 === 0 || done === total) {
+        process.stdout.write(`  ${done}/${total} checked · ${found} with a detectable ATS\r`);
+      }
+    });
+    // One careers page can expose more than one board; flatten and name each
+    // from the domain, the same label the file path uses.
+    const candidates: OpenBoard[] = [];
+    for (const r of results) {
+      for (const b of r.boards) {
+        candidates.push({
+          provider: b.provider,
+          token: b.token,
+          company: labelFor(r.domain, b.token),
+          ...(b.extra ? { extra: b.extra } : {}),
+        });
+      }
+    }
+    console.log(`\n\n${candidates.length} boards detected across ${domains.length} domains\n`);
+    await verifyAndStore({
+      candidates,
+      source: 'careers',
+      verifyCap,
+      delayMs,
+      dryRun,
+      userAgent: config.userAgent,
+    });
+    return;
+  }
 
   const existing = new Map<string, StoredBoard>();
   if (existsSync(OUT)) {
