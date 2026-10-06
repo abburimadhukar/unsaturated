@@ -314,3 +314,166 @@ export function cleanLocation(raw: string | null | undefined): string | null {
 
   return s.length > 0 ? s.slice(0, 80) : null;
 }
+
+/**
+ * Full state names, longest/qualified first so "West Virginia" is not read as
+ * Virginia and "New York" is never a bare "York". Washington is here, but DC in
+ * its "Washington, D.C." form is caught before this list is reached — see
+ * inferUsState — so the name only ever means the state.
+ */
+const US_STATE_NAME_TO_CODE: [RegExp, string][] = [
+  [/\bwest virginia\b/i, 'WV'],
+  [/\bnew hampshire\b/i, 'NH'],
+  [/\bnew jersey\b/i, 'NJ'],
+  [/\bnew mexico\b/i, 'NM'],
+  [/\bnew york\b/i, 'NY'],
+  [/\bnorth carolina\b/i, 'NC'],
+  [/\bsouth carolina\b/i, 'SC'],
+  [/\bnorth dakota\b/i, 'ND'],
+  [/\bsouth dakota\b/i, 'SD'],
+  [/\brhode island\b/i, 'RI'],
+  [/\bdistrict of columbia\b/i, 'DC'],
+  [/\balabama\b/i, 'AL'], [/\balaska\b/i, 'AK'], [/\barizona\b/i, 'AZ'],
+  [/\barkansas\b/i, 'AR'], [/\bcalifornia\b/i, 'CA'], [/\bcolorado\b/i, 'CO'],
+  [/\bconnecticut\b/i, 'CT'], [/\bdelaware\b/i, 'DE'], [/\bflorida\b/i, 'FL'],
+  [/\bgeorgia\b/i, 'GA'], [/\bhawaii\b/i, 'HI'], [/\bidaho\b/i, 'ID'],
+  [/\billinois\b/i, 'IL'], [/\bindiana\b/i, 'IN'], [/\biowa\b/i, 'IA'],
+  [/\bkansas\b/i, 'KS'], [/\bkentucky\b/i, 'KY'], [/\blouisiana\b/i, 'LA'],
+  [/\bmaine\b/i, 'ME'], [/\bmaryland\b/i, 'MD'], [/\bmassachusetts\b/i, 'MA'],
+  [/\bmichigan\b/i, 'MI'], [/\bminnesota\b/i, 'MN'], [/\bmississippi\b/i, 'MS'],
+  [/\bmissouri\b/i, 'MO'], [/\bmontana\b/i, 'MT'], [/\bnebraska\b/i, 'NE'],
+  [/\bnevada\b/i, 'NV'], [/\bohio\b/i, 'OH'], [/\boklahoma\b/i, 'OK'],
+  [/\boregon\b/i, 'OR'], [/\bpennsylvania\b/i, 'PA'], [/\btennessee\b/i, 'TN'],
+  [/\btexas\b/i, 'TX'], [/\butah\b/i, 'UT'], [/\bvermont\b/i, 'VT'],
+  [/\bvirginia\b/i, 'VA'], [/\bwashington\b/i, 'WA'], [/\bwisconsin\b/i, 'WI'],
+  [/\bwyoming\b/i, 'WY'], [/\bpuerto rico\b/i, 'PR'],
+];
+
+/**
+ * Cities that stand for a state on their own, for the common ATS listing that
+ * gives a bare city with no state — "Seattle", "San Francisco". Only the
+ * unambiguous ones: "Portland" (OR vs ME), "Vancouver" (WA vs BC), "Kansas
+ * City" (MO vs KS), "Columbus" (OH vs GA) and the like are left out rather than
+ * guessed. Washington's metros are listed in full because they are the point.
+ */
+const CITY_STATE_US: [RegExp, string][] = [
+  [/\b(seattle|bellevue|redmond|kirkland|tacoma|spokane|spokane valley|bellingham|olympia|everett|renton|bothell|sammamish|issaquah|puyallup|federal way|lynnwood|kennewick|yakima|walla walla|bremerton|mountlake terrace|maple valley)\b/i, 'WA'],
+  [/\b(new york city|nyc|brooklyn|manhattan|the bronx|bronx)\b/i, 'NY'],
+  [/\b(san francisco|los angeles|san diego|san jose|sacramento|oakland|palo alto|mountain view|menlo park|sunnyvale|santa clara|santa monica|cupertino|irvine|long beach|berkeley|fremont|pasadena)\b/i, 'CA'],
+  [/\bchicago\b/i, 'IL'],
+  [/\b(houston|san antonio|dallas|fort worth|plano|austin)\b/i, 'TX'],
+  [/\b(phoenix|tucson|mesa|scottsdale|tempe|chandler)\b/i, 'AZ'],
+  [/\bboston\b/i, 'MA'],
+  [/\batlanta\b/i, 'GA'],
+  [/\b(miami|jacksonville|tampa|orlando|fort lauderdale)\b/i, 'FL'],
+  [/\b(denver|boulder|colorado springs)\b/i, 'CO'],
+  [/\b(minneapolis|saint paul|st\.? paul)\b/i, 'MN'],
+  [/\b(detroit|ann arbor)\b/i, 'MI'],
+  [/\b(nashville|memphis)\b/i, 'TN'],
+  [/\b(las vegas|reno)\b/i, 'NV'],
+  [/\b(charlotte|raleigh|durham|chapel hill)\b/i, 'NC'],
+  [/\b(columbus|cincinnati|cleveland)\b/i, 'OH'],
+  [/\bindianapolis\b/i, 'IN'],
+  [/\blouisville\b/i, 'KY'],
+  [/\b(baltimore|bethesda)\b/i, 'MD'],
+  [/\b(milwaukee|madison)\b/i, 'WI'],
+  [/\bnew orleans\b/i, 'LA'],
+  [/\b(oklahoma city|tulsa)\b/i, 'OK'],
+  [/\bsalt lake city\b/i, 'UT'],
+  [/\bomaha\b/i, 'NE'],
+  [/\balbuquerque\b/i, 'NM'],
+  [/\bvirginia beach\b/i, 'VA'],
+  [/\b(philadelphia|pittsburgh)\b/i, 'PA'],
+  [/\b(st\.? louis|saint louis)\b/i, 'MO'],
+];
+
+/** code → display name, for every US state plus DC and Puerto Rico. */
+export const US_STATE_LABELS: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California',
+  CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa',
+  KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
+  MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire',
+  NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina',
+  ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania',
+  RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee',
+  TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington',
+  WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia',
+  PR: 'Puerto Rico',
+};
+
+/**
+ * Best-effort US state code from a free-text location.
+ *
+ * The companion to inferCountry, and deliberately built on top of it: a state is
+ * only meaningful once the country is the United States, so this returns
+ * undefined for everything inferCountry does not place in the US. That reuse is
+ * the whole point — the country traps are hard-won and are not re-litigated
+ * here. "Washington, United Kingdom" is GB and never reaches the state logic;
+ * "Vancouver, Washington" is US and resolves to WA, while a bare "Vancouver" is
+ * Canada and resolves to nothing; "Pune, IN" is India however much "IN" reads
+ * like Indiana.
+ *
+ * The verdict is stored in jobs.region (2026-10-06-region.sql), written at crawl
+ * time beside country — an indexed column, not a pattern matched against every
+ * row per request. That is the same decision `quiet` and `sector` already made,
+ * and for the same measured reason.
+ *
+ * Order matters, and each step is a deliberate precedence:
+ *  1. "Washington, D.C." and "District of Columbia" are DC, before the bare
+ *     state name below could claim them for WA.
+ *  2. An explicit state code wins next, so "Washington, PA" is Pennsylvania and
+ *     "Washington County, OR" is Oregon — the town, not the state of the same
+ *     name.
+ *  3. Only with no code does the bare state NAME decide, so "Seattle,
+ *     Washington" is WA.
+ *  4. Last, an unambiguous city stands in for its state, so a listing that gives
+ *     only "Seattle" still lands in WA.
+ */
+export function inferUsState(
+  locationRaw: string | undefined,
+  explicit?: string,
+): string | undefined {
+  // Block only a location positively placed in ANOTHER country, not one that is
+  // merely unrecognised. inferCountry knows Seattle and Redmond as US cities but
+  // not Tacoma, Spokane or "District of Columbia" — yet those resolve to a state
+  // unambiguously below, and a resolved state is itself proof of the US. A
+  // positively foreign string ("Washington, United Kingdom" → GB) still returns
+  // early and can never leak a state.
+  const country = inferCountry(locationRaw, explicit);
+  if (country && country !== 'US') return undefined;
+  const t = (locationRaw ?? '').trim();
+  if (!t) return undefined;
+
+  // 1. DC written as a city. Before the Washington-state name can take it.
+  if (
+    /\bwashington\s*,?\s*d\.?\s*c\.?\b/i.test(t) ||
+    /\bwashington\s*,?\s*dc\b/i.test(t) ||
+    /\bdistrict of columbia\b/i.test(t)
+  ) {
+    return 'DC';
+  }
+
+  // 2. A two-letter state code, as a delimited segment or the first/last token
+  //    of one: "Seattle, WA", "Austin, TX 78701", "Seattle WA", "Bellevue, WA, USA".
+  for (const part of t.split(/[,|/;]|\s[–-]\s/)) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const whole = seg.toUpperCase();
+    if (whole.length === 2 && US_STATE_CODES.has(whole)) return whole;
+    const tokens = seg.split(/\s+/);
+    const first = tokens[0]?.toUpperCase();
+    if (first && first.length === 2 && US_STATE_CODES.has(first)) return first;
+    const last = tokens[tokens.length - 1]?.toUpperCase();
+    if (last && last.length === 2 && US_STATE_CODES.has(last)) return last;
+  }
+
+  // 3. The full state name, when no code was given.
+  for (const [pattern, code] of US_STATE_NAME_TO_CODE) if (pattern.test(t)) return code;
+
+  // 4. An unambiguous city standing in for its state.
+  for (const [pattern, code] of CITY_STATE_US) if (pattern.test(t)) return code;
+
+  return undefined;
+}

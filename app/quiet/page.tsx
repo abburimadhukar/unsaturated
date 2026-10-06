@@ -262,6 +262,7 @@ export default function QuietRoles() {
         </h1>
         <div className="grow" />
         <a className="navlink inst" href="/institutions">Institutions</a>
+        <a className="navlink wa" href="/washington">Washington</a>
         <a className="navlink" href="/">← All roles</a>
       </header>
 

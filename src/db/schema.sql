@@ -28,6 +28,13 @@ create table if not exists public.jobs (
   title           text not null,
   location        text,
   country         text,
+  -- US state code ("WA"), inferred from the location beside `country` and stored
+  -- so a state page filters an indexed column instead of matching the location
+  -- text per request. NULL for anything not placed in a US state. Decided once
+  -- in the crawl by inferUsState (src/ats/geo.ts), not a generated column: the
+  -- inference has branches — D.C. vs the state, a town called Washington in PA —
+  -- that a SQL expression cannot carry. See migrations/2026-10-06-region.sql.
+  region          text,
   remote_type     text,
   seniority       text,
   employment_type text,
@@ -71,6 +78,11 @@ create index if not exists jobs_open_posted_idx
   on public.jobs (posted_at desc nulls last) where closed_at is null;
 create index if not exists jobs_family_idx on public.jobs (family) where closed_at is null;
 create index if not exists jobs_country_idx on public.jobs (country) where closed_at is null;
+-- The state pages read (open) + region + family, newest first. Partial on a
+-- non-null region because the column is null for everything outside a US state,
+-- which is the majority and is never queried. See 2026-10-06-region.sql.
+create index if not exists jobs_region_idx
+  on public.jobs (region, family, posted_at desc) where closed_at is null and region is not null;
 -- Every feed query is (open) + family + specialization, so this matches the
 -- workload exactly and stays small: closed rows are the majority within weeks
 -- and are never queried.

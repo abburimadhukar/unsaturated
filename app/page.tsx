@@ -645,6 +645,9 @@ export default function Page() {
         <a className="navlink inst" href="/institutions" title="Universities, hospitals, charities and public bodies">
           Institutions
         </a>
+        <a className="navlink wa" href="/washington" title="Every tech role in Washington State">
+          Washington
+        </a>
         {/* Resume, theme and sign-out moved to /account: five controls in a
             row is a settings menu pretending to be a toolbar. The applied count
             above stays, because it is also a filter and belongs with the

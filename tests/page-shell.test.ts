@@ -22,7 +22,11 @@ import { readFileSync } from 'node:fs';
 const page = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 const FEED = '../app/page.tsx';
-const LIST_PAGES = ['../app/quiet/page.tsx', '../app/institutions/page.tsx'];
+const LIST_PAGES = [
+  '../app/quiet/page.tsx',
+  '../app/institutions/page.tsx',
+  '../app/washington/page.tsx',
+];
 const ALL = [FEED, ...LIST_PAGES];
 
 test('ALL THREE PAGES USE THE SAME TWO-COLUMN LAYOUT', () => {
@@ -89,6 +93,8 @@ test('each page keeps its own reason for existing, in its own panel', () => {
   assert.match(page('../app/quiet/page.tsx'), /title people do not search for/);
   assert.match(page('../app/institutions/page.tsx'), /Institutions/);
   assert.match(page('../app/institutions/page.tsx'), /Universities, hospitals/);
+  assert.match(page('../app/washington/page.tsx'), /Washington/);
+  assert.match(page('../app/washington/page.tsx'), /Washington State/);
 });
 
 test('the page accent still differs, because the pages still differ', () => {
@@ -97,9 +103,11 @@ test('the page accent still differs, because the pages still differ', () => {
   // losing it would make the three pages genuinely indistinguishable.
   assert.match(page('../app/quiet/page.tsx'), /className="page-quiet"/);
   assert.match(page('../app/institutions/page.tsx'), /className="page-inst"/);
+  assert.match(page('../app/washington/page.tsx'), /className="page-washington"/);
   const css = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
   assert.match(css, /\.page-quiet/);
   assert.match(css, /\.page-inst/);
+  assert.match(css, /\.page-washington/);
 });
 
 test('THE LOAD-MORE CONTROL IS THE SAME SHAPE EVERYWHERE', () => {

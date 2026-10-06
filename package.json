@@ -35,6 +35,7 @@
     "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "block": "tsx src/cli/block.ts",
     "backfill:spec": "tsx src/cli/backfill-spec.ts",
+    "backfill:region": "tsx src/cli/backfill-region.ts",
     "test": "node --import tsx --test \"tests/*.test.ts\"",
     "exclusions": "tsx src/cli/exclusions.ts",
     "quiet:sql": "tsx src/cli/quiet-sql.ts",
