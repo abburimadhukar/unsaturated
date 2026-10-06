@@ -2,45 +2,58 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FAMILY_LABELS, FAMILY_ORDER, type Family } from '../../src/taxonomy/families.js';
-import { SECTOR_LABELS, SECTOR_ORDER, type Sector } from '../../src/taxonomy/sector.js';
 import { SPECIALIZATION_LABELS } from '../../src/taxonomy/specializations.js';
-import { COUNTRY_LABELS } from '../../src/ats/geo.js';
-import { INST_DEFAULTS, readFrom, writeTo, type InstFilters } from '../../src/ui/filter-state.js';
+import { WA_DEFAULTS, readFrom, writeTo, type WaFilters } from '../../src/ui/filter-state.js';
 import { initialShown, savedScrollY, writeRestorable } from '../../src/ui/restore.js';
 import { JobCard } from '../_components/JobCard.js';
 import { useJobState } from '../_components/useJobState.js';
 
 /**
- * Roles at universities, hospitals, charities and public bodies.
+ * Washington — every tech role the corpus holds in one US state.
  *
- * These employers are structurally short of technical staff — 66% of health-IT
- * professionals report persistent shortages, and university technology leaders
- * lose candidates to tech firms on pay and flexibility. Fewer applicants per
- * posting, for reasons that are not going to change.
+ * A separate page rather than a filter on the main feed, for the same reason
+ * Quiet Roles and Institutions are: it answers a different question. The feed
+ * asks "what is there?"; this asks "what is there near me?" — and the people it
+ * is for, who are tied to a place by a visa, a lease or a family, want the whole
+ * of one place rather than a sprinkling of everywhere.
  *
- * Sector cuts ACROSS the families rather than replacing them: a hospital hires
- * cloud engineers and data analysts alike. So sector is the top-level choice
- * here and family narrows within it, which is the opposite of Quiet Roles.
+ * Nothing on the main feed changes. This route reads /api/washington, which
+ * reads the jobs table directly on an indexed `region` column rather than
+ * through feed_page, so no existing query, RPC or component is touched.
  *
- * FEWER FILTERS THAN QUIET ROLES, on purpose. This page is 1,431 roles against
- * that page's 17,536, and a filter that takes 1,431 to nothing is not a feature.
- * Specialization is offered HERE and not there because 68% of institution roles
- * carry one against 17% of quiet ones — the same control, honest on one page
- * and misleading on the other.
+ * THE FILTERS ARE THE ONES THE DATA SUPPORTS. Search and seniority as on the
+ * other pages; workplace because remote_type is one of four clean values;
+ * "states a salary" because 42% of Washington roles carry one — far more than
+ * the 16% that made a salary filter dishonest on Quiet Roles. There is no
+ * country filter: the page is one country by definition.
  */
 
 const FAMILIES = FAMILY_ORDER.filter((f) => f !== 'unsorted') as Family[];
-const PAGE = 50;
-/** This page's own key for its remembered scroll position and page count. */
-const SCROLL_KEY = 'unsaturated.inst.scroll';
 
-interface InstJob {
+const SENIORITIES: [string, string][] = [
+  ['entry', 'Entry'],
+  ['mid', 'Mid'],
+  ['senior', 'Senior'],
+  ['lead', 'Lead'],
+  ['staff', 'Staff'],
+  ['principal', 'Principal'],
+];
+
+/** The raw remote_type values, shown in plain words. */
+const WORKPLACES: [string, string][] = [
+  ['on_site', 'On-site'],
+  ['hybrid', 'Hybrid'],
+  ['fully_remote', 'Remote'],
+];
+
+interface WaJob {
   key: string;
   title: string;
   company: string;
   provider: string;
   location: string | null;
   country: string | null;
+  region: string | null;
   remoteType: string | null;
   seniority: string | null;
   employmentType: string | null;
@@ -49,28 +62,31 @@ interface InstJob {
   salaryCurrency: string | null;
   specialization: string | null;
   family: string | null;
-  sector: string | null;
-  quiet: boolean;
+  adjacent: boolean;
   ageDays: number | null;
   dated: boolean;
   applyUrl: string | null;
 }
 
 interface Payload {
+  family: string;
   matched: number;
   hasMore: boolean;
   counts: Record<string, number>;
-  countries: Record<string, number>;
-  countryUnknown: number;
-  specializations: Record<string, number>;
   maxAgeDays: number;
-  jobs: InstJob[];
+  jobs: WaJob[];
   error?: string;
 }
 
-export default function Institutions() {
-  const [filters, setFilters] = useState<InstFilters>(() =>
-    typeof window === 'undefined' ? INST_DEFAULTS : readFrom(INST_DEFAULTS, window.location.search),
+const PAGE = 50;
+/** This page's own key, so the list pages never read each other's place. */
+const SCROLL_KEY = 'unsaturated.washington.scroll';
+
+export default function Washington() {
+  /** Every choice lives in the address bar, so a view survives a refresh and
+   *  can be linked to — the same as the feed and the other two pages. */
+  const [filters, setFilters] = useState<WaFilters>(() =>
+    typeof window === 'undefined' ? WA_DEFAULTS : readFrom(WA_DEFAULTS, window.location.search),
   );
   // Start at the saved page count when returning to this exact view, so "show
   // more" survives the trip to After applying and back.
@@ -85,22 +101,26 @@ export default function Institutions() {
   // Seen/applied marking, the same the main feed has: an opened posting dims.
   const { seen, applied, markApplied } = useJobState();
 
-  /** Sector is the page's navigation, so it does not count as a narrowing. */
+  /** Family is navigation, so it is not counted as something to clear. */
   const narrowCount = useMemo(
     () =>
       Object.entries(filters).filter(
-        ([k, v]) => k !== 'sector' && v !== (INST_DEFAULTS as Record<string, unknown>)[k],
+        ([k, v]) => k !== 'family' && v !== (WA_DEFAULTS as Record<string, unknown>)[k],
       ).length,
     [filters],
   );
 
-  const set = <K extends keyof InstFilters>(key: K, value: InstFilters[K]) => {
+  const set = <K extends keyof WaFilters>(key: K, value: WaFilters[K]) => {
     setFilters((f) => ({ ...f, [key]: value }));
+    // Changing what you are looking at should start you at the top of it.
     setShown(PAGE);
   };
 
+  // The address bar follows the filters, replacing rather than pushing, so
+  // typing in the search box does not bury the back button under one history
+  // entry per keystroke.
   useEffect(() => {
-    const qs = writeTo(INST_DEFAULTS, filters);
+    const qs = writeTo(WA_DEFAULTS, filters);
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }, [filters]);
 
@@ -112,25 +132,23 @@ export default function Institutions() {
   const load = useCallback(async () => {
     setLoading(true);
     const mine = ++seq.current;
-    const qs = new URLSearchParams({ limit: String(shown) });
-    if (filters.sector) qs.set('sector', filters.sector);
-    if (filters.family) qs.set('family', filters.family);
+    const qs = new URLSearchParams({ family: filters.family, limit: String(shown) });
     if (filters.q.trim()) qs.set('q', filters.q.trim());
-    if (filters.country) qs.set('country', filters.country);
-    if (filters.specialization) qs.set('specialization', filters.specialization);
-    if (filters.quietOnly) qs.set('quietOnly', '1');
+    if (filters.seniority) qs.set('seniority', filters.seniority);
+    if (filters.workplace) qs.set('workplace', filters.workplace);
+    if (filters.paidOnly) qs.set('paidOnly', '1');
     try {
-      const res = await fetch(`/api/institutions?${qs}`);
+      const res = await fetch(`/api/washington?${qs}`);
       const body = (await res.json()) as Payload;
       if (mine !== seq.current) return;
       if (!res.ok) {
-        setFailed(body.error ?? 'Could not load institution roles.');
+        setFailed(body.error ?? 'Could not load Washington roles.');
         setData(null);
       } else {
         setFailed(null);
         setData(body);
-        // Restore the place once, after the rows have painted. A different filter
-        // set saved nothing for this view, so this is a no-op there.
+        // Put the reader back where they were, once, after the rows have
+        // painted. A different filter set saved nothing, so this is a no-op there.
         if (restoring.current) {
           restoring.current = false;
           const y = savedScrollY(SCROLL_KEY);
@@ -162,42 +180,31 @@ export default function Institutions() {
     };
   }, [shown]);
 
-  // Hidden, not 0, when the counts did not arrive — the route leaves them out
-  // rather than inventing zeros, and summing nothing would put one back.
-  const total = data && Object.keys(data.counts).length > 0
-    ? Object.values(data.counts).reduce((a, b) => a + b, 0)
-    : null;
+  const pick = (f: Family) => set('family', f);
 
+  /** What is on right now, as removable chips — visible with the sidebar shut. */
   const active: [string, () => void][] = [];
-  if (filters.family) {
-    active.push([FAMILY_LABELS[filters.family as Family], () => set('family', '')]);
-  }
   if (filters.q.trim()) active.push([`“${filters.q.trim()}”`, () => set('q', '')]);
-  if (filters.country) {
-    active.push([
-      filters.country === '__unknown__'
-        ? 'location unclear'
-        : ((COUNTRY_LABELS as Record<string, string>)[filters.country] ?? filters.country),
-      () => set('country', ''),
-    ]);
+  if (filters.seniority) {
+    const label = SENIORITIES.find(([v]) => v === filters.seniority)?.[1] ?? filters.seniority;
+    active.push([label, () => set('seniority', '')]);
   }
-  if (filters.specialization) {
-    active.push([
-      SPECIALIZATION_LABELS[filters.specialization as never] ?? filters.specialization,
-      () => set('specialization', ''),
-    ]);
+  if (filters.workplace) {
+    const label = WORKPLACES.find(([v]) => v === filters.workplace)?.[1] ?? filters.workplace;
+    active.push([label, () => set('workplace', '')]);
   }
-  if (filters.quietOnly) active.push(['quiet titles only', () => set('quietOnly', false)]);
+  if (filters.paidOnly) active.push(['states a salary', () => set('paidOnly', false)]);
 
   const reset = () => {
-    setFilters({ ...INST_DEFAULTS, sector: filters.sector });
+    // The family survives a reset — it is where you are, not a narrowing.
+    setFilters({ ...WA_DEFAULTS, family: filters.family });
     setShown(PAGE);
   };
 
   // The view to return to from "After applying": this page WITH its filters.
   const backTo = (() => {
-    const qs = writeTo(INST_DEFAULTS, filters);
-    return qs ? `/institutions?${qs}` : '/institutions';
+    const qs = writeTo(WA_DEFAULTS, filters);
+    return qs ? `/washington?${qs}` : '/washington';
   })();
 
   return (
@@ -218,35 +225,29 @@ export default function Institutions() {
         </h1>
         <div className="grow" />
         <a className="navlink quiet" href="/quiet">Quiet roles</a>
-        <a className="navlink wa" href="/washington">Washington</a>
+        <a className="navlink inst" href="/institutions">Institutions</a>
         <a className="navlink" href="/">← All roles</a>
       </header>
 
-      {/* Sectors sit above the layout, where the main feed puts its families.
-          Same bar, same place, same behaviour — the thing that made these pages
-          feel like separate products was that their primary navigation lived
-          somewhere else. */}
-      <nav className="families" aria-label="Sector">
-        <button className={filters.sector === '' ? 'on' : ''} onClick={() => set('sector', '')}>
-          All
-          {total !== null && <span className="n tnum">{total.toLocaleString()}</span>}
-        </button>
-        {SECTOR_ORDER.map((s) => (
+      {/* Families sit above the layout, exactly as they do on the main feed.
+          Same bar, same place, same behaviour. */}
+      <nav className="families" aria-label="Role family">
+        {FAMILIES.map((f) => (
           <button
-            key={s}
-            className={s === filters.sector ? 'on' : ''}
-            onClick={() => set('sector', s)}
-            aria-pressed={s === filters.sector}
+            key={f}
+            className={f === filters.family ? `fam-${f} on` : `fam-${f}`}
+            onClick={() => pick(f)}
+            aria-pressed={f === filters.family}
           >
-            {SECTOR_LABELS[s]}
-            {data?.counts?.[s] !== undefined && (
-              <span className="n tnum">{data.counts[s]!.toLocaleString()}</span>
+            {FAMILY_LABELS[f]}
+            {data?.counts?.[f] !== undefined && (
+              <span className="n tnum">{data.counts[f]!.toLocaleString()}</span>
             )}
           </button>
         ))}
       </nav>
 
-      <main className="page-inst">
+      <main className="page-washington">
         <div className="layout">
           <aside className={`sidebar${filtersOpen ? '' : ' collapsed'}`}>
             <button
@@ -259,12 +260,12 @@ export default function Institutions() {
             </button>
 
             <div className="panel">
-              <h2 className="panelhead">Institutions</h2>
+              <h2 className="panelhead">Washington</h2>
               <p className="panelnote">
-                Universities, hospitals, charities and public bodies. They hire the
-                same engineers as everyone else and lose candidates to tech firms on
-                pay and flexibility — so their postings sit longer and draw fewer
-                people.
+                Every tech role the corpus holds in Washington State — companies,
+                universities, hospitals and public bodies alike, from Seattle and
+                the Eastside out to Spokane. One place, so you can read all of it
+                rather than a few of everywhere.
               </p>
             </div>
 
@@ -279,75 +280,39 @@ export default function Institutions() {
               </div>
 
               <div className="field">
-                <label>Country</label>
-                <select value={filters.country} onChange={(e) => set('country', e.target.value)}>
-                  <option value="">Anywhere</option>
-                  {Object.entries(data?.countries ?? {})
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([c, n]) => (
-                      <option key={c} value={c}>
-                        {(COUNTRY_LABELS as Record<string, string>)[c] ?? c} ({n.toLocaleString()})
-                      </option>
-                    ))}
-                {/* Its own option rather than being folded into every country.
-                    A fifth of the corpus has no country on it, and adding those
-                    to whichever country was picked makes the count beside it
-                    wrong and the label a lie — the exact mistake the main feed
-                    made and corrected. */}
-                {(data?.countryUnknown ?? 0) > 0 && (
-                  <option value="__unknown__">
-                    Location unclear ({data?.countryUnknown?.toLocaleString()})
-                  </option>
-                )}
+                <label>Seniority</label>
+                <select value={filters.seniority} onChange={(e) => set('seniority', e.target.value)}>
+                  <option value="">Any</option>
+                  {SENIORITIES.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
                 </select>
               </div>
 
-              {/* Built from what this sector actually holds, so it never offers
-                  an option that returns nothing. */}
-              {Object.keys(data?.specializations ?? {}).length > 1 && (
-                <div className="field">
-                  <label>Kind of work</label>
-                  <select
-                    value={filters.specialization}
-                    onChange={(e) => set('specialization', e.target.value)}
-                  >
-                    <option value="">Any</option>
-                    {Object.entries(data?.specializations ?? {})
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([s, n]) => (
-                        <option key={s} value={s}>
-                          {SPECIALIZATION_LABELS[s as never] ?? s} ({n})
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
+              <div className="field">
+                <label>Workplace</label>
+                <select value={filters.workplace} onChange={(e) => set('workplace', e.target.value)}>
+                  <option value="">Any</option>
+                  {WORKPLACES.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="panel">
               <h3>Narrow to</h3>
-              <div className="chips pickchips">
-                {FAMILIES.map((f) => (
-                  <button
-                    key={f}
-                    className={`pick${filters.family === f ? ' on' : ''}`}
-                    onClick={() => set('family', filters.family === f ? '' : f)}
-                    aria-pressed={filters.family === f}
-                  >
-                    {FAMILY_LABELS[f]}
-                  </button>
-                ))}
-              </div>
-
-              {/* The two pages compose. An institution role ALSO under a title
-                  nobody searches for is the least contested thing on the site. */}
+              {/* 42% of Washington roles state pay — enough that a toggle hides
+                  little, unlike on Quiet Roles. Offered as a toggle, never a
+                  range: a minimum-salary slider over partial coverage would hide
+                  the rest without saying so. */}
               <label className="check">
                 <input
                   type="checkbox"
-                  checked={filters.quietOnly}
-                  onChange={() => set('quietOnly', !filters.quietOnly)}
+                  checked={filters.paidOnly}
+                  onChange={() => set('paidOnly', !filters.paidOnly)}
                 />
-                quiet titles only
+                states a salary
               </label>
             </div>
 
@@ -365,10 +330,8 @@ export default function Institutions() {
               <div className="results">
                 <span className="count">
                   <b className="tnum">{data.matched.toLocaleString()}</b>{' '}
-                  {filters.sector
-                    ? SECTOR_LABELS[filters.sector as Sector].toLowerCase()
-                    : 'institution'}{' '}
-                  roles · last {data.maxAgeDays} days
+                  {FAMILY_LABELS[filters.family as Family].toLowerCase()} roles in Washington · last{' '}
+                  {data.maxAgeDays} days
                 </span>
               </div>
             )}
@@ -398,8 +361,9 @@ export default function Institutions() {
                   </>
                 ) : (
                   <>
-                    Nothing here yet. Sector is read from each advert as it is crawled, so
-                    this fills in over the next few hours rather than all at once.
+                    Nothing here yet. State is read from each advert’s location as it
+                    is crawled, so this fills in over the next few hours rather than
+                    all at once.
                   </>
                 )}
               </p>
@@ -416,7 +380,6 @@ export default function Institutions() {
                   onOpen={() => markApplied(j.key)}
                   chips={
                     <>
-                      {j.sector && <span className="chip sector">{SECTOR_LABELS[j.sector as Sector]}</span>}
                       {j.family && (
                         <span className={`chip fam fam-${j.family}`}>
                           {FAMILY_LABELS[j.family as Family]}
@@ -427,7 +390,9 @@ export default function Institutions() {
                           {SPECIALIZATION_LABELS[j.specialization as never]}
                         </span>
                       )}
-                      {j.quiet && <span className="chip quiet">quiet title</span>}
+                      {/* Adjacent roles are kept on this page but said so plainly:
+                          a Solutions Engineer is tech-adjacent, not a core role. */}
+                      {j.adjacent && <span className="chip adjacent">adjacent</span>}
                     </>
                   }
                 />

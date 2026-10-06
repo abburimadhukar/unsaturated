@@ -1,7 +1,7 @@
 import { getAdapter } from '../ats/adapters/index.js';
 import { retryAfterMs } from '../ats/http.js';
 import { backfillDescriptions, needsBackfill } from '../ats/describe.js';
-import { cleanLocation, inferCountry } from '../ats/geo.js';
+import { cleanLocation, inferCountry, inferUsState } from '../ats/geo.js';
 import { inferSeniorityFromText } from '../ats/normalize.js';
 import { parseSalary } from '../ats/salary.js';
 import { isPlausibleAnnual } from '../ats/currency.js';
@@ -306,6 +306,10 @@ async function loadBoard(board: CorpusBoard, now: number) {
         provider: board.provider,
         location: cleanLocation(job.locationRaw),
         country: inferCountry(job.locationRaw, job.country) ?? null,
+        // US state, inferred from the same raw location the country is. Null for
+        // anything not placed in a US state; feeds the state pages (Washington
+        // first) off an indexed column rather than a per-request text match.
+        region: inferUsState(job.locationRaw, job.country) ?? null,
         remoteType: job.remoteType ?? null,
         // Descriptions are only present after the backfill pass, so this is the
         // first point where a level can be read out of the text.

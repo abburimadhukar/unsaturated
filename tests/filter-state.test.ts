@@ -14,6 +14,7 @@ import {
   writeTo,
   QUIET_DEFAULTS,
   INST_DEFAULTS,
+  WA_DEFAULTS,
 } from '../src/ui/filter-state.js';
 import { SPECIALIZATIONS_BY_FAMILY, UNKNOWN_SPECIALIZATION } from '../src/taxonomy/specializations.js';
 
@@ -188,11 +189,24 @@ test('an institutions view survives the round trip through a URL', () => {
   assert.deepEqual(readFrom(INST_DEFAULTS, `?${writeTo(INST_DEFAULTS, chosen)}`), chosen);
 });
 
+test('a washington view survives the round trip through a URL', () => {
+  const chosen = {
+    ...WA_DEFAULTS,
+    family: 'data',
+    q: 'analyst',
+    seniority: 'senior',
+    workplace: 'hybrid',
+    paidOnly: true,
+  };
+  assert.deepEqual(readFrom(WA_DEFAULTS, `?${writeTo(WA_DEFAULTS, chosen)}`), chosen);
+});
+
 test('a plain visit leaves the address bar clean', () => {
   // Nothing is written for a value that is already the default, so arriving at
   // /quiet does not rewrite the URL into a wall of parameters.
   assert.equal(writeTo(QUIET_DEFAULTS, QUIET_DEFAULTS), '');
   assert.equal(writeTo(INST_DEFAULTS, INST_DEFAULTS), '');
+  assert.equal(writeTo(WA_DEFAULTS, WA_DEFAULTS), '');
 });
 
 test('a link missing newer parameters still opens', () => {

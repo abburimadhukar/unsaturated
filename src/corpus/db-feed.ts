@@ -20,6 +20,7 @@ export interface JobRow {
   title: string;
   location: string | null;
   country: string | null;
+  region?: string | null;
   remote_type: string | null;
   seniority: string | null;
   employment_type: string | null;
@@ -143,6 +144,7 @@ export function toFeedJob(r: JobRow, now: number = Date.now()): FeedJob {
     provider: r.provider as AtsProvider,
     location: r.location,
     country: r.country,
+    region: r.region ?? null,
     remoteType: r.remote_type,
     seniority: r.seniority,
     employmentType: r.employment_type,
@@ -282,6 +284,7 @@ export function toJobRow(j: FeedJob, now: string = new Date().toISOString()) {
     title: j.title,
     location: j.location,
     country: j.country,
+    region: j.region ?? null,
     remote_type: j.remoteType,
     seniority: j.seniority,
     employment_type: j.employmentType,
@@ -728,7 +731,7 @@ export async function writeFeed(
     // Narrow on purpose: only a missing-column error, only the columns named
     // here, and it says so loudly every time rather than healing in silence.
     const missing = error && /column "?(\w+)"? .*does not exist/i.exec(error.message)?.[1];
-    if (missing && ['adjacent', 'sector', 'specialization', 'specialization_reason', 'classification_version'].includes(missing)) {
+    if (missing && ['adjacent', 'sector', 'region', 'specialization', 'specialization_reason', 'classification_version'].includes(missing)) {
       console.error(
         `jobs.${missing} does not exist yet — writing without it. ` +
           'Apply the pending migration in src/db/migrations/ to stop losing this field.',

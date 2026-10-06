@@ -23,6 +23,13 @@ export interface FeedJob {
   provider: AtsProvider;
   location: string | null;
   country: string | null;
+  /**
+   * US state code ("WA"), inferred from the location beside `country` and stored
+   * so a state page can filter an indexed column rather than matching the
+   * location text per request. Null for anything not placed in a US state — see
+   * inferUsState in geo.ts.
+   */
+  region: string | null;
   remoteType: string | null;
   seniority: string | null;
   employmentType: string | null;

@@ -25,6 +25,7 @@ function feedJob(over: Partial<FeedJob> = {}): FeedJob {
     provider: 'greenhouse',
     location: 'Berlin',
     country: 'DE',
+    region: null,
     remoteType: 'hybrid',
     seniority: 'senior',
     employmentType: 'fulltime',
@@ -53,7 +54,7 @@ test('every column the read path expects is produced by the write path', () => {
   // hand-written literals, so nothing but this keeps them in step.
   const row = toJobRow(feedJob()) as Record<string, unknown>;
   const readColumns: (keyof JobRow)[] = [
-    'key', 'provider', 'board_token', 'company', 'title', 'location', 'country',
+    'key', 'provider', 'board_token', 'company', 'title', 'location', 'country', 'region',
     'remote_type', 'seniority', 'employment_type', 'department', 'salary_min',
     'salary_max', 'salary_currency', 'posted_at', 'apply_url', 'family',
     'adjacent', 'specialization', 'specialization_reason',
@@ -81,10 +82,10 @@ test('no field is silently undefined', () => {
 });
 
 test('a row survives the round trip unchanged', () => {
-  const original = feedJob({ adjacent: true, family: 'unsorted', specialization: null });
+  const original = feedJob({ adjacent: true, family: 'unsorted', specialization: null, region: 'WA' });
   const back = toFeedJob(toJobRow(original) as unknown as JobRow);
   for (const field of [
-    'key', 'title', 'company', 'provider', 'location', 'country', 'remoteType',
+    'key', 'title', 'company', 'provider', 'location', 'country', 'region', 'remoteType',
     'seniority', 'employmentType', 'department', 'salaryMin', 'salaryMax',
     'salaryCurrency', 'postedAt', 'applyUrl', 'family', 'adjacent',
     'specialization', 'ai', 'matchedSkills', 'skillScore',

@@ -106,6 +106,10 @@
   --page-quiet-dim: #2ec4b61f;
   --page-inst: #7c9fe8;
   --page-inst-dim: #7c9fe81f;
+  /* Washington — the Evergreen State, so a green, and distinct from Quiet's
+     teal. Bright here for the dark ground. */
+  --page-wa: #4caf6e;
+  --page-wa-dim: #4caf6e1f;
   --page-account: #c58ad6;
   --page-account-dim: #c58ad61f;
 }
@@ -169,6 +173,9 @@
   --page-quiet-dim: #0a766c16;
   --page-inst: #3f66b8;
   --page-inst-dim: #3f66b816;
+  /* Deepened for the white ground, like the two above it. */
+  --page-wa: #2a7a46;
+  --page-wa-dim: #2a7a4616;
   --page-account: #8e4aa3;
   --page-account-dim: #8e4aa316;
 }
@@ -829,9 +836,10 @@ a.stat:hover b { color: var(--accent); }
 
 
 /* One declaration per page, and it is the whole visual difference. */
-.page-quiet   { --accent: var(--page-quiet);   --accent-dim: var(--page-quiet-dim); }
-.page-inst    { --accent: var(--page-inst);    --accent-dim: var(--page-inst-dim); }
-.page-account { --accent: var(--page-account); --accent-dim: var(--page-account-dim); }
+.page-quiet      { --accent: var(--page-quiet);   --accent-dim: var(--page-quiet-dim); }
+.page-inst       { --accent: var(--page-inst);    --accent-dim: var(--page-inst-dim); }
+.page-washington { --accent: var(--page-wa);      --accent-dim: var(--page-wa-dim); }
+.page-account    { --accent: var(--page-account); --accent-dim: var(--page-account-dim); }
 
 /* A tinted rule under the header, so which page you are on is legible before
    you have read a word of it. */
@@ -900,6 +908,7 @@ a.stat:hover b { color: var(--accent); }
    one goes before it is read. */
 .navlink.quiet:hover { color: var(--page-quiet); border-color: var(--page-quiet); }
 .navlink.inst:hover { color: var(--page-inst); border-color: var(--page-inst); }
+.navlink.wa:hover { color: var(--page-wa); border-color: var(--page-wa); }
 
 @media (max-width: 860px) {
   .myname { display: none; }

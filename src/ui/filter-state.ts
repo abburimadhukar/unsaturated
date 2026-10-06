@@ -164,8 +164,23 @@ export const INST_DEFAULTS = {
   quietOnly: false,
 };
 
+/**
+ * Washington. Like Quiet Roles, `family` is navigation rather than a filter but
+ * still belongs in the URL. No country here — the page is one place by
+ * definition. `workplace` is the raw remote_type value ('', 'on_site', 'hybrid',
+ * 'fully_remote'); the four it can take are exactly the four the column holds.
+ */
+export const WA_DEFAULTS = {
+  family: 'cloud',
+  q: '',
+  seniority: '',
+  workplace: '',
+  paidOnly: false,
+};
+
 export type QuietFilters = typeof QUIET_DEFAULTS;
 export type InstFilters = typeof INST_DEFAULTS;
+export type WaFilters = typeof WA_DEFAULTS;
 
 /**
  * The query string for the address bar — only what differs from the defaults,
