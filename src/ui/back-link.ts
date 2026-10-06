@@ -18,6 +18,7 @@ const BACK_LABELS: Record<string, string> = {
   '/': 'jobs',
   '/quiet': 'quiet roles',
   '/institutions': 'institutions',
+  '/washington': 'washington',
 };
 
 export interface BackTarget {

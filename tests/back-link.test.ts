@@ -16,9 +16,11 @@ test('a same-site list path, with its filters, is kept intact', () => {
     ['/', 'jobs'],
     ['/quiet', 'quiet roles'],
     ['/institutions', 'institutions'],
+    ['/washington', 'washington'],
     ['/?family=cloud&country=GB', 'jobs'],
     ['/quiet?family=data&seniority=senior', 'quiet roles'],
     ['/institutions?sector=health&specialization=backend', 'institutions'],
+    ['/washington?family=data&workplace=hybrid&paidOnly=1', 'washington'],
   ] as const) {
     const back = safeBackTo(from);
     assert.equal(back.href, from, `${from} should be preserved exactly`);
@@ -72,10 +74,15 @@ test('every list page carries its filters into the After applying link', () => {
   assert.match(read('../app/page.tsx'), /from=\$\{encodeURIComponent\(backTo\)\}/);
   assert.match(read('../app/quiet/page.tsx'), /`\/quiet\?\$\{qs\}`/);
   assert.match(read('../app/institutions/page.tsx'), /`\/institutions\?\$\{qs\}`/);
+  assert.match(read('../app/washington/page.tsx'), /`\/washington\?\$\{qs\}`/);
 });
 
-test('quiet and institutions remember and restore their place', () => {
-  for (const p of ['../app/quiet/page.tsx', '../app/institutions/page.tsx']) {
+test('the list pages remember and restore their place', () => {
+  for (const p of [
+    '../app/quiet/page.tsx',
+    '../app/institutions/page.tsx',
+    '../app/washington/page.tsx',
+  ]) {
     const src = read(p);
     assert.match(src, /initialShown\(SCROLL_KEY, PAGE\)/, `${p} should start at the saved page count`);
     assert.match(src, /savedScrollY\(SCROLL_KEY\)/, `${p} should restore the saved scroll`);
