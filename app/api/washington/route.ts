@@ -109,6 +109,24 @@ export async function GET(request: Request) {
 
   const paidOnly = p.get('paidOnly') === '1';
 
+  /**
+   * How recently a role was posted, in days. Same control the main feed offers
+   * (24 hours / 3 / 7 / 14), capped at MAX_AGE_DAYS because nothing older is
+   * kept. It tightens the window below rather than adding a separate condition,
+   * so undated rows stay bounded by first_seen_at exactly as they already are —
+   * the card labels those "seen Nd" rather than inventing a posting date.
+   */
+  let withinDays = MAX_AGE_DAYS;
+  const postedWithinRaw = (p.get('postedWithin') ?? '').trim();
+  if (postedWithinRaw) {
+    const n = Number(postedWithinRaw);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_AGE_DAYS) {
+      bad.push(`postedWithin must be a whole number of days between 1 and ${MAX_AGE_DAYS}`);
+    } else {
+      withinDays = n;
+    }
+  }
+
   /** Title and employer. The commas and parens that would break PostgREST's
    *  filter grammar are stripped rather than sent. */
   const search = (p.get('q') ?? '').trim().slice(0, 80).replace(/[(),*]/g, ' ').trim();
@@ -117,7 +135,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'invalid query', details: bad }, { status: 400 });
   }
 
-  const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86_400_000).toISOString();
+  const cutoff = new Date(Date.now() - withinDays * 86_400_000).toISOString();
   const client = db();
 
   /**
@@ -214,7 +232,9 @@ export async function GET(request: Request) {
     matched: count ?? rows.length,
     hasMore: offset + rows.length < (count ?? 0),
     counts,
-    maxAgeDays: MAX_AGE_DAYS,
+    // The effective window, so the page's "last N days" reads honestly whether
+    // or not a posted-within filter is on.
+    maxAgeDays: withinDays,
     jobs: rows.map((r) => {
       const stamp = r.posted_at ?? r.first_seen_at;
       return {
