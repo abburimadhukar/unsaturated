@@ -34,6 +34,14 @@ const PAGE = 50;
 /** This page's own key for its remembered scroll position and page count. */
 const SCROLL_KEY = 'unsaturated.inst.scroll';
 
+/** Posted-within windows, in days — the same set the main feed offers. */
+const WITHIN: [string, string][] = [
+  ['1', '24 hours'],
+  ['3', '3 days'],
+  ['7', '7 days'],
+  ['14', '14 days'],
+];
+
 interface InstJob {
   key: string;
   title: string;
@@ -89,7 +97,11 @@ export default function Institutions() {
   const narrowCount = useMemo(
     () =>
       Object.entries(filters).filter(
-        ([k, v]) => k !== 'sector' && v !== (INST_DEFAULTS as Record<string, unknown>)[k],
+        ([k, v]) =>
+          k !== 'sector' &&
+          k !== 'hideSeen' &&
+          k !== 'onlyApplied' &&
+          v !== (INST_DEFAULTS as Record<string, unknown>)[k],
       ).length,
     [filters],
   );
@@ -98,6 +110,12 @@ export default function Institutions() {
     setFilters((f) => ({ ...f, [key]: value }));
     setShown(PAGE);
   };
+
+  // Hide-seen and only-applied are personal overlays applied in the browser, not
+  // server filters, so toggling one keeps your place rather than resetting to
+  // the first page the way a real narrowing does.
+  const setView = <K extends keyof InstFilters>(key: K, value: InstFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
 
   useEffect(() => {
     const qs = writeTo(INST_DEFAULTS, filters);
@@ -118,6 +136,7 @@ export default function Institutions() {
     if (filters.q.trim()) qs.set('q', filters.q.trim());
     if (filters.country) qs.set('country', filters.country);
     if (filters.specialization) qs.set('specialization', filters.specialization);
+    if (filters.postedWithin) qs.set('postedWithin', filters.postedWithin);
     if (filters.quietOnly) qs.set('quietOnly', '1');
     try {
       const res = await fetch(`/api/institutions?${qs}`);
@@ -187,6 +206,10 @@ export default function Institutions() {
       () => set('specialization', ''),
     ]);
   }
+  if (filters.postedWithin) {
+    const label = WITHIN.find(([v]) => v === filters.postedWithin)?.[1] ?? `${filters.postedWithin} days`;
+    active.push([`posted within ${label}`, () => set('postedWithin', '')]);
+  }
   if (filters.quietOnly) active.push(['quiet titles only', () => set('quietOnly', false)]);
 
   const reset = () => {
@@ -199,6 +222,14 @@ export default function Institutions() {
     const qs = writeTo(INST_DEFAULTS, filters);
     return qs ? `/institutions?${qs}` : '/institutions';
   })();
+
+  // Personal overlays, applied in the browser: the seen/applied sets are the
+  // visitor's own and never sent to the API. Hiding opened roles shortens the
+  // page rather than pulling replacements, exactly as the main feed does.
+  const visibleJobs = (data?.jobs ?? []).filter(
+    (j) => (!filters.onlyApplied || applied.has(j.key)) && (!filters.hideSeen || !seen.has(j.key)),
+  );
+  const activity = seen.size > 0 || applied.size > 0;
 
   return (
     <>
@@ -322,6 +353,16 @@ export default function Institutions() {
                   </select>
                 </div>
               )}
+
+              <div className="field">
+                <label>Posted within</label>
+                <select value={filters.postedWithin} onChange={(e) => set('postedWithin', e.target.value)}>
+                  <option value="">Any time</option>
+                  {WITHIN.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="panel">
@@ -351,6 +392,30 @@ export default function Institutions() {
               </label>
             </div>
 
+            {/* Seen/applied overlays — the same the main feed has, shown only
+                once you have opened or applied to something. */}
+            {activity && (
+              <div className="panel">
+                <h3>Your activity</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.hideSeen}
+                    onChange={() => setView('hideSeen', !filters.hideSeen)}
+                  />
+                  hide roles I’ve opened{seen.size > 0 ? ` (${seen.size.toLocaleString()})` : ''}
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.onlyApplied}
+                    onChange={() => setView('onlyApplied', !filters.onlyApplied)}
+                  />
+                  only roles I’ve applied to{applied.size > 0 ? ` (${applied.size.toLocaleString()})` : ''}
+                </label>
+              </div>
+            )}
+
             {narrowCount > 0 && (
               <div className="panel">
                 <button className="resetfilters" onClick={reset}>Clear narrowing</button>
@@ -368,7 +433,7 @@ export default function Institutions() {
                   {filters.sector
                     ? SECTOR_LABELS[filters.sector as Sector].toLowerCase()
                     : 'institution'}{' '}
-                  roles · last {data.maxAgeDays} days
+                  roles · last {data.maxAgeDays === 1 ? '24 hours' : `${data.maxAgeDays} days`}
                 </span>
               </div>
             )}
@@ -388,6 +453,22 @@ export default function Institutions() {
 
             {loading && !data && <p className="empty">Loading…</p>}
 
+            {/* Everything hidden by the personal overlays rather than by a
+                filter — offer to lift them, not to clear a narrowing. */}
+            {data && !loading && data.jobs.length > 0 && visibleJobs.length === 0 && (
+              <p className="empty">
+                {filters.onlyApplied
+                  ? 'None of these are ones you’ve applied to yet.'
+                  : 'You’ve opened all of these.'}{' '}
+                <button
+                  className="linkish"
+                  onClick={() => setFilters((f) => ({ ...f, onlyApplied: false, hideSeen: false }))}
+                >
+                  Show them
+                </button>
+              </p>
+            )}
+
             {data && data.jobs.length === 0 && !loading && (
               <p className="empty">
                 {narrowCount > 0 ? (
@@ -406,7 +487,7 @@ export default function Institutions() {
             )}
 
             <div className="joblist">
-              {data?.jobs.map((j) => (
+              {visibleJobs.map((j) => (
                 <JobCard
                   key={j.key}
                   job={j}

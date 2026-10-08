@@ -41,6 +41,14 @@ const SENIORITIES: [string, string][] = [
   ['principal', 'Principal'],
 ];
 
+/** Posted-within windows, in days — the same set the main feed offers. */
+const WITHIN: [string, string][] = [
+  ['1', '24 hours'],
+  ['3', '3 days'],
+  ['7', '7 days'],
+  ['14', '14 days'],
+];
+
 interface QuietJob {
   key: string;
   title: string;
@@ -120,7 +128,11 @@ export default function QuietRoles() {
     () =>
       Object.entries(filters).filter(
         ([k, v]) =>
-          k !== 'family' && k !== 'sort' && v !== (QUIET_DEFAULTS as Record<string, unknown>)[k],
+          k !== 'family' &&
+          k !== 'sort' &&
+          k !== 'hideSeen' &&
+          k !== 'onlyApplied' &&
+          v !== (QUIET_DEFAULTS as Record<string, unknown>)[k],
       ).length,
     [filters],
   );
@@ -130,6 +142,12 @@ export default function QuietRoles() {
     // Changing what you are looking at should start you at the top of it.
     setShown(PAGE);
   };
+
+  // Hide-seen and only-applied are personal overlays applied in the browser, not
+  // server filters, so toggling one keeps your place rather than resetting to
+  // the first page the way a real narrowing does.
+  const setView = <K extends keyof QuietFilters>(key: K, value: QuietFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
 
   // The address bar follows the filters, replacing rather than pushing: typing
   // in the search box should not bury the back button under forty history
@@ -157,6 +175,7 @@ export default function QuietRoles() {
     if (filters.q.trim()) qs.set('q', filters.q.trim());
     if (filters.country) qs.set('country', filters.country);
     if (filters.seniority) qs.set('seniority', filters.seniority);
+    if (filters.postedWithin) qs.set('postedWithin', filters.postedWithin);
     if (filters.onSite) qs.set('onSite', '1');
     if (filters.noEntry) qs.set('noEntry', '1');
     if (filters.midMarket) qs.set('midMarket', '1');
@@ -225,6 +244,10 @@ export default function QuietRoles() {
     const label = SENIORITIES.find(([v]) => v === filters.seniority)?.[1] ?? filters.seniority;
     active.push([label, () => set('seniority', '')]);
   }
+  if (filters.postedWithin) {
+    const label = WITHIN.find(([v]) => v === filters.postedWithin)?.[1] ?? `${filters.postedWithin} days`;
+    active.push([`posted within ${label}`, () => set('postedWithin', '')]);
+  }
   if (filters.onSite) active.push(['not fully remote', () => set('onSite', false)]);
   if (filters.noEntry) active.push(['not entry level', () => set('noEntry', false)]);
   if (filters.midMarket) active.push(['rarely-syndicated board', () => set('midMarket', false)]);
@@ -243,6 +266,14 @@ export default function QuietRoles() {
     const qs = writeTo(QUIET_DEFAULTS, filters);
     return qs ? `/quiet?${qs}` : '/quiet';
   })();
+
+  // Personal overlays, applied in the browser: the seen/applied sets are the
+  // visitor's own and never sent to the API. Hiding opened roles shortens the
+  // page rather than pulling replacements, exactly as the main feed does.
+  const visibleJobs = (data?.jobs ?? []).filter(
+    (j) => (!filters.onlyApplied || applied.has(j.key)) && (!filters.hideSeen || !seen.has(j.key)),
+  );
+  const activity = seen.size > 0 || applied.size > 0;
 
   return (
     <>
@@ -352,6 +383,16 @@ export default function QuietRoles() {
                   ))}
                 </select>
               </div>
+
+              <div className="field">
+                <label>Posted within</label>
+                <select value={filters.postedWithin} onChange={(e) => set('postedWithin', e.target.value)}>
+                  <option value="">Any time</option>
+                  {WITHIN.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Each of these is a real, measurable reason fewer people see a role —
@@ -396,6 +437,30 @@ export default function QuietRoles() {
               </label>
             </div>
 
+            {/* Seen/applied overlays — the same the main feed has, shown only
+                once you have opened or applied to something. */}
+            {activity && (
+              <div className="panel">
+                <h3>Your activity</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.hideSeen}
+                    onChange={() => setView('hideSeen', !filters.hideSeen)}
+                  />
+                  hide roles I’ve opened{seen.size > 0 ? ` (${seen.size.toLocaleString()})` : ''}
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.onlyApplied}
+                    onChange={() => setView('onlyApplied', !filters.onlyApplied)}
+                  />
+                  only roles I’ve applied to{applied.size > 0 ? ` (${applied.size.toLocaleString()})` : ''}
+                </label>
+              </div>
+            )}
+
             {narrowCount > 0 && (
               <div className="panel">
                 <button className="resetfilters" onClick={reset}>Clear narrowing</button>
@@ -411,7 +476,7 @@ export default function QuietRoles() {
                 <span className="count">
                   <b className="tnum">{data.matched.toLocaleString()}</b> quiet{' '}
                   {FAMILY_LABELS[filters.family as Family].toLowerCase()} roles · last{' '}
-                  {data.maxAgeDays} days
+                  {data.maxAgeDays === 1 ? '24 hours' : `${data.maxAgeDays} days`}
                 </span>
                 <div className="grow" />
                 <div className="sorts">
@@ -456,6 +521,22 @@ export default function QuietRoles() {
 
             {loading && !data && <p className="empty">Loading…</p>}
 
+            {/* Everything hidden by the personal overlays rather than by a
+                filter — offer to lift them, not to clear a narrowing. */}
+            {data && !loading && data.jobs.length > 0 && visibleJobs.length === 0 && (
+              <p className="empty">
+                {filters.onlyApplied
+                  ? 'None of these are ones you’ve applied to yet.'
+                  : 'You’ve opened all of these.'}{' '}
+                <button
+                  className="linkish"
+                  onClick={() => setFilters((f) => ({ ...f, onlyApplied: false, hideSeen: false }))}
+                >
+                  Show them
+                </button>
+              </p>
+            )}
+
             {data && data.jobs.length === 0 && !loading && (
               <p className="empty">
                 Nothing quiet here right now.
@@ -470,7 +551,7 @@ export default function QuietRoles() {
             )}
 
             <div className="joblist">
-              {data?.jobs.map((j) => (
+              {visibleJobs.map((j) => (
                 <JobCard
                   key={j.key}
                   job={j}

@@ -113,7 +113,11 @@ export default function Washington() {
   const narrowCount = useMemo(
     () =>
       Object.entries(filters).filter(
-        ([k, v]) => k !== 'family' && v !== (WA_DEFAULTS as Record<string, unknown>)[k],
+        ([k, v]) =>
+          k !== 'family' &&
+          k !== 'hideSeen' &&
+          k !== 'onlyApplied' &&
+          v !== (WA_DEFAULTS as Record<string, unknown>)[k],
       ).length,
     [filters],
   );
@@ -123,6 +127,12 @@ export default function Washington() {
     // Changing what you are looking at should start you at the top of it.
     setShown(PAGE);
   };
+
+  // Hide-seen and only-applied are personal overlays applied in the browser, not
+  // server filters, so toggling one keeps your place rather than resetting to
+  // the first page the way a real narrowing does.
+  const setView = <K extends keyof WaFilters>(key: K, value: WaFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
 
   // The address bar follows the filters, replacing rather than pushing, so
   // typing in the search box does not bury the back button under one history
@@ -227,6 +237,15 @@ export default function Washington() {
     const qs = writeTo(WA_DEFAULTS, filters);
     return qs ? `/washington?${qs}` : '/washington';
   })();
+
+  // The two personal overlays, applied here in the browser: the seen/applied
+  // sets are the visitor's own and are never sent to the API. Hiding opened
+  // roles shortens the page rather than pulling replacements, exactly as the
+  // main feed does.
+  const visibleJobs = (data?.jobs ?? []).filter(
+    (j) => (!filters.onlyApplied || applied.has(j.key)) && (!filters.hideSeen || !seen.has(j.key)),
+  );
+  const activity = seen.size > 0 || applied.size > 0;
 
   return (
     <>
@@ -367,6 +386,30 @@ export default function Washington() {
               </label>
             </div>
 
+            {/* Seen/applied overlays — the same the main feed has, shown only
+                once you have opened or applied to something. */}
+            {activity && (
+              <div className="panel">
+                <h3>Your activity</h3>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.hideSeen}
+                    onChange={() => setView('hideSeen', !filters.hideSeen)}
+                  />
+                  hide roles I’ve opened{seen.size > 0 ? ` (${seen.size.toLocaleString()})` : ''}
+                </label>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={filters.onlyApplied}
+                    onChange={() => setView('onlyApplied', !filters.onlyApplied)}
+                  />
+                  only roles I’ve applied to{applied.size > 0 ? ` (${applied.size.toLocaleString()})` : ''}
+                </label>
+              </div>
+            )}
+
             {narrowCount > 0 && (
               <div className="panel">
                 <button className="resetfilters" onClick={reset}>Clear narrowing</button>
@@ -413,6 +456,22 @@ export default function Washington() {
 
             {loading && !data && <p className="empty">Loading…</p>}
 
+            {/* Everything hidden by the personal overlays rather than by a
+                filter — offer to lift them, not to clear a narrowing. */}
+            {data && !loading && data.jobs.length > 0 && visibleJobs.length === 0 && (
+              <p className="empty">
+                {filters.onlyApplied
+                  ? 'None of these are ones you’ve applied to yet.'
+                  : 'You’ve opened all of these.'}{' '}
+                <button
+                  className="linkish"
+                  onClick={() => setFilters((f) => ({ ...f, onlyApplied: false, hideSeen: false }))}
+                >
+                  Show them
+                </button>
+              </p>
+            )}
+
             {data && data.jobs.length === 0 && !loading && (
               <p className="empty">
                 {narrowCount > 0 ? (
@@ -432,7 +491,7 @@ export default function Washington() {
             )}
 
             <div className="joblist">
-              {data?.jobs.map((j) => (
+              {visibleJobs.map((j) => (
                 <JobCard
                   key={j.key}
                   job={j}

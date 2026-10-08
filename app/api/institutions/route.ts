@@ -111,11 +111,26 @@ export async function GET(request: Request) {
     bad.push('specialization is not a known value');
   }
 
+  // How recently a role was posted, in days — the same control the main feed and
+  // the Washington page offer, capped at the retention window. It tightens the
+  // cutoff below, which the list AND the facet counts (p_cutoff) both read, so
+  // the two move together and undated rows stay bounded by first_seen_at.
+  let withinDays = MAX_AGE_DAYS;
+  const postedWithinRaw = (p.get('postedWithin') ?? '').trim();
+  if (postedWithinRaw) {
+    const n = Number(postedWithinRaw);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_AGE_DAYS) {
+      bad.push(`postedWithin must be a whole number of days between 1 and ${MAX_AGE_DAYS}`);
+    } else {
+      withinDays = n;
+    }
+  }
+
   if (bad.length > 0) {
     return NextResponse.json({ error: 'invalid query', details: bad }, { status: 400 });
   }
 
-  const cutoff = new Date(Date.now() - MAX_AGE_DAYS * 86_400_000).toISOString();
+  const cutoff = new Date(Date.now() - withinDays * 86_400_000).toISOString();
   const client = db();
 
   /**
@@ -221,7 +236,7 @@ export async function GET(request: Request) {
     countries,
     countryUnknown: facets?.countryUnknown ?? 0,
     specializations,
-    maxAgeDays: MAX_AGE_DAYS,
+    maxAgeDays: withinDays,
     jobs: rows.map((r) => {
       const stamp = r.posted_at ?? r.first_seen_at;
       return {
