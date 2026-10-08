@@ -28,7 +28,12 @@ import { FAMILY_ORDER } from '../../../src/taxonomy/families.js';
 export const dynamic = 'force-dynamic';
 
 const STATE = 'WA';
+// The four real families. 'unsorted' is the review pile — offered as its own
+// tab (asked for by name) but never part of "All", which means "all real tech
+// roles". '' selects All; 'unsorted' selects the pile.
 const FAMILIES = FAMILY_ORDER.filter((f) => f !== 'unsorted');
+const COUNT_FAMILIES: string[] = [...FAMILIES, 'unsorted'];
+const SELECTABLE: string[] = ['', ...FAMILIES, 'unsorted'];
 
 /** The four values remote_type actually holds; anything else is rejected. */
 const WORKPLACES = ['on_site', 'hybrid', 'fully_remote'];
@@ -78,9 +83,10 @@ export async function GET(request: Request) {
   const p = new URL(request.url).searchParams;
   const bad: string[] = [];
 
+  // '' = All (the four real families); a named family; or 'unsorted' (the pile).
   const family = p.get('family') ?? FAMILIES[0]!;
-  if (!FAMILIES.includes(family as (typeof FAMILIES)[number])) {
-    bad.push(`family must be one of ${FAMILIES.join(', ')}`);
+  if (!SELECTABLE.includes(family)) {
+    bad.push(`family must be empty (all), one of ${FAMILIES.join(', ')}, or unsorted`);
   }
 
   const num = (key: string, min: number, max: number, fallback: number) => {
@@ -159,10 +165,10 @@ export async function GET(request: Request) {
     let out = (q as unknown as Chain)
       .is('closed_at', null)
       .eq('region', STATE)
-      // The review pile is never shown, the same as everywhere else. Adjacent
-      // roles ARE kept — see the file header.
+      // No family scoping here — the caller decides: the list filters to the
+      // chosen family (or, for All, the four real families), and each count
+      // query names its own. Adjacent roles ARE kept — see the file header.
       .not('family', 'is', null)
-      .neq('family', 'unsorted')
       .or(windowFilter(cutoff));
     if (workplace) out = out.eq('remote_type', workplace);
     if (seniority) out = out.eq('seniority', seniority);
@@ -171,25 +177,30 @@ export async function GET(request: Request) {
     return out as unknown as T;
   };
 
-  const listQuery = narrow(
+  const listBase = narrow(
     client.from('jobs').select(
       'key,title,company,provider,location,country,region,remote_type,seniority,employment_type,' +
         'salary_min,salary_max,salary_currency,posted_at,first_seen_at,apply_url,family,specialization,adjacent',
       { count: 'exact' },
     ),
-  )
-    .eq('family', family)
+  );
+  // All ('') is the four real families and never the pile; a named family (or
+  // 'unsorted') is itself.
+  const scoped = family === '' ? listBase.in('family', FAMILIES) : listBase.eq('family', family);
+  const listQuery = scoped
     .order('posted_at', { ascending: false, nullsFirst: false })
     .order('key', { ascending: true })
     .range(offset, offset + limit - 1);
 
-  // The tab counts: one exact count per family, applying the same narrowings
-  // minus the family itself, so a tab reads what that tab will actually show.
-  // Cheap because the WA subset is small and the (region, family, posted_at)
-  // index answers each count without touching the heap — the opposite of the
+  // The tab counts: one exact count per family — the four real ones plus the
+  // unsorted pile — applying the same narrowings minus the family itself, so a
+  // tab reads what that tab will actually show. The All count is summed on the
+  // page from the four real ones, so the pile is never folded into it. Cheap
+  // because the WA subset is small and the (region, family, posted_at) index
+  // answers each count without touching the heap — the opposite of the
   // seventeen-count burst that drove Quiet Roles and Institutions to an RPC over
   // their far larger corpora.
-  const countQueries = FAMILIES.map((f) =>
+  const countQueries = COUNT_FAMILIES.map((f) =>
     narrow(client.from('jobs').select('key', { count: 'exact', head: true })).eq('family', f),
   );
 
@@ -216,7 +227,7 @@ export async function GET(request: Request) {
   // uncounted. Mirrors the facet philosophy on the other two pages.
   const counts: Record<string, number> = {};
   let countsOk = true;
-  FAMILIES.forEach((f, i) => {
+  COUNT_FAMILIES.forEach((f, i) => {
     const r = countResults[i];
     if (r && !r.error && typeof r.count === 'number') counts[f] = r.count;
     else countsOk = false;
