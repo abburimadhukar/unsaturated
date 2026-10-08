@@ -175,6 +175,9 @@ export const WA_DEFAULTS = {
   q: '',
   seniority: '',
   workplace: '',
+  // How recently a role was posted, in days ('', '1', '3', '7', '14') — the same
+  // control the main feed offers. '' is any time within the retention window.
+  postedWithin: '',
   paidOnly: false,
 };
 

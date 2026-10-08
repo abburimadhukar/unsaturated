@@ -46,6 +46,14 @@ const WORKPLACES: [string, string][] = [
   ['fully_remote', 'Remote'],
 ];
 
+/** Posted-within windows, in days — the same set the main feed offers. */
+const WITHIN: [string, string][] = [
+  ['1', '24 hours'],
+  ['3', '3 days'],
+  ['7', '7 days'],
+  ['14', '14 days'],
+];
+
 interface WaJob {
   key: string;
   title: string;
@@ -136,6 +144,7 @@ export default function Washington() {
     if (filters.q.trim()) qs.set('q', filters.q.trim());
     if (filters.seniority) qs.set('seniority', filters.seniority);
     if (filters.workplace) qs.set('workplace', filters.workplace);
+    if (filters.postedWithin) qs.set('postedWithin', filters.postedWithin);
     if (filters.paidOnly) qs.set('paidOnly', '1');
     try {
       const res = await fetch(`/api/washington?${qs}`);
@@ -192,6 +201,10 @@ export default function Washington() {
   if (filters.workplace) {
     const label = WORKPLACES.find(([v]) => v === filters.workplace)?.[1] ?? filters.workplace;
     active.push([label, () => set('workplace', '')]);
+  }
+  if (filters.postedWithin) {
+    const label = WITHIN.find(([v]) => v === filters.postedWithin)?.[1] ?? `${filters.postedWithin} days`;
+    active.push([`posted within ${label}`, () => set('postedWithin', '')]);
   }
   if (filters.paidOnly) active.push(['states a salary', () => set('paidOnly', false)]);
 
@@ -298,6 +311,16 @@ export default function Washington() {
                   ))}
                 </select>
               </div>
+
+              <div className="field">
+                <label>Posted within</label>
+                <select value={filters.postedWithin} onChange={(e) => set('postedWithin', e.target.value)}>
+                  <option value="">Any time</option>
+                  {WITHIN.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="panel">
@@ -331,7 +354,7 @@ export default function Washington() {
                 <span className="count">
                   <b className="tnum">{data.matched.toLocaleString()}</b>{' '}
                   {FAMILY_LABELS[filters.family as Family].toLowerCase()} roles in Washington · last{' '}
-                  {data.maxAgeDays} days
+                  {data.maxAgeDays === 1 ? '24 hours' : `${data.maxAgeDays} days`}
                 </span>
               </div>
             )}

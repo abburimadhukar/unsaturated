@@ -196,6 +196,7 @@ test('a washington view survives the round trip through a URL', () => {
     q: 'analyst',
     seniority: 'senior',
     workplace: 'hybrid',
+    postedWithin: '7',
     paidOnly: true,
   };
   assert.deepEqual(readFrom(WA_DEFAULTS, `?${writeTo(WA_DEFAULTS, chosen)}`), chosen);
