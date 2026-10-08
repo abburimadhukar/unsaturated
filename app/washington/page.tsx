@@ -191,6 +191,14 @@ export default function Washington() {
 
   const pick = (f: Family) => set('family', f);
 
+  // "All" ('') shows the four real families summed — never the unsorted pile,
+  // which keeps its own tab. Hidden rather than shown as 0 when the counts did
+  // not arrive, the same rule every tab follows.
+  const allCount =
+    data && FAMILIES.every((f) => data.counts[f] !== undefined)
+      ? FAMILIES.reduce((s, f) => s + (data.counts[f] ?? 0), 0)
+      : null;
+
   /** What is on right now, as removable chips — visible with the sidebar shut. */
   const active: [string, () => void][] = [];
   if (filters.q.trim()) active.push([`“${filters.q.trim()}”`, () => set('q', '')]);
@@ -245,6 +253,15 @@ export default function Washington() {
       {/* Families sit above the layout, exactly as they do on the main feed.
           Same bar, same place, same behaviour. */}
       <nav className="families" aria-label="Role family">
+        {/* All = the four real families, never the unsorted pile. */}
+        <button
+          className={filters.family === '' ? 'on' : ''}
+          onClick={() => set('family', '')}
+          aria-pressed={filters.family === ''}
+        >
+          All
+          {allCount !== null && <span className="n tnum">{allCount.toLocaleString()}</span>}
+        </button>
         {FAMILIES.map((f) => (
           <button
             key={f}
@@ -258,6 +275,17 @@ export default function Washington() {
             )}
           </button>
         ))}
+        {/* The review pile, offered by name and deliberately kept out of All. */}
+        <button
+          className={filters.family === 'unsorted' ? 'fam-unsorted on' : 'fam-unsorted'}
+          onClick={() => set('family', 'unsorted')}
+          aria-pressed={filters.family === 'unsorted'}
+        >
+          {FAMILY_LABELS.unsorted}
+          {data?.counts?.unsorted !== undefined && (
+            <span className="n tnum">{data.counts.unsorted.toLocaleString()}</span>
+          )}
+        </button>
       </nav>
 
       <main className="page-washington">
@@ -353,10 +381,21 @@ export default function Washington() {
               <div className="results">
                 <span className="count">
                   <b className="tnum">{data.matched.toLocaleString()}</b>{' '}
-                  {FAMILY_LABELS[filters.family as Family].toLowerCase()} roles in Washington · last{' '}
+                  {filters.family && `${FAMILY_LABELS[filters.family as Family].toLowerCase()} `}
+                  roles in Washington · last{' '}
                   {data.maxAgeDays === 1 ? '24 hours' : `${data.maxAgeDays} days`}
                 </span>
               </div>
+            )}
+
+            {/* The pile is lower-confidence by definition — say so rather than
+                present it as confirmed tech roles. */}
+            {filters.family === 'unsorted' && data && !failed && (
+              <p className="panelnote rankednote">
+                The review pile — roles the classifier could not confidently sort into a
+                family. Likely tech-related, but not guaranteed; shown so nothing in
+                Washington is missed.
+              </p>
             )}
 
             {active.length > 0 && (

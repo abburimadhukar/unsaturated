@@ -202,6 +202,16 @@ test('a washington view survives the round trip through a URL', () => {
   assert.deepEqual(readFrom(WA_DEFAULTS, `?${writeTo(WA_DEFAULTS, chosen)}`), chosen);
 });
 
+test('washington "all" (empty) and "unsorted" families survive the URL', () => {
+  // family is navigation: '' is the All view, 'unsorted' is the review pile,
+  // and the default ('cloud') drops out of the URL entirely. All three must
+  // come back exactly, or a shared link opens on the wrong tab.
+  for (const family of ['', 'unsorted', 'cloud']) {
+    const chosen = { ...WA_DEFAULTS, family };
+    assert.deepEqual(readFrom(WA_DEFAULTS, `?${writeTo(WA_DEFAULTS, chosen)}`), chosen);
+  }
+});
+
 test('a plain visit leaves the address bar clean', () => {
   // Nothing is written for a value that is already the default, so arriving at
   // /quiet does not rewrite the URL into a wall of parameters.
