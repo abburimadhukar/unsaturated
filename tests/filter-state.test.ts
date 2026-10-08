@@ -171,6 +171,9 @@ test('a quiet-roles view survives the round trip through a URL', () => {
     seniority: 'senior',
     midMarket: true,
     paidOnly: true,
+    postedWithin: '3',
+    hideSeen: true,
+    onlyApplied: true,
     sort: 'quietest',
   };
   assert.deepEqual(readFrom(QUIET_DEFAULTS, `?${writeTo(QUIET_DEFAULTS, chosen)}`), chosen);
@@ -185,6 +188,9 @@ test('an institutions view survives the round trip through a URL', () => {
     country: 'US',
     specialization: 'devops_sre',
     quietOnly: true,
+    postedWithin: '7',
+    hideSeen: true,
+    onlyApplied: true,
   };
   assert.deepEqual(readFrom(INST_DEFAULTS, `?${writeTo(INST_DEFAULTS, chosen)}`), chosen);
 });
@@ -198,6 +204,8 @@ test('a washington view survives the round trip through a URL', () => {
     workplace: 'hybrid',
     postedWithin: '7',
     paidOnly: true,
+    hideSeen: true,
+    onlyApplied: true,
   };
   assert.deepEqual(readFrom(WA_DEFAULTS, `?${writeTo(WA_DEFAULTS, chosen)}`), chosen);
 });

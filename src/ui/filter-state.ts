@@ -151,6 +151,13 @@ export const QUIET_DEFAULTS = {
   noEntry: false,
   midMarket: false,
   paidOnly: false,
+  // Days ('', '1', '3', '7', '14'): how recently a role was posted.
+  postedWithin: '',
+  // Personal view overlays, applied in the browser and never sent to the API
+  // (the seen/applied list belongs to the visitor). hideSeen hides roles you've
+  // opened; onlyApplied shows only those — the same controls the main feed has.
+  hideSeen: false,
+  onlyApplied: false,
   sort: 'newest',
 };
 
@@ -162,6 +169,11 @@ export const INST_DEFAULTS = {
   country: '',
   specialization: '',
   quietOnly: false,
+  // Days ('', '1', '3', '7', '14'): how recently a role was posted.
+  postedWithin: '',
+  // Browser-side view overlays, never sent to the API — see QUIET_DEFAULTS.
+  hideSeen: false,
+  onlyApplied: false,
 };
 
 /**
@@ -179,6 +191,9 @@ export const WA_DEFAULTS = {
   // control the main feed offers. '' is any time within the retention window.
   postedWithin: '',
   paidOnly: false,
+  // Browser-side view overlays, never sent to the API — see QUIET_DEFAULTS.
+  hideSeen: false,
+  onlyApplied: false,
 };
 
 export type QuietFilters = typeof QUIET_DEFAULTS;
