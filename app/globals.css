@@ -78,6 +78,10 @@
   --fam-data-dim: #c56fd01f;
   --fam-hris: #a3c93a;
   --fam-hris-dim: #a3c93a1f;
+  --fam-testing: #f0a24e;
+  --fam-testing-dim: #f0a24e1f;
+  --fam-networking: #e8718f;
+  --fam-networking-dim: #e8718f1f;
   --fam-unsorted: #7b8194;
   --fam-unsorted-dim: #7b819422;
 
@@ -164,6 +168,10 @@
   --fam-data-dim: #9333a814;
   --fam-hris: #5f7c14;
   --fam-hris-dim: #5f7c1414;
+  --fam-testing: #b5651d;
+  --fam-testing-dim: #b5651d14;
+  --fam-networking: #b0306a;
+  --fam-networking-dim: #b0306a14;
   --fam-unsorted: #5b6070;
   --fam-unsorted-dim: #5b607018;
 
@@ -753,30 +761,38 @@ header button.icon {
  * else uses. A family colour says what KIND of work it is and must never be
  * mistaken for a verdict on it.
  */
-.fam-cloud    { color: var(--fam-cloud); }
-.fam-software { color: var(--fam-software); }
-.fam-data     { color: var(--fam-data); }
-.fam-hris     { color: var(--fam-hris); }
+.fam-cloud      { color: var(--fam-cloud); }
+.fam-software   { color: var(--fam-software); }
+.fam-data       { color: var(--fam-data); }
+.fam-hris       { color: var(--fam-hris); }
+.fam-testing    { color: var(--fam-testing); }
+.fam-networking { color: var(--fam-networking); }
 .fam-unsorted { color: var(--fam-unsorted); }
 
-.chip.fam.fam-cloud    { background: var(--fam-cloud-dim);    color: var(--fam-cloud); }
-.chip.fam.fam-software { background: var(--fam-software-dim); color: var(--fam-software); }
-.chip.fam.fam-data     { background: var(--fam-data-dim);     color: var(--fam-data); }
-.chip.fam.fam-hris     { background: var(--fam-hris-dim);     color: var(--fam-hris); }
+.chip.fam.fam-cloud      { background: var(--fam-cloud-dim);      color: var(--fam-cloud); }
+.chip.fam.fam-software   { background: var(--fam-software-dim);   color: var(--fam-software); }
+.chip.fam.fam-data       { background: var(--fam-data-dim);       color: var(--fam-data); }
+.chip.fam.fam-hris       { background: var(--fam-hris-dim);       color: var(--fam-hris); }
+.chip.fam.fam-testing    { background: var(--fam-testing-dim);    color: var(--fam-testing); }
+.chip.fam.fam-networking { background: var(--fam-networking-dim); color: var(--fam-networking); }
 .chip.fam.fam-unsorted { background: var(--fam-unsorted-dim); color: var(--fam-unsorted); }
 
 /* A 2px bar under the selected tab, in that family's own colour, so the nav
    says which family you are in twice over — position and hue. */
-.families button.on.fam-cloud    { background: var(--fam-cloud-dim);    color: var(--fam-cloud); }
-.families button.on.fam-software { background: var(--fam-software-dim); color: var(--fam-software); }
-.families button.on.fam-data     { background: var(--fam-data-dim);     color: var(--fam-data); }
-.families button.on.fam-hris     { background: var(--fam-hris-dim);     color: var(--fam-hris); }
-.families button.on.fam-unsorted { background: var(--fam-unsorted-dim); color: var(--fam-unsorted); }
-.families button.on.fam-cloud .n    { color: var(--fam-cloud); }
-.families button.on.fam-software .n { color: var(--fam-software); }
-.families button.on.fam-data .n     { color: var(--fam-data); }
-.families button.on.fam-hris .n     { color: var(--fam-hris); }
-.families button.on.fam-unsorted .n { color: var(--fam-unsorted); }
+.families button.on.fam-cloud      { background: var(--fam-cloud-dim);      color: var(--fam-cloud); }
+.families button.on.fam-software   { background: var(--fam-software-dim);   color: var(--fam-software); }
+.families button.on.fam-data       { background: var(--fam-data-dim);       color: var(--fam-data); }
+.families button.on.fam-hris       { background: var(--fam-hris-dim);       color: var(--fam-hris); }
+.families button.on.fam-testing    { background: var(--fam-testing-dim);    color: var(--fam-testing); }
+.families button.on.fam-networking { background: var(--fam-networking-dim); color: var(--fam-networking); }
+.families button.on.fam-unsorted   { background: var(--fam-unsorted-dim);   color: var(--fam-unsorted); }
+.families button.on.fam-cloud .n      { color: var(--fam-cloud); }
+.families button.on.fam-software .n   { color: var(--fam-software); }
+.families button.on.fam-data .n       { color: var(--fam-data); }
+.families button.on.fam-hris .n       { color: var(--fam-hris); }
+.families button.on.fam-testing .n    { color: var(--fam-testing); }
+.families button.on.fam-networking .n { color: var(--fam-networking); }
+.families button.on.fam-unsorted .n   { color: var(--fam-unsorted); }
 
 /* ---------------- avatar and account page ---------------- */
 

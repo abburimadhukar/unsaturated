@@ -54,7 +54,10 @@ for (const [title, expected] of [
   ['Product Security Engineer', 'cloud'],
   ['Cyber Security Analyst', 'cloud'],
   ['Information Security Analyst', 'cloud'],
-  ['Network Security Engineer', 'cloud'],
+  // Network security is a networking discipline, not SOC infosec — moved to the
+  // Networking family 10 Oct 2026 (checked before cloud). The other security
+  // titles here have no "network" and stay cloud.
+  ['Network Security Engineer', 'networking'],
   ['Security Architect', 'cloud'],
   ['Penetration Tester', 'cloud'],
   ['IAM Engineer', 'cloud'],

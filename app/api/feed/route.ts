@@ -21,6 +21,7 @@ import {
   UNKNOWN_SPECIALIZATION,
   isSpecialization,
 } from '../../../src/taxonomy/specializations.js';
+import { FAMILY_ORDER } from '../../../src/taxonomy/families.js';
 
 /**
  * The public job feed. Deliberately identical for every visitor.
@@ -36,10 +37,12 @@ export const dynamic = 'force-dynamic';
 // 'fit' is deliberately absent: it depends on the caller's resume, which this
 // endpoint no longer sees. The browser sorts by match itself.
 const SORTS: SortKey[] = ['newest', 'salary'];
-// 'unsorted' is a review queue rather than a kind of work: postings no rule
-// claimed and no rule rejected. Accepted here so it can be asked for by name,
-// and excluded from every view that does not name it.
-const FAMILIES = ['cloud', 'software', 'data', 'hris', 'unsorted'];
+// Derived from the taxonomy (FAMILY_ORDER already ends with 'unsorted'), so a
+// new family — testing and networking landed 10 Oct 2026 — is accepted here the
+// moment it is added, rather than silently 400ing. 'unsorted' is a review queue
+// rather than a kind of work: accepted so it can be asked for by name, and
+// excluded from every view that does not name it.
+const FAMILIES: string[] = [...FAMILY_ORDER];
 // Which stack a role is built on. Deliberately not a family: a full-stack job is
 // genuinely both Python and JavaScript, so this is a property you filter on
 // rather than a category the job belongs to.

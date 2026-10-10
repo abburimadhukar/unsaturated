@@ -26,12 +26,16 @@ import type { Family } from './families.js';
  *      country filter made by folding undecoded locations into every country.
  */
 
+// `qa_test` left software and `networking` left cloud on 10 Oct 2026, when
+// Testing and Networking were promoted to families of their own (see
+// families.ts). Those values are no longer written or offered; rows that still
+// carry them are re-filed into the new families the next time their board is
+// crawled.
 export type SoftwareSpecialization =
   | 'frontend'
   | 'backend'
   | 'fullstack'
   | 'mobile'
-  | 'qa_test'
   | 'application_integration'
   | 'embedded_systems'
   | 'general_software';
@@ -40,7 +44,6 @@ export type CloudSpecialization =
   | 'devops_sre'
   | 'platform_engineering'
   | 'cloud_infrastructure'
-  | 'networking'
   | 'cloud_security'
   | 'systems_storage'
   | 'finops'
@@ -63,11 +66,28 @@ export type HrisSpecialization =
   | 'payroll_benefits'
   | 'general_hris';
 
+export type TestingSpecialization =
+  | 'test_automation'
+  | 'manual_qa'
+  | 'performance_testing'
+  | 'qa_management'
+  | 'general_testing';
+
+export type NetworkingSpecialization =
+  | 'network_engineering'
+  | 'network_operations'
+  | 'network_security'
+  | 'network_architecture'
+  | 'wireless_telecom'
+  | 'cloud_sdn';
+
 export type Specialization =
   | SoftwareSpecialization
   | CloudSpecialization
   | DataSpecialization
-  | HrisSpecialization;
+  | HrisSpecialization
+  | TestingSpecialization
+  | NetworkingSpecialization;
 
 /**
  * The sentinel the API and the URL use to ask for "family known, specialization
@@ -86,7 +106,7 @@ export const UNKNOWN_SPECIALIZATION = '__unknown__';
  * over. Bump it whenever the rules below change meaningfully and the next
  * backfill reclassifies everything.
  */
-export const CLASSIFICATION_VERSION = 'spec-1';
+export const CLASSIFICATION_VERSION = 'spec-2';
 
 /** Display order per family. The UI adds "All" and "Unknown" around these. */
 /**
@@ -105,7 +125,6 @@ export const SPECIALIZATIONS_BY_FAMILY: Record<RealFamily, readonly Specializati
     'backend',
     'fullstack',
     'mobile',
-    'qa_test',
     'application_integration',
     'embedded_systems',
     'general_software',
@@ -114,7 +133,6 @@ export const SPECIALIZATIONS_BY_FAMILY: Record<RealFamily, readonly Specializati
     'devops_sre',
     'platform_engineering',
     'cloud_infrastructure',
-    'networking',
     'cloud_security',
     'systems_storage',
     'finops',
@@ -130,6 +148,21 @@ export const SPECIALIZATIONS_BY_FAMILY: Record<RealFamily, readonly Specializati
     'general_data',
   ],
   hris: ['workday', 'successfactors', 'oracle_hcm', 'ukg', 'payroll_benefits', 'general_hris'],
+  testing: [
+    'test_automation',
+    'manual_qa',
+    'performance_testing',
+    'qa_management',
+    'general_testing',
+  ],
+  networking: [
+    'network_engineering',
+    'network_operations',
+    'network_security',
+    'network_architecture',
+    'wireless_telecom',
+    'cloud_sdn',
+  ],
 };
 
 export const SPECIALIZATION_LABELS: Record<Specialization, string> = {
@@ -137,7 +170,6 @@ export const SPECIALIZATION_LABELS: Record<Specialization, string> = {
   backend: 'Backend',
   fullstack: 'Full-stack',
   mobile: 'Mobile',
-  qa_test: 'QA / Test Automation',
   application_integration: 'Application / Integration',
   embedded_systems: 'Embedded / Systems',
   general_software: 'General Software',
@@ -145,11 +177,23 @@ export const SPECIALIZATION_LABELS: Record<Specialization, string> = {
   devops_sre: 'DevOps / SRE',
   platform_engineering: 'Platform Engineering',
   cloud_infrastructure: 'Cloud Infrastructure',
-  networking: 'Networking',
   cloud_security: 'Cloud Security',
   systems_storage: 'Systems / Storage',
   finops: 'FinOps',
   general_cloud: 'General Cloud',
+
+  test_automation: 'Test Automation / SDET',
+  manual_qa: 'Manual & Functional QA',
+  performance_testing: 'Performance & Load Testing',
+  qa_management: 'QA Lead / Management',
+  general_testing: 'General QA & Testing',
+
+  network_engineering: 'Network Engineering',
+  network_operations: 'Network Operations / NOC',
+  network_security: 'Network Security',
+  network_architecture: 'Network Architecture',
+  wireless_telecom: 'Wireless & Telecom',
+  cloud_sdn: 'Cloud & SDN Networking',
 
   data_engineering: 'Data Engineering',
   analytics_bi: 'Analytics / BI',
@@ -222,12 +266,8 @@ const MIN_BODY_HITS = 2;
 const BODY_MARGIN = 2;
 
 const SOFTWARE_RULES: SpecRule[] = [
-  {
-    id: 'qa_test',
-    title:
-      /\b(qa|quality assurance|quality engineer|test (engineer|automation|analyst|architect|lead)|automation test|sdet|software (development engineer in test|test engineer))\b/,
-    body: [/\bselenium\b/, /\bcypress\b/, /\bplaywright\b/, /\bappium\b/, /\btest automation\b/, /\bregression test/, /\btest (plan|case)s?\b/],
-  },
+  // `qa_test` left this list on 10 Oct 2026 — QA/test is now the Testing family,
+  // claimed before software, so a software role is no longer the home for it.
   {
     id: 'embedded_systems',
     title:
@@ -275,12 +315,8 @@ const CLOUD_RULES: SpecRule[] = [
       /\b(security|devsecops|infosec|cybersecurity|iam engineer|identity and access|zero trust|cspm|cnapp|siem|penetration test|appsec|vulnerability)\b/,
     body: [/\bsiem\b/, /\bsoc ?2\b/, /\bvulnerability\b/, /\bzero trust\b/, /\bpenetration test/, /\bfedramp\b/, /\bcspm\b/, /\bthreat (model|detection)/, /\biam\b/],
   },
-  {
-    id: 'networking',
-    title:
-      /\b(network|noc|bgp|ospf|sd ?wan|routing and switching|ccna|ccnp|ccie|firewall|load balanc|telecom)\b/,
-    body: [/\bbgp\b/, /\bospf\b/, /\bmpls\b/, /\bsd ?wan\b/, /\bcisco\b/, /\bjuniper\b/, /\bpalo alto\b/, /\bsubnet/, /\bvlan\b/, /\brouting\b/],
-  },
+  // `networking` left this list on 10 Oct 2026 — it is now the Networking
+  // family, claimed before cloud.
   {
     id: 'finops',
     title: /\b(finops|cloud (cost|financial|economics)|cost optimi[sz]ation|cloud spend)\b/,
@@ -382,11 +418,79 @@ const HRIS_RULES: SpecRule[] = [
   },
 ];
 
+/**
+ * Testing specializations. The family is already decided as `testing` by the
+ * time these run (the manufacturing/hardware guards live one level up, in
+ * families.ts), so these can read titles generously. Ordered most specific
+ * first: automation and performance before the general manual/QA bucket, and
+ * management before manual so "QA Manager" is not filed as a manual tester.
+ */
+const TESTING_RULES: SpecRule[] = [
+  {
+    id: 'test_automation',
+    title:
+      /\b(sdet|software (development )?engineer in test|test automation|automation (engineer|developer) in test|qa automation|automation qa|automation tester)\b/,
+    body: [/\bselenium\b/, /\bcypress\b/, /\bplaywright\b/, /\bappium\b/, /\bwebdriver\b/, /\btest automation\b/, /\bcucumber\b/, /\brest assured\b/, /\btestng\b/, /\bframework\b/],
+  },
+  {
+    id: 'performance_testing',
+    title: /\b(performance (test|testing) engineer|performance tester|load (test|testing) engineer|stress test)\b/,
+    body: [/\bjmeter\b/, /\bgatling\b/, /\bloadrunner\b/, /\bk6\b/, /\bload test\b/, /\bthroughput\b/, /\blatency\b/, /\bstress test\b/],
+  },
+  {
+    id: 'qa_management',
+    title: /\b(qa (lead|manager|director|head)|test (lead|manager|director)|quality assurance (lead|manager|director)|head of (qa|quality|test))\b/,
+    body: [/\btest strategy\b/, /\bquality strategy\b/, /\bmentor/, /\broadmap\b/, /\bstakeholder/],
+  },
+  {
+    id: 'manual_qa',
+    title: /\b(manual (qa|test|tester)|functional (qa|test|tester)|qa analyst|test analyst|game tester|software tester|qa tester)\b/,
+    body: [/\btest case/, /\btest plan/, /\bregression test/, /\bdefect\b/, /\bbug (report|tracking)/, /\bjira\b/, /\bexploratory test/],
+  },
+];
+
+/**
+ * Networking specializations. Family already decided as `networking`; the
+ * social/neural-network and RF-hardware guards live in families.ts. Security
+ * first (a "Network Security Engineer" is security before it is general
+ * networking), then the cloud/SDN, wireless/telecom, NOC and architecture
+ * slices; anything left is general network engineering.
+ */
+const NETWORKING_RULES: SpecRule[] = [
+  {
+    id: 'network_security',
+    title: /\b(network security|firewall|palo alto|fortinet|zero trust network|nac engineer|network access control)\b/,
+    body: [/\bfirewall\b/, /\bpalo alto\b/, /\bfortinet\b/, /\bcheck ?point\b/, /\bids\b/, /\bips\b/, /\bvpn\b/, /\bsegmentation\b/, /\bzero trust\b/],
+  },
+  {
+    id: 'cloud_sdn',
+    title: /\b(sd[-\s]?wan|\bsdn\b|cloud network|network automation|cisco aci|\bnsx\b|viptela|meraki)\b/,
+    body: [/\bsd ?wan\b/, /\bsdn\b/, /\baci\b/, /\bnsx\b/, /\bterraform\b/, /\btransit gateway\b/, /\bmeraki\b/, /\bnetwork automation\b/, /\bansible\b/],
+  },
+  {
+    id: 'wireless_telecom',
+    title: /\b(wireless|wi[-\s]?fi|rf engineer|\b5g\b|\blte\b|telecom|voip|voice (network )?engineer|unified communications|\bsip\b)\b/,
+    body: [/\bwi ?fi\b/, /\baccess point/, /\bruckus\b/, /\baruba\b/, /\b802\.11\b/, /\bsip\b/, /\bvoip\b/, /\b5g\b/, /\blte\b/, /\bran\b/],
+  },
+  {
+    id: 'network_operations',
+    title: /\b(noc|network operations)\b/,
+    body: [/\bmonitoring\b/, /\bincident\b/, /\bticket/, /\bescalation\b/, /\buptime\b/, /\bon call\b/],
+  },
+  {
+    id: 'network_architecture',
+    title: /\b(network architect|principal network|enterprise network architect|network design engineer)\b/,
+    body: [/\btopology\b/, /\bnetwork design\b/, /\bcapacity planning\b/, /\bhigh availability\b/],
+  },
+];
+
 const RULES: Record<RealFamily, SpecRule[]> = {
   software: SOFTWARE_RULES,
   cloud: CLOUD_RULES,
   data: DATA_RULES,
   hris: HRIS_RULES,
+  testing: TESTING_RULES,
+  networking: NETWORKING_RULES,
 };
 
 /**
@@ -410,6 +514,11 @@ const GENERIC_TITLE: Record<RealFamily, RegExp> = {
     /\b(cloud engineer|infrastructure engineer|systems engineer|it (engineer|operations)|technical operations|operations engineer)\b/,
   data: /\b(data (specialist|professional|associate|consultant)|analytics (specialist|professional))\b/,
   hris: /\b(hris|hcm|hrms|hr (systems|technology|information)|people (systems|technology)|human resources (information|systems))\b/,
+  // Titles that name testing/networking and nothing narrower, so they resolve to
+  // the family's general bucket rather than NULL.
+  testing: /\b(qa engineer|q a engineer|quality assurance( engineer| analyst| specialist)?|quality engineer|test engineer|tester|software test(ing)? engineer|\bqa\b)\b/,
+  networking:
+    /\b(network engineer|network administrator|network analyst|network technician|network specialist|network consultant|network support|networking engineer|routing and switching)\b/,
 };
 
 const GENERAL: Record<RealFamily, Specialization> = {
@@ -417,6 +526,10 @@ const GENERAL: Record<RealFamily, Specialization> = {
   cloud: 'general_cloud',
   data: 'general_data',
   hris: 'general_hris',
+  testing: 'general_testing',
+  // Networking has no separate "general" value: a plain network engineer IS the
+  // general bucket, so network_engineering doubles as it.
+  networking: 'network_engineering',
 };
 
 const FAMILY_NOUN: Record<RealFamily, string> = {
@@ -424,6 +537,8 @@ const FAMILY_NOUN: Record<RealFamily, string> = {
   cloud: 'Cloud',
   data: 'Data',
   hris: 'HRIS',
+  testing: 'Testing',
+  networking: 'Networking',
 };
 
 /**
