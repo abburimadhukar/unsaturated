@@ -216,6 +216,14 @@ test('testing: manufacturing and hardware "quality/test" roles are not testing',
   assert.notEqual(classify('Hardware Test Engineer', '').family, 'testing');
 });
 
+test('testing: aerospace / flight / physical test roles are not software QA', () => {
+  // Caught by a live dry run: these are physical test, not software testing.
+  assert.notEqual(classify('Flight Test Engineer', '').family, 'testing');
+  assert.notEqual(classify('Space Simulation Test Engineer', '').family, 'testing');
+  assert.notEqual(classify('Senior Test Engineer - Space', '').family, 'testing');
+  assert.notEqual(classify('Optical Test Engineer', '').family, 'testing');
+});
+
 // ---------------------------------------------------------------------------
 // Networking — promoted from a cloud specialization to a family (10 Oct 2026)
 // ---------------------------------------------------------------------------
@@ -246,6 +254,14 @@ test('networking: Network Security Engineer is networking, not cloud security', 
 test('networking: a social/neural "network" title is not networking', () => {
   assert.notEqual(classify('Social Network Community Manager', '').family, 'networking');
   assert.notEqual(classify('Neural Network Research Scientist', '').family, 'networking');
+});
+
+test('networking: RF/spacecraft hardware is not networking', () => {
+  // Bare "RF Engineer" was dropped from the networking titles after a live dry
+  // run filed "Spacecraft RF Engineer" as networking. Wireless networking still
+  // comes in through "wireless"/"5G"/"Wi-Fi".
+  assert.notEqual(classify('Spacecraft RF Engineer', '').family, 'networking');
+  assert.notEqual(classify('RF Engineer, Phased Array Antenna', '').family, 'networking');
 });
 
 test('networking: a Cloud Security Engineer stays in cloud', () => {
