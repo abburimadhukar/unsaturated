@@ -528,7 +528,7 @@ const NOT_TESTING =
  * and "Hardware Test Engineer" are real jobs and neither is software QA.
  */
 const TESTING_NONSOFTWARE =
-  /\b(manufactur\w*|supplier|mechanical|electrical|electronic|production|assembly|aerospace|automotive|pharmaceutical|pharma|clinical|laboratory|\blab\b|haccp|\bgmp\b|iso ?9001|metrology|calibration|semiconductor|wafer|hardware|civil|construction|chemical|food|beverage|welding|\bndt\b|non[-\s]destructive)\b/i;
+  /\b(manufactur\w*|supplier|mechanical|electrical|electronic|production|assembly|aerospace|automotive|pharmaceutical|pharma|clinical|laboratory|\blab\b|haccp|\bgmp\b|iso ?9001|metrology|calibration|semiconductor|wafer|hardware|civil|construction|chemical|food|beverage|welding|\bndt\b|non[-\s]destructive|flight|\bspace\b|spacecraft|satellite|avionics|aircraft|rocket|propulsion|missile|radar|sonar|payload|drone|\buav\b|optical|photonics|laser|robotics)\b/i;
 
 /**
  * A networking role, by title. Checked before cloud, which is why the network
@@ -536,7 +536,7 @@ const TESTING_NONSOFTWARE =
  * decision (10 Oct 2026): it is a networking discipline, not SOC infosec.
  */
 const NETWORKING_TITLES =
-  /\b(network engineer|network administrator|network architect|network analyst|network technician|network specialist|network consultant|network operations|network reliability engineer|network security( engineer| analyst| architect| specialist| administrator)|noc( engineer| analyst| technician)|\bnoc\b|routing and switching|sd[-\s]?wan|\bsdn\b|wan engineer|lan engineer|wireless network( engineer| architect)|wireless engineer|\brf engineer\b|network automation( engineer| specialist)?|telecom(munications)? engineer|voip engineer|voice (network )?engineer|unified communications( engineer| administrator)|network support engineer)\b/i;
+  /\b(network engineer|network administrator|network architect|network analyst|network technician|network specialist|network consultant|network operations|network reliability engineer|network security( engineer| analyst| architect| specialist| administrator)|noc( engineer| analyst| technician)|\bnoc\b|routing and switching|sd[-\s]?wan|\bsdn\b|wan engineer|lan engineer|wireless network( engineer| architect)|wireless engineer|network automation( engineer| specialist)?|telecom(munications)? engineer|voip engineer|voice (network )?engineer|unified communications( engineer| administrator)|network support engineer)\b/i;
 
 /** "network" that is not a computer network. */
 const NOT_NETWORKING =
