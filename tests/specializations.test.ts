@@ -54,7 +54,7 @@ const SOFTWARE_CASES: [string, string, string][] = [
   ['Backend API Engineer', SOFTWARE_BODY, 'backend'],
   ['Full-stack Engineer', SOFTWARE_BODY, 'fullstack'],
   ['Android Engineer', SOFTWARE_BODY, 'mobile'],
-  ['QA Automation Engineer', SOFTWARE_BODY, 'qa_test'],
+  // 'QA Automation Engineer' moved to the Testing family on 10 Oct 2026.
   ['Integration Developer', SOFTWARE_BODY, 'application_integration'],
   ['Embedded Software Engineer', SOFTWARE_BODY, 'embedded_systems'],
 ];
@@ -94,7 +94,7 @@ test('software: a title naming both ends is full-stack, not whichever rule ran f
 const CLOUD_CASES: [string, string, string][] = [
   ['Site Reliability Engineer', CLOUD_BODY, 'devops_sre'],
   ['Platform Engineer', CLOUD_BODY, 'platform_engineering'],
-  ['Network Engineer', CLOUD_BODY, 'networking'],
+  // 'Network Engineer' moved to the Networking family on 10 Oct 2026.
   ['Cloud Security Engineer', CLOUD_BODY, 'cloud_security'],
   ['Cloud Infrastructure Engineer', CLOUD_BODY, 'cloud_infrastructure'],
   ['Storage Engineer', CLOUD_BODY, 'systems_storage'],
@@ -173,6 +173,92 @@ test('hris: a bare HRIS title with no product named is general_hris', () => {
 test('hris: an engineer at an HR software company stays software', () => {
   // Without this, every backend engineer at Workday or Gusto is filed as HRIS.
   assert.equal(classify('Senior Software Engineer, Workday Payroll', SOFTWARE_BODY).family, 'software');
+});
+
+// ---------------------------------------------------------------------------
+// Testing — promoted from a software specialization to a family (10 Oct 2026)
+// ---------------------------------------------------------------------------
+
+const TESTING_BODY =
+  'You will write automated tests with Selenium and Cypress, own regression suites, and file defects in Jira.';
+
+const TESTING_CASES: [string, string, string][] = [
+  ['QA Automation Engineer', TESTING_BODY, 'test_automation'],
+  ['SDET', TESTING_BODY, 'test_automation'],
+  ['Manual QA Engineer', '', 'manual_qa'],
+  ['Performance Test Engineer', '', 'performance_testing'],
+  ['QA Manager', '', 'qa_management'],
+];
+
+for (const [title, body, expected] of TESTING_CASES) {
+  test(`testing: ${title} -> ${expected}`, () => {
+    assert.deepEqual(classify(title, body), { family: 'testing', specialization: expected });
+  });
+}
+
+test('testing: a bare QA Engineer with no narrower signal is general_testing', () => {
+  const { family, specialization } = classify('QA Engineer', 'You will help ensure product quality.');
+  assert.equal(family, 'testing');
+  assert.equal(specialization, 'general_testing');
+});
+
+test('testing: "Automation Engineer" without a test word is NOT testing', () => {
+  // 563 of these in the corpus, mostly industrial controls / RPA / security
+  // automation. Testing must be named as QA/test/SDET, not implied by "automation".
+  assert.notEqual(classify('Automation Engineer', '').family, 'testing');
+  assert.notEqual(classify('Senior Automation Engineer', '').family, 'testing');
+});
+
+test('testing: manufacturing and hardware "quality/test" roles are not testing', () => {
+  assert.notEqual(classify('Manufacturing Quality Engineer', '').family, 'testing');
+  assert.notEqual(classify('Supplier Quality Engineer', '').family, 'testing');
+  assert.notEqual(classify('Design Verification Engineer', '').family, 'testing');
+  assert.notEqual(classify('Hardware Test Engineer', '').family, 'testing');
+});
+
+// ---------------------------------------------------------------------------
+// Networking — promoted from a cloud specialization to a family (10 Oct 2026)
+// ---------------------------------------------------------------------------
+
+const NETWORKING_BODY =
+  'You will design and operate enterprise networks, configure BGP and OSPF on Cisco gear, and manage VLANs and firewalls.';
+
+const NETWORKING_CASES: [string, string, string][] = [
+  ['Network Engineer', NETWORKING_BODY, 'network_engineering'],
+  ['Network Security Engineer', NETWORKING_BODY, 'network_security'],
+  ['NOC Engineer', '', 'network_operations'],
+  ['Network Architect', NETWORKING_BODY, 'network_architecture'],
+  ['Wireless Network Engineer', '', 'wireless_telecom'],
+];
+
+for (const [title, body, expected] of NETWORKING_CASES) {
+  test(`networking: ${title} -> ${expected}`, () => {
+    assert.deepEqual(classify(title, body), { family: 'networking', specialization: expected });
+  });
+}
+
+test('networking: Network Security Engineer is networking, not cloud security', () => {
+  // The one real judgement call: a network-security engineer runs firewalls and
+  // segmentation — a networking discipline, not SOC infosec. Decided 10 Oct 2026.
+  assert.equal(classify('Network Security Engineer', NETWORKING_BODY).family, 'networking');
+});
+
+test('networking: a social/neural "network" title is not networking', () => {
+  assert.notEqual(classify('Social Network Community Manager', '').family, 'networking');
+  assert.notEqual(classify('Neural Network Research Scientist', '').family, 'networking');
+});
+
+test('networking: a Cloud Security Engineer stays in cloud', () => {
+  // Networking is checked before cloud, but it only claims network titles —
+  // "Cloud Security Engineer" has no "network", so cloud still owns it.
+  assert.equal(classify('Cloud Security Engineer', CLOUD_BODY).family, 'cloud');
+});
+
+test('data-quality stays in data, never swept into testing', () => {
+  // Decision from the same review: Testing is about the testing discipline, not
+  // the thing being tested. A "Data Quality" title is a data role.
+  assert.equal(classify('Data Quality Analyst', '').family, 'data');
+  assert.equal(classify('Data Quality Engineer', DATA_BODY).family, 'data');
 });
 
 // ---------------------------------------------------------------------------
@@ -278,7 +364,7 @@ test('a classifier can only ever return one of its own family values', () => {
     'Engineer', 'Senior Engineer', 'Analyst', 'Consultant', 'Architect',
     'Site Reliability Engineer', 'Data Engineer', 'Workday Analyst', 'Frontend Engineer',
   ];
-  for (const family of ['software', 'cloud', 'data', 'hris'] as const) {
+  for (const family of ['software', 'cloud', 'data', 'hris', 'testing', 'networking'] as const) {
     for (const title of titles) {
       const { specialization } = classifySpecialization(family, title, SOFTWARE_BODY);
       if (specialization === null) continue;

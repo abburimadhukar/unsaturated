@@ -94,6 +94,9 @@ create index if not exists jobs_classification_version_idx
 -- Applying the specialization columns, the constraint and the rebuilt
 -- feed_page / feed_facets to an existing database:
 --   src/db/migrations/2026-09-04-specialization.sql
+-- The specialization CHECK was later extended for the Testing and Networking
+-- families (promoted from specializations on 10 Oct 2026):
+--   src/db/migrations/2026-10-10-testing-networking-families.sql
 
 -- ---------------------------------------------------------------------------
 -- boards — the crawler's registry of what to read.

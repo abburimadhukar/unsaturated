@@ -3,25 +3,31 @@ import type { NormalizedJob } from '../ats/types.js';
 /**
  * Role families.
  *
- * Four families, each with its own matching strategy — because they are not the
+ * Six families, each with its own matching strategy — because they are not the
  * same kind of category:
  *
  *   cloud/software/data are defined by a TECH STACK, so they match on a skill
  *   fingerprint. Titles in these areas are unreliable ("DevOps Engineer",
  *   "Platform Engineer" and "SRE" are frequently the same job).
  *
- *   hris is defined by a JOB FUNCTION and a set of vendor products, and its
- *   people do not write code. A skill fingerprint finds nothing there, so it
- *   matches on titles and product names instead.
+ *   hris/testing/networking are defined by a JOB FUNCTION rather than a stack.
+ *   hris is a set of vendor products; testing and networking are disciplines
+ *   that cut ACROSS stacks — a QA engineer or a network engineer can sit on top
+ *   of any of cloud/software/data. So these three match on titles, authoritatively:
+ *   a matching title decides the family outright and is never overridden by what
+ *   stack the description happens to mention, and they are never inferred from a
+ *   skill fingerprint alone (see `authoritative` on FamilySpec). Testing and
+ *   Networking were promoted on 10 Oct 2026 from specializations (`qa_test` under
+ *   software, `networking` under cloud) to families of their own.
  *
- * AI/ML roles are deliberately NOT a fifth family. They are folded into whichever
+ * AI/ML roles are deliberately NOT their own family. They are folded into whichever
  * family the underlying work belongs to — AI infrastructure is cloud, ML
  * engineering is data, LLM application work is software — and separately flagged
  * so they can still be picked out anywhere.
  */
 
 /**
- * The four real families, plus a review queue.
+ * The six real families, plus a review queue.
  *
  * 'unsorted' is not a kind of work — it describes what WE know, not what the
  * job is. It carries no specializations, is never inferred from skills, and is
@@ -29,21 +35,25 @@ import type { NormalizedJob } from '../ats/types.js';
  * exists so the roles the rules keep missing can be looked at by a person
  * instead of guessed at by a rule.
  */
-export type Family = 'cloud' | 'software' | 'data' | 'hris' | 'unsorted';
+export type Family = 'cloud' | 'software' | 'data' | 'hris' | 'testing' | 'networking' | 'unsorted';
 
 /** The families that describe actual work — everything except the review queue. */
-export const REAL_FAMILIES = ['cloud', 'software', 'data', 'hris'] as const;
+export const REAL_FAMILIES = ['cloud', 'software', 'data', 'hris', 'testing', 'networking'] as const;
 
 export const FAMILY_LABELS: Record<Family, string> = {
   cloud: 'Cloud & Infrastructure',
   software: 'Software Engineering',
   data: 'Data',
   hris: 'HRIS',
+  testing: 'Testing & QA',
+  networking: 'Networking',
   unsorted: 'Unsorted',
 };
 
-// Last, deliberately. It is a queue to work through, not a category to browse.
-export const FAMILY_ORDER: Family[] = ['cloud', 'software', 'data', 'hris', 'unsorted'];
+// Unsorted is last, deliberately: a queue to work through, not a category to
+// browse. Testing and networking sit after the stack families — they are the
+// newer, cross-cutting disciplines.
+export const FAMILY_ORDER: Family[] = ['cloud', 'software', 'data', 'hris', 'testing', 'networking', 'unsorted'];
 
 interface SkillTerm {
   pattern: RegExp;
@@ -229,8 +239,13 @@ const CLOUD_TITLE_NOISE =
  * Platform" are the same job written two ways, and an enumeration will always
  * miss one of them.
  */
+// `network engineer|network administrator|network architect|noc` and
+// `network security` were removed on 10 Oct 2026: those roles are now the
+// Networking family, which is checked before cloud. Bare `security engineer`
+// stays here, but a "Network Security Engineer" is claimed by Networking first
+// (by SPECS order), so it never reaches this rule.
 const CLOUD_TITLES =
-  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|network engineer|network administrator|network architect|noc\b|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b|\b(systems?|sys)\s?admin\w*\b|\b(linux|unix|aix)\s+(administrator|admin)\b|\binfrastructure\s+(engineer|developer|analyst|architect|specialist|lead)\b|\b(cyber ?security|information security|infosec|application security|product security|network security|cloud security|it security|data security|platform security|offensive security|soc)\s+(engineer|analyst|architect|specialist|consultant|lead)\b|\bsecurity\s+(engineer|analyst|architect|consultant|lead)\b|\b(soc analyst|penetration tester|pen tester|red team|threat (analyst|hunter)|vulnerability (analyst|engineer)|iam engineer|identity (engineer|architect))\b|\b(cloud|azure|aws|gcp)\s+(\w+\s+)?developer\b/i;
+  /\b(devops|sre|site reliability|production engineer|platform engineer|platform reliability|cloud engineer|cloud architect|solutions architect|cloud operations|cloud infrastructure|infrastructure engineer|infrastructure architect|systems administrator|sysadmin|devsecops|cloud security|storage engineer|virtuali[sz]ation|build engineer|release engineer|observability|kubernetes|finops|ml ?platform|ai infrastructure|technical operations|techops|site operations|infra engineer|systems architect|cluster (engineer|architect)|capacity engineer|provisioning engineer)\b|\b(systems?|sys)\s?admin\w*\b|\b(linux|unix|aix)\s+(administrator|admin)\b|\binfrastructure\s+(engineer|developer|analyst|architect|specialist|lead)\b|\b(cyber ?security|information security|infosec|application security|product security|cloud security|it security|data security|platform security|offensive security|soc)\s+(engineer|analyst|architect|specialist|consultant|lead)\b|\bsecurity\s+(engineer|analyst|architect|consultant|lead)\b|\b(soc analyst|penetration tester|pen tester|red team|threat (analyst|hunter)|vulnerability (analyst|engineer)|iam engineer|identity (engineer|architect))\b|\b(cloud|azure|aws|gcp)\s+(\w+\s+)?developer\b/i;
 
 /**
  * A platform word and a technical role word, in either order.
@@ -478,24 +493,92 @@ export interface RoleClassification {
   excludedReason?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Testing and Networking — the two cross-cutting discipline families
+// ---------------------------------------------------------------------------
+//
+// Added 10 Oct 2026. Both are TITLE-DRIVEN and AUTHORITATIVE (see FamilySpec):
+// a matching title decides the family and is never overridden by the stack the
+// description happens to name, and neither is ever inferred from a skill
+// fingerprint alone — a QA or network engineer can sit on top of any stack, so
+// the title is the only honest signal. They carry no skill vocabulary for that
+// reason, and they are checked before the stack families so "QA Engineer" and
+// "Network Engineer" are not swallowed by software/cloud.
+
+/**
+ * A testing/QA role, by title.
+ *
+ * Deliberately does NOT contain bare "automation engineer" (563 in the corpus,
+ * mostly industrial controls / RPA / security automation — not software test),
+ * bare "quality engineer" or "quality analyst" (dominated by manufacturing QC
+ * and data-quality, which stay in their own families), or "validation /
+ * verification engineer" (dominated by hardware). Testing has to be NAMED as
+ * QA / test / SDET, not merely implied by the word "quality" or "automation".
+ */
+const TESTING_TITLES =
+  /\b(sdet|software (development )?engineer in test|test engineer|qa engineer|q\.?a\.? engineer|qa analyst|qa automation( engineer)?|automation qa|quality assurance (engineer|analyst|specialist|tester|lead|manager|automation)|software quality (engineer|assurance)|test automation( engineer| specialist)?|test analyst|manual (qa|test)( engineer| analyst| tester)?|manual tester|functional (qa|test)( engineer| analyst| tester)?|performance (test|testing) engineer|performance tester|load (test|testing) engineer|test (lead|architect|manager|director)|qa (lead|manager|director|specialist|tester|engineer)|game tester|software tester)\b/i;
+
+/** Testers that are not software testers. */
+const NOT_TESTING =
+  /\b(penetration tester|pen tester|beta tester|usability tester|material tester|hardware tester)\b/i;
+
+/**
+ * Words that make a "QA"/"test" title a manufacturing, lab, hardware or physical
+ * role rather than a software one. "Quality Assurance Engineer, Pharmaceutical"
+ * and "Hardware Test Engineer" are real jobs and neither is software QA.
+ */
+const TESTING_NONSOFTWARE =
+  /\b(manufactur\w*|supplier|mechanical|electrical|electronic|production|assembly|aerospace|automotive|pharmaceutical|pharma|clinical|laboratory|\blab\b|haccp|\bgmp\b|iso ?9001|metrology|calibration|semiconductor|wafer|hardware|civil|construction|chemical|food|beverage|welding|\bndt\b|non[-\s]destructive)\b/i;
+
+/**
+ * A networking role, by title. Checked before cloud, which is why the network
+ * tokens were removed from CLOUD_TITLES. "Network Security Engineer" is here by
+ * decision (10 Oct 2026): it is a networking discipline, not SOC infosec.
+ */
+const NETWORKING_TITLES =
+  /\b(network engineer|network administrator|network architect|network analyst|network technician|network specialist|network consultant|network operations|network reliability engineer|network security( engineer| analyst| architect| specialist| administrator)|noc( engineer| analyst| technician)|\bnoc\b|routing and switching|sd[-\s]?wan|\bsdn\b|wan engineer|lan engineer|wireless network( engineer| architect)|wireless engineer|\brf engineer\b|network automation( engineer| specialist)?|telecom(munications)? engineer|voip engineer|voice (network )?engineer|unified communications( engineer| administrator)|network support engineer)\b/i;
+
+/** "network" that is not a computer network. */
+const NOT_NETWORKING =
+  /\b(social network|neural network|network marketing|professional network|developer network|advertising network)\b/i;
+
+/** RF/physical-layer HARDWARE design, which "RF/wireless engineer" attracts. */
+const NETWORKING_HARDWARE =
+  /\b(antenna design|phased array|microwave (circuit|hardware|component)|semiconductor|wafer|pcb (design|layout)|analog (ic|circuit)|mixed[-\s]signal|chip design|\basic\b|\bfpga\b)\b/i;
+
 interface FamilySpec {
   id: Family;
   titles: RegExp;
   skills: SkillTerm[];
   /** Minimum fingerprint weight when the title gives no signal. */
   threshold: number;
+  /**
+   * Title-authoritative, like HRIS. A matching title decides the family
+   * outright: the dominance override never runs for it, it is never inferred
+   * from a skill fingerprint in pass 2, and it never overrides another family's
+   * title match on a skill score. For families defined by function rather than
+   * stack (hris, testing, networking), the title is the only honest signal.
+   */
+  authoritative?: boolean;
 }
 
 /**
  * Order matters: the first family whose TITLE matches wins.
  *
- * HRIS goes first because its titles are unambiguous. Data and cloud come before
+ * HRIS, then testing and networking, go first because their titles are
+ * unambiguous and authoritative — "QA Engineer" and "Network Engineer" must not
+ * be swallowed by the stack families below. Data and cloud then come before
  * software because "Software Engineer" is the most generic title in the market —
- * a data or infrastructure role should be filed as such rather than swallowed by
+ * a data or infrastructure role should be filed as such rather than caught by
  * the catch-all.
  */
 const SPECS: FamilySpec[] = [
-  { id: 'hris', titles: HRIS_TITLES, skills: HRIS_SKILLS, threshold: 5 },
+  { id: 'hris', titles: HRIS_TITLES, skills: HRIS_SKILLS, threshold: 5, authoritative: true },
+  // Testing and networking carry no skill vocabulary on purpose: they are
+  // title-only, so an empty fingerprint keeps them out of pass 2 and the
+  // dominance override entirely.
+  { id: 'testing', titles: TESTING_TITLES, skills: [], threshold: 1, authoritative: true },
+  { id: 'networking', titles: NETWORKING_TITLES, skills: [], threshold: 1, authoritative: true },
   { id: 'data', titles: DATA_TITLES, skills: DATA_SKILLS, threshold: 5 },
   { id: 'cloud', titles: CLOUD_TITLES, skills: CLOUD_SKILLS, threshold: 5 },
   { id: 'software', titles: SOFTWARE_TITLES, skills: SOFTWARE_SKILLS, threshold: 5 },
@@ -528,7 +611,10 @@ function strongestOtherFamily(
 ): RoleClassification | null {
   let best: RoleClassification | null = null;
   for (const spec of SPECS) {
-    if (spec.id === exclude || spec.id === 'hris') continue;
+    // Authoritative families (hris, testing, networking) are title-only: they
+    // never win on a skill fingerprint, so they can never steal a title match
+    // from a stack family here.
+    if (spec.id === exclude || spec.authoritative) continue;
     const { score, names } = matchSkills(spec.skills, haystack);
     if (score < spec.threshold || score <= beat) continue;
     if (!best || score > best.score) {
@@ -594,6 +680,14 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   // nothing to compare against.
   for (const spec of SPECS) {
     if (!spec.titles.test(titleForMatch)) continue;
+    // A "QA"/"test" title that is really manufacturing, lab or hardware testing,
+    // or a tester that is not a software tester (pen tester, beta tester). The
+    // testing rule names QA/test/SDET deliberately, but "Hardware Test Engineer"
+    // and "QA Engineer, Pharmaceutical" still slip through on the words it shares.
+    if (spec.id === 'testing' && (NOT_TESTING.test(titleForMatch) || TESTING_NONSOFTWARE.test(titleForMatch))) continue;
+    // A "network" that is a social/neural/marketing network, or an RF/wireless
+    // title that is physical-layer hardware design rather than networking.
+    if (spec.id === 'networking' && (NOT_NETWORKING.test(titleForMatch) || NETWORKING_HARDWARE.test(titleForMatch))) continue;
     // A cloud word in a title that is teaching, auditing, buying or building
     // roads. The widened cloud pairing rule below is loose on purpose, and this
     // is what keeps it honest.
@@ -644,9 +738,10 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
 
     const { score, names } = matchSkills(spec.skills, haystack);
 
-    // HRIS is title-authoritative: those roles are defined by the product they
-    // administer, not by a tech stack, so they never carry a skill fingerprint.
-    if (spec.id !== 'hris') {
+    // Authoritative families (hris, testing, networking) are title-authoritative:
+    // defined by product or discipline rather than a tech stack, so a matching
+    // title decides outright and the dominance override never runs for them.
+    if (!spec.authoritative) {
       if (score < spec.threshold) {
         // The title matched but its own vocabulary barely registers, so let a
         // family the description clearly describes take it instead.
@@ -683,7 +778,7 @@ export function classifyRole(job: NormalizedJob): RoleClassification {
   // title match alone has to be enough in pass 1.
   let best: RoleClassification = { ...empty, ai };
   for (const spec of SPECS) {
-    if (spec.id === 'hris') continue; // never inferred from skills alone
+    if (spec.authoritative) continue; // hris/testing/networking: title-only, never inferred from skills
     const { score, names } = matchSkills(spec.skills, haystack);
     if (score >= spec.threshold && score > best.score) {
       best = {
