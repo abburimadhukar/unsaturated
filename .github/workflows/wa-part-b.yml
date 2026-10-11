@@ -1,0 +1,85 @@
+# The write steps for Washington Part B, run by hand after the code is merged.
+#
+# The crawl, deploy and other seeds each have their own workflow; these three
+# did not exist anywhere, and the Supabase write key lives only inside Actions —
+# so without this there is no way to run them. Each step is independently
+# switchable and every one honours --dry-run, so a first pass can report what it
+# would do and write nothing.
+#
+#   gh workflow run wa-part-b.yml                           # backfill + seed Amazon
+#   gh workflow run wa-part-b.yml -f dry_run=true           # report only
+#   gh workflow run wa-part-b.yml -f detect_wa=true         # also add the WA employer list
+#
+# Order matters: the DC backfill cleans the region column first, Amazon is
+# registered next, and the employer list is added last. Nothing here deploys the
+# website (that is deploy-cloudflare.yml) or runs the crawl (crawl.yml).
+name: wa-part-b
+
+on:
+  workflow_dispatch:
+    inputs:
+      backfill_region:
+        description: 'Re-derive jobs.region (clears the Washington D.C. rows mis-tagged as WA)'
+        type: boolean
+        default: true
+      seed_amazon:
+        description: 'Register the Amazon Washington board'
+        type: boolean
+        default: true
+      detect_wa:
+        description: 'Run careers detection over data/wa-employers.txt (adds ~23 WA employers)'
+        type: boolean
+        default: false
+      states:
+        description: 'Amazon states to register (comma-separated codes)'
+        type: string
+        default: 'wa'
+      dry_run:
+        description: 'Report what each step would do, writing nothing'
+        type: boolean
+        default: false
+
+concurrency:
+  group: wa-part-b
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    env:
+      HAS_SUPABASE: ${{ (secrets.SUPABASE_SECRET_KEY != '' || secrets.SUPABASE_SERVICE_ROLE_KEY != '') && 'yes' || 'no' }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CRAWLER_USER_AGENT: 'unsaturated-jobscout/0.1 (+https://github.com/abburimadhukar/unsaturated)'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Fail if the write key is missing
+        if: env.HAS_SUPABASE == 'no' && !inputs.dry_run
+        run: |
+          echo "No SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY is set — nothing can be written."
+          exit 1
+
+      - name: Backfill region (clear the mis-tagged D.C. rows)
+        if: inputs.backfill_region
+        run: npm run backfill:region -- ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Seed the Amazon Washington board
+        if: inputs.seed_amazon
+        run: npm run seed:amazon -- --states ${{ inputs.states }} ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Add the Washington employer list via careers detection
+        if: inputs.detect_wa
+        run: npm run detect -- --file data/wa-employers.txt --store db --source wa ${{ inputs.dry_run && '--dry-run' || '' }}
