@@ -58,6 +58,21 @@ const DEFAULT_MAX_JOBS = 300;
  *
  * Pure and exported so the rule can be tested without a database.
  */
+/**
+ * A board's pagination cap: an explicit `maxJobs`, else an `extra.maxJobs` the
+ * registry carries, else the default.
+ *
+ * The registry has no maxJobs column, so a board that genuinely needs a deeper
+ * read than 300 — Amazon's Washington board holds ~4,000 — states it in `extra`,
+ * which upsertBoards stores verbatim. Every other board has no such key and so
+ * keeps the default exactly as before; this is additive.
+ */
+function resolveMaxJobs(b: CorpusBoard): number {
+  if (b.maxJobs !== undefined) return b.maxJobs;
+  const fromExtra = b.extra?.maxJobs ? Number.parseInt(b.extra.maxJobs, 10) : NaN;
+  return Number.isFinite(fromExtra) && fromExtra > 0 ? fromExtra : DEFAULT_MAX_JOBS;
+}
+
 export function mergeBoards(fromFile: CorpusBoard[], fromDb: CorpusBoard[]): Map<string, CorpusBoard> {
   // The Workday site is part of the key, or this collapses the very boards the
   // registry now exists to hold. A tenant runs a career site per campus —
@@ -68,7 +83,7 @@ export function mergeBoards(fromFile: CorpusBoard[], fromDb: CorpusBoard[]): Map
     `${b.provider}:${b.token.toLowerCase()}:${(b.extra?.site ?? '').toLowerCase()}`;
   const merged = new Map<string, CorpusBoard>();
   for (const b of fromFile) merged.set(key(b), b);
-  for (const b of fromDb) merged.set(key(b), { ...b, maxJobs: b.maxJobs ?? DEFAULT_MAX_JOBS });
+  for (const b of fromDb) merged.set(key(b), { ...b, maxJobs: resolveMaxJobs(b) });
   return merged;
 }
 

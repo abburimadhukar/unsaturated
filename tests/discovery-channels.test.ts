@@ -72,10 +72,13 @@ test('the HN DB path stores with source "hn"', () => {
   assert.match(src, /source: 'hn'/);
 });
 
-test('the careers DB path stores with source "careers"', () => {
+test('the careers DB path defaults to source "careers" and allows an override', () => {
   const src = read('../src/cli/detect-careers.ts');
   assert.match(src, /verifyAndStore/);
-  assert.match(src, /source: 'careers'/);
+  // The default is unchanged, so the weekly discovery still attributes to
+  // 'careers'; a Washington list passes --source wa to attribute its own yield.
+  assert.match(src, /arg\('source'\) \?\? 'careers'/);
+  assert.match(src, /source,/);
 });
 
 // ------------------------------------------------- the workflow actually runs

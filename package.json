@@ -42,6 +42,7 @@
     "boards:revive": "tsx src/cli/boards-revive.ts",
     "boards:dedupe": "tsx src/cli/boards-dedupe.ts",
     "boards:adopt": "tsx src/cli/boards-adopt.ts",
+    "seed:amazon": "tsx src/cli/seed-amazon.ts",
     "migrate": "tsx src/cli/migrate.ts",
     "test:live": "node --import tsx tests/run-live.mjs",
     "ats:survey": "node scripts/ats-survey.mjs",

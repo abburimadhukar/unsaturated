@@ -42,7 +42,7 @@ interface SmartRecruitersDetail {
 }
 
 /** Providers whose list endpoint already includes the description. */
-const SELF_SUFFICIENT: AtsProvider[] = ['greenhouse', 'lever', 'ashby', 'socrata', 'usajobs'];
+const SELF_SUFFICIENT: AtsProvider[] = ['greenhouse', 'lever', 'ashby', 'socrata', 'usajobs', 'amazon'];
 
 /**
  * Providers this module can actually fetch a detail page for — the cases

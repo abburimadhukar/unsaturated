@@ -40,6 +40,29 @@ test('Washington, D.C. is the district, never the state', () => {
   assert.equal(inferUsState('District of Columbia'), 'DC');
 });
 
+test('DC written code-first (Amazon / iCIMS) is the district, not the state', () => {
+  // The country-state-city form these feeds use puts the DC code BEFORE the
+  // city name, so the "Washington, D.C." handlers miss it and the bare state
+  // name used to claim it for WA. Measured as ~14% of the Washington page.
+  assert.equal(inferUsState('US-DC-Washington'), 'DC');
+  assert.equal(inferUsState('USA DC Washington'), 'DC');
+  assert.equal(inferUsState('US-D.C.-Washington'), 'DC');
+  assert.equal(inferUsState('USA-DC-Washington'), 'DC');
+  assert.equal(inferUsState('DC-Washington'), 'DC');
+  assert.equal(inferUsState('Hybrid (D.C, Washington, US)'), 'DC');
+  // A multi-location string listing the capital among others still resolves to
+  // a real location in it, never WA when no WA site is present.
+  assert.equal(inferUsState('US-DC-Washington | US-VA-Tysons Corner'), 'DC');
+});
+
+test('a genuine WA city keeps its state even when "DC" appears unattached', () => {
+  // Amazon's own WA format, and a distribution-centre code that must not be
+  // read as the capital because it is not adjacent to the word "Washington".
+  assert.equal(inferUsState('US-WA-Seattle'), 'WA');
+  assert.equal(inferUsState('Seattle, WA'), 'WA');
+  assert.equal(inferUsState('Kent, WA (DC-05)'), 'WA');
+});
+
 test('a town or county that merely shares the name is not the state of Washington', () => {
   // A real town in Pennsylvania and a real county in Oregon. The explicit state
   // code/name wins over the bare word "Washington".

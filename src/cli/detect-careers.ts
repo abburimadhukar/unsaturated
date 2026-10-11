@@ -5,6 +5,7 @@
  *   npm run detect                       # the built-in university/health list
  *   npm run detect -- --dry-run
  *   npm run detect -- --store db         # verify against the live APIs, store in Supabase
+ *   npm run detect -- --file wa.txt --store db --source wa   # tag the yield 'wa'
  *
  * Finds boards the slug-prober structurally cannot: Ohio State's Workday tenant
  * is "osu" with a site called "OSUCareers", which no naming rule reaches. The
@@ -63,6 +64,10 @@ async function main(): Promise<void> {
   if (arg('store') === 'db') {
     const verifyCap = Number.parseInt(arg('verify') ?? '3000', 10);
     const delayMs = Number.parseInt(arg('delay') ?? '1000', 10);
+    // Which channel these came from, stored on every row so WA yield is
+    // attributable. Defaults to 'careers' so the weekly discovery run is
+    // unchanged; a Washington list passes `--source wa`.
+    const source = arg('source') ?? 'careers';
     console.log(`Reading ${domains.length} careers pages…\n`);
     const results = await detectMany(domains, 6, (done, total, found) => {
       if (done % 10 === 0 || done === total) {
@@ -85,7 +90,7 @@ async function main(): Promise<void> {
     console.log(`\n\n${candidates.length} boards detected across ${domains.length} domains\n`);
     await verifyAndStore({
       candidates,
-      source: 'careers',
+      source,
       verifyCap,
       delayMs,
       dryRun,

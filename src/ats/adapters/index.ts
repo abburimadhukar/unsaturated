@@ -16,6 +16,7 @@ import { eightfoldAdapter } from './eightfold.js';
 import { icimsAdapter } from './icims.js';
 import { usajobsAdapter } from './usajobs.js';
 import { socrataAdapter } from './socrata.js';
+import { amazonAdapter } from './amazon.js';
 import type { AtsAdapter, AtsProvider } from '../types.js';
 
 /**
@@ -44,6 +45,7 @@ export const ADAPTERS: Record<AtsProvider, AtsAdapter> = {
   icims: icimsAdapter,
   usajobs: usajobsAdapter,
   socrata: socrataAdapter,
+  amazon: amazonAdapter,
 };
 
 export function getAdapter(provider: AtsProvider): AtsAdapter {
