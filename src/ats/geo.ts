@@ -446,11 +446,22 @@ export function inferUsState(
   const t = (locationRaw ?? '').trim();
   if (!t) return undefined;
 
-  // 1. DC written as a city. Before the Washington-state name can take it.
+  // 1. DC written as the city "Washington". Before the Washington-state name
+  //    can take it. The first handlers expect "Washington" FIRST
+  //    ("Washington, D.C."), but Amazon and iCIMS write the country-state-city
+  //    form with the DC code LEADING — "US-DC-Washington", "USA DC Washington",
+  //    "US-D.C.-Washington", "DC-Washington" — and some feeds bracket it
+  //    ("Hybrid (D.C, Washington, US)"). Without the DC-before-Washington order
+  //    the bare "washington" NAME rule (step 3) misfiled the District as the
+  //    State: measured at ~14% of the Washington page. Adjacency — nothing but a
+  //    delimiter between the DC token and "Washington" — is what keeps a
+  //    distribution-centre code "DC" sitting near a real WA city from being read
+  //    as the capital.
   if (
     /\bwashington\s*,?\s*d\.?\s*c\.?\b/i.test(t) ||
     /\bwashington\s*,?\s*dc\b/i.test(t) ||
-    /\bdistrict of columbia\b/i.test(t)
+    /\bdistrict of columbia\b/i.test(t) ||
+    /\bd\.?\s?c\.?[\s,\-|]+washington\b/i.test(t)
   ) {
     return 'DC';
   }

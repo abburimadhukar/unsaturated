@@ -1,0 +1,32 @@
+# One-off: is Microsoft's careers API reachable with secure TLS from an Actions
+# runner?
+#
+# Microsoft publishes its own listings API, but from a laptop it is fronted by
+# Azure CDN serving a *.azureedge.net certificate that fails hostname validation,
+# and this project will not disable TLS checks to get past that. Actions runners
+# are in Azure, so the edge they reach MAY serve the correct certificate. This
+# workflow answers that — reading a public endpoint, writing nothing, needing no
+# secrets — and prints the response shape so the adapter can be built if it works.
+#
+# Manual only:  gh workflow run ms-probe.yml
+# Then read the run's log for the REACHABLE / BLOCKED verdict.
+name: ms-probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Probe the Microsoft careers API
+        run: node scripts/ms-probe.mjs

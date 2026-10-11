@@ -23,7 +23,8 @@ export type AtsProvider =
   | 'eightfold'
   | 'icims'
   | 'usajobs'
-  | 'socrata';
+  | 'socrata'
+  | 'amazon';
 
 export interface BoardRef {
   provider: AtsProvider;

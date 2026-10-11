@@ -90,6 +90,11 @@ const PROVIDER_DISCOVERY: Record<AtsProvider, number> = {
   // tech job-seeking crowd, so competition per opening is unusually low.
   usajobs: 0.85,
   socrata: 0.9,
+  // amazon.jobs is the opposite extreme: one of the most-browsed career sites
+  // anywhere and carried by every aggregator, so an opening there is seen by
+  // more people than on any startup board — the most-discovered, below even
+  // Greenhouse.
+  amazon: 0.2,
 };
 
 /**
@@ -130,6 +135,10 @@ const PROVIDER_APPLICATION: Record<AtsProvider, number> = {
   // supporting documents - exactly the friction most applicants abandon.
   usajobs: 0.95,
   socrata: 0.8,
+  // An account and often an online assessment, but a streamlined, familiar flow
+  // with a resume parse — moderate friction, well below Workday's per-tenant
+  // account wall.
+  amazon: 0.45,
 };
 
 /** Metro areas with the deepest local applicant pools. */

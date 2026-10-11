@@ -36,6 +36,9 @@ const PROBE_TOKENS: Partial<Record<AtsProvider, string>> = {
   // Bayer: 601 postings at ten a page, so this is the probe that catches a
   // paginator trusting the page size it asked for.
   eightfold: 'bayer',
+  // Amazon's Washington board: ~5,500 WA roles at a hundred a page, so this is
+  // the probe that catches the result_limit=100 ceiling and the state filter.
+  amazon: 'us-wa',
 };
 
 /** Providers needing more than a bare token to address a board. */
@@ -47,6 +50,7 @@ const PROBE_EXTRA: Partial<Record<AtsProvider, Record<string, string>>> = {
   },
   oracle: { host: 'hccz.fa.em3.oraclecloud.com', site: 'CX' },
   eightfold: { domain: 'bayer.com', site: 'bayer.com' },
+  amazon: { stateName: 'Washington', state: 'WA', country: 'USA' },
 };
 
 /**
@@ -63,6 +67,10 @@ const MIN_EXPECTED: Partial<Record<AtsProvider, number>> = {
   // board held 394 when this was written.
   oracle: 250,
   eightfold: 300,
+  // Well above the 100 page size, so a paginator that stops after the first
+  // page — or trusts a result_limit the vendor ignores — is caught. Washington
+  // alone held ~5,500 roles when this was written.
+  amazon: 300,
 };
 
 function coverage(jobs: NormalizedJob[], field: keyof NormalizedJob): string {

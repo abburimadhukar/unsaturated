@@ -43,6 +43,18 @@ test('genuinely different boards are both kept', () => {
   assert.equal(merged.size, 3, 'same token under different providers is two boards');
 });
 
+test('a registry board can carry a deeper pagination cap in extra.maxJobs', () => {
+  // The registry has no maxJobs column, so a board that needs a deeper read than
+  // the default — Amazon's Washington board — states it in extra. Everything
+  // without the key keeps the default, so the change is additive.
+  const deep = { provider: 'amazon', token: 'us-wa', company: 'Amazon', extra: { maxJobs: '2000' } } as CorpusBoard;
+  const bad = { provider: 'amazon', token: 'us-ca', company: 'Amazon', extra: { maxJobs: 'lots' } } as CorpusBoard;
+  const merged = mergeBoards([], [deep, bad, board('ashby', 'linear')]);
+  assert.equal(merged.get('amazon:us-wa:')?.maxJobs, 2000, 'extra.maxJobs is honoured');
+  assert.equal(merged.get('amazon:us-ca:')?.maxJobs, 300, 'a non-numeric cap falls back to the default');
+  assert.equal(merged.get('ashby:linear:')?.maxJobs, 300, 'boards with no cap are unchanged');
+});
+
 test('a board only the file knows is still crawled', () => {
   // Deleting the file must never be what removes a board from the crawl, and
   // until every entry is adopted the file is still load-bearing.
